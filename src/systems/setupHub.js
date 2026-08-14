@@ -111,6 +111,19 @@ async function openModule(interaction, key) {
   });
 }
 
+async function findOrCreateTextChannel(guild, name, reason) {
+  const existing = guild.channels.cache.find(
+    (ch) => ch.type === ChannelType.GuildText && ch.name === name
+  );
+  if (existing) return { channel: existing, created: false };
+  const channel = await guild.channels.create({
+    name,
+    type: ChannelType.GuildText,
+    reason,
+  });
+  return { channel, created: true };
+}
+
 async function createChannels(interaction, key) {
   const guild = interaction.guild;
   const me = guild.members.me;
@@ -119,45 +132,60 @@ async function createChannels(interaction, key) {
   }
 
   if (key === "leaderboard") {
-    const mgmt = await guild.channels.create({
-      name: "ascendant-boards",
-      type: ChannelType.GuildText,
-      reason: `${brand.name} leaderboard management`,
-    });
-    const pub = await guild.channels.create({
-      name: "top-1-10",
-      type: ChannelType.GuildText,
-      reason: `${brand.name} public leaderboard`,
-    });
+    const { channel: mgmt, created: mgmtNew } = await findOrCreateTextChannel(
+      guild,
+      "ascendant-boards",
+      `${brand.name} leaderboard management`
+    );
+    const { channel: pub, created: pubNew } = await findOrCreateTextChannel(
+      guild,
+      "top-1-10",
+      `${brand.name} public leaderboard`
+    );
     api.leaderboard.updateConfig(guild.id, {
       setupCompleted: true,
       managementChannelId: mgmt.id,
       publicChannelIds: [pub.id],
     });
-    await mgmt.send({
+    if (mgmtNew) {
+      await mgmt.send({
+        embeds: [
+          surface({
+            title: "Leaderboard draft",
+            description: "Type `1 @user` through `10 @user` here to place players. Then run `'serversetup` → Publish.",
+          }),
+        ],
+      });
+    }
+    await publishLeaderboard(guild);
+    const note =
+      !mgmtNew && !pubNew
+        ? "Reused existing channels (no duplicates)."
+        : mgmtNew || pubNew
+          ? "Created missing channels; existing ones were reused."
+          : "";
+    return interaction.update({
       embeds: [
         surface({
-          title: "Leaderboard draft",
-          description: "Type `1 @user` through `10 @user` here to place players. Then run `'serversetup` → Publish.",
+          title: "Leaderboard ready",
+          description: `Management: ${mgmt}\nPublic: ${pub}${note ? `\n\n${note}` : ""}`,
         }),
       ],
-    });
-    await publishLeaderboard(guild);
-    return interaction.update({
-      embeds: [surface({ title: "Leaderboard ready", description: `Management: ${mgmt}\nPublic: ${pub}` })],
       components: [leaderboardThemeRow(guild.id), moduleButtons(key)],
     });
   }
 
   if (key === "lineup") {
-    const mgmt = await guild.channels.create({
-      name: "ascendant-lineups",
-      type: ChannelType.GuildText,
-    });
-    const na = await guild.channels.create({
-      name: "lineup-na",
-      type: ChannelType.GuildText,
-    });
+    const { channel: mgmt, created: mgmtNew } = await findOrCreateTextChannel(
+      guild,
+      "ascendant-lineups",
+      `${brand.name} lineup management`
+    );
+    const { channel: na, created: naNew } = await findOrCreateTextChannel(
+      guild,
+      "lineup-na",
+      `${brand.name} NA lineup`
+    );
     const cfg = api.lineup.getConfig(guild.id);
     cfg.regions.na.channelId = na.id;
     api.lineup.updateConfig(guild.id, {
@@ -165,17 +193,28 @@ async function createChannels(interaction, key) {
       managementChannelId: mgmt.id,
       regions: cfg.regions,
     });
-    await mgmt.send({
+    if (mgmtNew) {
+      await mgmt.send({
+        embeds: [
+          surface({
+            title: "Lineup management",
+            description: "`'lineup add na 1 @user` · `'lineup remove na 1` · `'lineup publish na`",
+          }),
+        ],
+      });
+    }
+    await publishLineup(guild, "na");
+    const note =
+      !mgmtNew && !naNew
+        ? "Reused existing channels (no duplicates)."
+        : "Created missing channels; existing ones were reused.";
+    return interaction.update({
       embeds: [
         surface({
-          title: "Lineup management",
-          description: "`'lineup add na 1 @user` · `'lineup remove na 1` · `'lineup publish na`",
+          title: "Lineup ready",
+          description: `Management: ${mgmt}\nNA board: ${na}\n\n${note}`,
         }),
       ],
-    });
-    await publishLineup(guild, "na");
-    return interaction.update({
-      embeds: [surface({ title: "Lineup ready", description: `Management: ${mgmt}\nNA board: ${na}` })],
       components: [moduleButtons(key)],
     });
   }

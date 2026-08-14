@@ -121,6 +121,7 @@ async function handle(req, res) {
       if (!c) return;
       const guild = await c.guilds.fetch(memberMatch[1]);
       const q = String(url.searchParams.get("q") || "").trim();
+      const { userAvatarFromDiscord } = require("./api/lib/discordUser");
       if (q) {
         const found = await guild.members.search({ query: q, limit: 20 }).catch(() => null);
         if (found) {
@@ -131,7 +132,7 @@ async function handle(req, res) {
               id: m.id,
               username: m.user.username,
               displayName: m.displayName,
-              avatar: m.displayAvatarURL({ size: 64 }),
+              avatar: userAvatarFromDiscord(m.user, 128),
             }))
           );
         }
@@ -147,7 +148,7 @@ async function handle(req, res) {
             id: m.id,
             username: m.user.username,
             displayName: m.displayName,
-            avatar: m.displayAvatarURL({ size: 64 }),
+            avatar: userAvatarFromDiscord(m.user, 128),
           }))
       );
     }
@@ -157,12 +158,8 @@ async function handle(req, res) {
       const c = requireDiscord(res);
       if (!c) return;
       const user = await c.users.fetch(userMatch[1]);
-      return json(res, 200, {
-        id: user.id,
-        username: user.username,
-        displayName: user.globalName || user.username,
-        avatar: user.displayAvatarURL({ size: 128 }),
-      });
+      const { publicUser } = require("./api/lib/discordUser");
+      return json(res, 200, publicUser(user, 256));
     }
 
     const msgChannelMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/channels\/([^/]+)\/messages$/);

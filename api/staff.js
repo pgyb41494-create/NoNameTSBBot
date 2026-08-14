@@ -120,6 +120,7 @@ function mountStaff(app) {
         reporterId: report.reporterId,
         reporterName: report.reporterName,
         addedBy: req.staff.id,
+        moderatorUsername: mod.username,
         moderatorName: mod.displayName || mod.username,
         moderatorAvatar: mod.avatar,
         at: new Date().toISOString(),

@@ -7,7 +7,7 @@ module.exports = {
     new SlashCommandBuilder()
       .setName("avatar")
       .setDescription("Show a Discord avatar")
-      .addUserOption((o) => o.setName("user").setRequired(false)),
+      .addUserOption((o) => o.setName("user").setDescription("User").setRequired(false)),
 
   async executePrefix(message) {
     const user = message.mentions.users.first() || message.author;

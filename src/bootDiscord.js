@@ -67,32 +67,36 @@ module.exports = function bootDiscord(setClient) {
     } catch (err) {
       console.warn("guildCreate update failed:", err.message);
     }
-    if (process.env.CLIENT_ID) {
-      try {
-        await deployGuildCommands(guild.id);
-        console.log(`Slash commands registered for ${guild.name}`);
-      } catch (err) {
-        console.error(`Slash sync failed for ${guild.name}:`, err.message);
-      }
+    try {
+      const n = await deployGuildCommands(guild.id, client);
+      console.log(`Slash commands synced for ${guild.name} (${n} commands)`);
+    } catch (err) {
+      console.error(`Slash sync failed for ${guild.name}:`, err.message);
     }
   });
 
-  client.once("ready", async () => {
+  let readyHandled = false;
+  const onReady = async () => {
+    if (readyHandled) return;
+    readyHandled = true;
     setClient(client);
     try {
       api.botBridge.setClient(client);
     } catch {}
     console.log(`${brand.name} online as ${client.user.tag}`);
     client.user.setActivity(`${brand.prefix}help · /profile`, { type: 3 });
-    if (process.env.CLIENT_ID) {
-      try {
-        await deployCommands();
-        console.log("Slash commands deployed.");
-      } catch (err) {
-        console.warn("Slash deploy skipped:", err.message);
-      }
+    try {
+      await client.application.fetch();
+      const n = await deployCommands(client);
+      console.log(`Slash commands registered (${n}).`);
+    } catch (err) {
+      console.warn("Slash deploy skipped:", err.message);
     }
-  });
+  };
+
+  // v14 emits "ready"; v15 prefers "clientReady"
+  client.once("clientReady", onReady);
+  client.once("ready", onReady);
 
   client.login(token).catch((err) => {
     console.error("Discord login failed:", err.message);

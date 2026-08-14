@@ -20,8 +20,8 @@ module.exports = {
       .addSubcommand((sc) =>
         sc.setName("remove")
           .setDescription("Clear a slot")
-          .addStringOption((o) => o.setName("region").setRequired(true))
-          .addIntegerOption((o) => o.setName("position").setRequired(true).setMinValue(1).setMaxValue(10))
+          .addStringOption((o) => o.setName("region").setDescription("na / eu / asia / west / east").setRequired(true))
+          .addIntegerOption((o) => o.setName("position").setDescription("1-10").setRequired(true).setMinValue(1).setMaxValue(10))
       )
       .addSubcommand((sc) =>
         sc.setName("publish")

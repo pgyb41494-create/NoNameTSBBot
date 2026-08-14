@@ -18,12 +18,23 @@ function helpEmbed() {
   return surface({
     title: `${brand.name} commands`,
     description:
-      `Prefix is \`${p}\`. Slash works too.\n\n` +
-      `**Setup**\n\`${p}serversetup\` · \`/serversetup\`\n\n` +
-      `**Profile & coach**\n\`/profile\` · \`/tsbcoach\`\n\n` +
-      `**Boards**\n\`${p}tsbtop 1 @user\` · \`${p}lineup add na 1 @user\` · \`${p}stage @user 0 Low Weak\` · \`/score\`\n\n` +
-      `**Website**\nBlacklist reports + trainers are managed on the dashboard.\n\n` +
-      `**Moderation**\n\`/kick\` \`/ban\` \`/unban\` \`/timeout\` \`/purge\`\n\n` +
-      `**Info**\n\`/serverinfo\` \`/userinfo\` \`/avatar\``,
+      `Prefix is \`${p}\` (example \`${p}help\`). Slash works too.\n\n` +
+      `**Setup**\n` +
+      `\`${p}serversetup\` / \`/serversetup\` — leaderboard, lineup, ranking, score\n\n` +
+      `**Profile & coach**\n` +
+      \`/profile\` · \`${p}profile\`\n` +
+      \`/tsbcoach\` · \`${p}tsbcoach\` (aliases: coach, vod)\n\n` +
+      `**Boards**\n` +
+      `\`${p}tsbtop\` / \`/tsbtop\` (alias: top)\n` +
+      `\`${p}lineup\` / \`/lineup\`\n` +
+      `\`${p}stage\` / \`/stage\` (aliases: tier, rank)\n` +
+      `\`${p}score\` / \`/score\`\n` +
+      `\`${p}challenge\` / \`/challenge\`\n` +
+      `\`${p}war\` / \`/war\` (alias: wars)\n\n` +
+      `**Moderation**\n` +
+      \`/kick\` \`/ban\` \`/unban\` \`/timeout\` \`/purge\`\n` +
+      `\`${p}blacklist\` / \`/blacklist\`\n\n` +
+      `**Info**\n` +
+      \`/help\` \`/serverinfo\` \`/userinfo\` \`/avatar\``,
   });
 }

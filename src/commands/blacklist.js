@@ -12,10 +12,15 @@ module.exports = {
       .addSubcommand((sc) =>
         sc.setName("add")
           .setDescription("Add a user")
-          .addUserOption((o) => o.setName("user").setRequired(true))
-          .addStringOption((o) => o.setName("reason").setRequired(true))
+          .addUserOption((o) => o.setName("user").setDescription("User to blacklist").setRequired(true))
+          .addStringOption((o) => o.setName("reason").setDescription("Sanction reason").setRequired(true))
       )
-      .addSubcommand((sc) => sc.setName("remove").setDescription("Remove a user").addUserOption((o) => o.setName("user").setRequired(true)))
+      .addSubcommand((sc) =>
+        sc
+          .setName("remove")
+          .setDescription("Remove a user")
+          .addUserOption((o) => o.setName("user").setDescription("User to remove").setRequired(true))
+      )
       .addSubcommand((sc) => sc.setName("list").setDescription("Show blacklist"))
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 

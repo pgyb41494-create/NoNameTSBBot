@@ -3,7 +3,7 @@ const api = require("../utils/loadApi");
 const { formatCardDescription, cardTitle, sanitizeThumbnail, CARD_COLOR, VACANT_COLOR } = api.cards;
 const { brand } = api;
 const { generateLeaderboardBanner } = require("./bannerGenerate");
-const { resolveTheme, metallicEmbed, metallicComponentsV2 } = require("./leaderboardThemes");
+const { resolveTheme, metallicComponentsV2 } = require("./leaderboardThemes");
 
 function cardEmbed(card, { mode = "leaderboard" } = {}) {
   const embed = new EmbedBuilder()
@@ -35,6 +35,23 @@ function emptyPlaceholder(position) {
     countryFlag: null,
     host: null,
   };
+}
+
+async function replaceMessage(channel, existingId, payload) {
+  if (existingId) {
+    const msg = await channel.messages.fetch(existingId).catch(() => null);
+    if (msg) {
+      try {
+        await msg.edit(payload);
+        return msg.id;
+      } catch {
+        // Classic embeds ↔ Components V2 can't always edit in place
+        await msg.delete().catch(() => {});
+      }
+    }
+  }
+  const sent = await channel.send(payload);
+  return sent.id;
 }
 
 async function publishLeaderboard(guild) {
@@ -76,62 +93,23 @@ async function publishLeaderboard(guild) {
 
     let payload;
 
-    if (theme.id === "metallic" && cfg.componentsV2 === true) {
-      try {
-        const v2 = metallicComponentsV2(guild.name, start, end, slice, { sanitizeThumbnail });
-        const files = bannerBuffer
-          ? [new AttachmentBuilder(bannerBuffer, { name: "leaderboard-banner.png" })]
-          : [];
-        payload = { ...v2, files };
-      } catch {
-        payload = null;
-      }
-    }
-
-    if (!payload && theme.id === "metallic") {
-      const files = [];
-      const embeds = [];
-      if (bannerBuffer) {
-        files.push(new AttachmentBuilder(bannerBuffer, { name: "leaderboard-banner.png" }));
-        embeds.push(
-          new EmbedBuilder()
-            .setColor(0x000000)
-            .setImage("attachment://leaderboard-banner.png")
-            .setTitle(`${guild.name} Top ${start}-${end}`)
-        );
-      }
-      for (const card of slice) {
-        embeds.push(metallicEmbed(card, { sanitizeThumbnail }));
-      }
-      payload = {
-        content: bannerBuffer ? null : `**${guild.name} Top ${start}-${end}**`,
-        embeds: embeds.slice(0, 10),
-        files,
-      };
-    }
-
-    if (!payload) {
+    if (theme.id === "metallic") {
+      const files = bannerBuffer
+        ? [new AttachmentBuilder(bannerBuffer, { name: "leaderboard-banner.png" })]
+        : [];
+      const v2 = metallicComponentsV2(guild.name, start, end, slice, {
+        sanitizeThumbnail,
+        hasBanner: Boolean(bannerBuffer),
+      });
+      payload = { ...v2, files };
+    } else {
       payload = {
         content: `# Top ${start}-${end}`,
         embeds: slice.map((card) => cardEmbed(card, { mode: "leaderboard" })),
       };
     }
 
-    const existingId = messageIds[`page-${page}`];
-    if (existingId) {
-      const msg = await channel.messages.fetch(existingId).catch(() => null);
-      if (msg) {
-        // Editing may fail when switching classic ↔ components v2; replace message.
-        try {
-          await msg.edit(payload);
-          continue;
-        } catch {
-          await msg.delete().catch(() => {});
-        }
-      }
-    }
-    const sent = await channel.send(payload);
-    messageIds[`page-${page}`] = sent.id;
+    messageIds[`page-${page}`] = await replaceMessage(channel, messageIds[`page-${page}`], payload);
   }
 
   api.leaderboard.updateConfig(guild.id, {

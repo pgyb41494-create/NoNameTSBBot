@@ -1,6 +1,6 @@
 const {
-  EmbedBuilder,
   ContainerBuilder,
+  MediaGalleryBuilder,
   MessageFlags,
   SeparatorSpacingSize,
 } = require("discord.js");
@@ -15,7 +15,7 @@ const THEMES = {
   metallic: {
     id: "metallic",
     label: "Metallic v2",
-    description: "Server banner + Information separators",
+    description: "One Components V2 message + Type 14 separators",
     pageSize: 10,
   },
 };
@@ -43,8 +43,8 @@ function hostLabel(card) {
 
 function countryLabel(card) {
   if (card.empty) return "-";
-  if (card.countryFlag && card.country) return `${card.countryFlag}`;
-  return card.countryFlag || card.country || "-";
+  if (card.countryFlag) return card.countryFlag;
+  return card.country || "-";
 }
 
 function robloxLinkLabel(card) {
@@ -54,63 +54,53 @@ function robloxLinkLabel(card) {
   return label;
 }
 
-/** The decorative Information lines from the reference board. */
-function informationBlock(card) {
+function entryBody(card) {
+  const mention = card.discordTag || "`empty`";
+  if (card.empty) {
+    return [
+      `**#${card.position}. Vacant**`,
+      `╭ Rank: -`,
+      `┝ Host: -`,
+      `┝ State: Empty`,
+      `╰ Country: -`,
+    ].join("\n");
+  }
   return [
-    "«—» · Information · «—»",
-    `╭ Rank: ${card.empty ? "-" : card.stage || "Unranked"}`,
+    `**#${card.position}. ${robloxLinkLabel(card)}** ${mention}`,
+    `╭ Rank: ${card.stage || "Unranked"}`,
     `┝ Host: ${hostLabel(card)}`,
     `┝ State: ${stateLabel(card)}`,
     `╰ Country: ${countryLabel(card)}`,
   ].join("\n");
 }
 
-function metallicEmbed(card, { sanitizeThumbnail }) {
-  const mention = card.discordTag || "@unknown-user";
-  const head = card.empty
-    ? `#${card.position}. Vacant`
-    : `#${card.position}. ${robloxLinkLabel(card)} ${mention}`;
-
-  const embed = new EmbedBuilder()
-    .setColor(0x2b2d31)
-    .setDescription(`${head}\n${informationBlock(card)}`);
-
-  const thumb = sanitizeThumbnail ? sanitizeThumbnail(card.avatarUrl) : card.avatarUrl;
-  if (!card.empty && thumb) embed.setThumbnail(thumb);
-  return embed;
-}
-
-function classicEmbed(card, helpers) {
-  const { formatCardDescription, cardTitle, sanitizeThumbnail, CARD_COLOR, VACANT_COLOR, brand } = helpers;
-  const embed = new EmbedBuilder()
-    .setColor(card.empty ? VACANT_COLOR : CARD_COLOR)
-    .setTitle(cardTitle(card))
-    .setDescription(formatCardDescription(card, { mode: "leaderboard" }))
-    .setImage(card.gifUrl || brand.defaultGif);
-  const thumb = sanitizeThumbnail(card.avatarUrl);
-  if (!card.empty && thumb) embed.setThumbnail(thumb);
-  return embed;
-}
-
 /**
- * Components V2 layout using Separator (type 14) between entries.
+ * Single Components V2 message:
+ * banner → Type-14 Separator → title → Separator → each player → Separator
+ * (those horizontal lines in Discord = Separator type 14)
  */
-function metallicComponentsV2(guildName, start, end, cards, { sanitizeThumbnail }) {
-  const container = new ContainerBuilder();
+function metallicComponentsV2(guildName, start, end, cards, { sanitizeThumbnail, hasBanner }) {
+  const container = new ContainerBuilder().setAccentColor(0x2b2d31);
+
+  if (hasBanner) {
+    container.addMediaGalleryComponents(
+      new MediaGalleryBuilder().addItems((item) => item.setURL("attachment://leaderboard-banner.png"))
+    );
+    container.addSeparatorComponents((sep) =>
+      sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large)
+    );
+  }
 
   container.addTextDisplayComponents((td) =>
-    td.setContent(`**${guildName} Top ${start}-${end}**`)
+    td.setContent(`# ${guildName} Top ${start}-${end}`)
   );
+
   container.addSeparatorComponents((sep) =>
     sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large)
   );
 
   cards.forEach((card, index) => {
-    const mention = card.discordTag || "`empty`";
-    const head = card.empty
-      ? `**#${card.position}. Vacant**`
-      : `**#${card.position}. ${robloxLinkLabel(card)}** ${mention}`;
-    const body = `${head}\n${informationBlock(card)}`;
+    const body = entryBody(card);
     const thumb = sanitizeThumbnail ? sanitizeThumbnail(card.avatarUrl) : card.avatarUrl;
 
     if (!card.empty && thumb) {
@@ -140,8 +130,6 @@ module.exports = {
   THEMES,
   listThemes,
   resolveTheme,
-  informationBlock,
-  metallicEmbed,
-  classicEmbed,
   metallicComponentsV2,
+  entryBody,
 };

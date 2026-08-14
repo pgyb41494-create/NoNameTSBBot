@@ -88,8 +88,8 @@ async function openModule(interaction, key) {
     leaderboard:
       "Creates `#ascendant-boards` (draft: `1 @user`) and `#top-1-10`.\n" +
       "Pick a **theme**, place players, then **Publish / refresh**.\n\n" +
-      "**Classic cards** — GIF footer embeds\n" +
-      "**Metallic v2** — generated `{Server} LEADERBOARD` banner + Information separators",
+      "**Classic cards** — separate GIF card embeds\n" +
+      "**Metallic v2** — one message, generated banner, Discord separator lines",
     ranking:
       "Enables `'stage @user 0 Low Weak` (or `/stage`). Stages print on leaderboard and lineup cards.",
     score:
@@ -271,8 +271,8 @@ async function handleSetupInteraction(interaction) {
             `Theme set to **${theme.label}**.\n\n` +
             "Creates `#ascendant-boards` (draft: `1 @user`) and `#top-1-10`.\n" +
             "Pick a **theme**, place players, then **Publish / refresh**.\n\n" +
-            "**Classic cards** — GIF footer embeds\n" +
-            "**Metallic v2** — generated `{Server} LEADERBOARD` banner + Information separators",
+            "**Classic cards** — separate GIF card embeds\n" +
+            "**Metallic v2** — one message, generated banner, Discord separator lines",
         }),
       ],
       components: [leaderboardThemeRow(interaction.guildId), moduleButtons("leaderboard")],

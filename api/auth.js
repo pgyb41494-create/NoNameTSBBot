@@ -12,7 +12,11 @@ function secret() {
 }
 
 function websiteUrl() {
-  return (process.env.WEBSITE_URL || "http://localhost:5173").replace(/\/$/, "");
+  return (
+    process.env.WEBSITE_URL ||
+    process.env.FRONTEND_URL ||
+    "https://no-name-tsb-website.vercel.app"
+  ).replace(/\/$/, "");
 }
 
 function apiPublicUrl() {
@@ -171,6 +175,7 @@ function mountAuth(app) {
         exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
       });
       res.setHeader("Set-Cookie", cookieHeader(token));
+      // Always land on the site homepage after Discord login
       return res.redirect(`${site}/?login=ok`);
     } catch (err) {
       console.error("Discord login failed:", err.message);

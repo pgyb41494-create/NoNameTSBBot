@@ -297,32 +297,26 @@ async function handleManagementDraft(message) {
   const kind = resolveManagementKind(message.channel, message.guild.id);
   if (!kind) return false;
 
-  // Always schedule a sweep so junk / old embeds get cleared
-  const sweepPromise = sweepIfManagementChannel(message, message.guild.id, { delayMs: 800 });
-
   if (!isAdminOrOwner(message.member, message.guild)) {
-    await sweepPromise;
-    return true;
+    // Still mark as management activity so caller can sweep junk
+    return { managed: true, handled: false };
   }
 
   const content = message.content.trim();
-  const lb = api.leaderboard.getConfig(message.guild.id);
   const lu = api.lineup.getConfig(message.guild.id);
 
   if (kind === "leaderboard") {
     if (/^send$/i.test(content)) {
       await publishLeaderboard(message.guild);
       await message.react("✅").catch(() => {});
-      await sweepPromise;
-      return true;
+      return { managed: true, handled: true };
     }
 
     const parsed = parseLeaderboardDraft(content);
     if (parsed) {
       applyLeaderboardDraft(message.guild.id, parsed);
       await message.react("✅").catch(() => {});
-      await sweepPromise;
-      return true;
+      return { managed: true, handled: true };
     }
 
     const one = content.match(/^(\d{1,2})\s+<@!?(\d+)>$/);
@@ -330,12 +324,10 @@ async function handleManagementDraft(message) {
       api.leaderboard.place(message.guild.id, Number(one[1]), one[2]);
       await publishLeaderboard(message.guild).catch(() => {});
       await message.react("✅").catch(() => {});
-      await sweepPromise;
-      return true;
+      return { managed: true, handled: true };
     }
 
-    await sweepPromise;
-    return true;
+    return { managed: true, handled: false };
   }
 
   if (/^send(\s+\S+)?$/i.test(content)) {
@@ -343,20 +335,17 @@ async function handleManagementDraft(message) {
     if (arg === "all") await publishLineup(message.guild);
     else await publishLineup(message.guild, arg);
     await message.react("✅").catch(() => {});
-    await sweepPromise;
-    return true;
+    return { managed: true, handled: true };
   }
 
   const parsed = parseLineupDraft(content, lu);
   if (parsed) {
     applyLineupDraft(message.guild.id, parsed);
     await message.react("✅").catch(() => {});
-    await sweepPromise;
-    return true;
+    return { managed: true, handled: true };
   }
 
-  await sweepPromise;
-  return true;
+  return { managed: true, handled: false };
 }
 
 module.exports = {

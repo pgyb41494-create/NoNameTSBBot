@@ -303,7 +303,10 @@ async function handleSetupInteraction(interaction) {
 }
 
 async function handleDraftMessage(message) {
-  return handleManagementDraft(message);
+  const result = await handleManagementDraft(message);
+  if (!result) return false;
+  await sweepIfManagementChannel(message, message.guild.id, { delayMs: 900 });
+  return Boolean(result.handled);
 }
 
 module.exports = { HUB_ID, hubPayload, handleSetupInteraction, handleDraftMessage };

@@ -1,7 +1,9 @@
-const { EmbedBuilder } = require("discord.js");
+const { EmbedBuilder, AttachmentBuilder } = require("discord.js");
 const api = require("../utils/loadApi");
 const { formatCardDescription, cardTitle, sanitizeThumbnail, CARD_COLOR, VACANT_COLOR } = api.cards;
 const { brand } = api;
+const { generateLeaderboardBanner } = require("./bannerGenerate");
+const { resolveTheme, metallicEmbed, metallicComponentsV2 } = require("./leaderboardThemes");
 
 function cardEmbed(card, { mode = "leaderboard" } = {}) {
   const embed = new EmbedBuilder()
@@ -21,6 +23,7 @@ function emptyPlaceholder(position) {
     name: "Vacant",
     robloxTag: ".Vacant.",
     region: "-",
+    regionFull: "-",
     stage: "-",
     status: "Empty",
     wins: 0,
@@ -28,11 +31,15 @@ function emptyPlaceholder(position) {
     gifUrl: brand.defaultGif,
     empty: true,
     color: VACANT_COLOR,
+    country: null,
+    countryFlag: null,
+    host: null,
   };
 }
 
 async function publishLeaderboard(guild) {
   const cfg = api.leaderboard.getConfig(guild.id);
+  const theme = resolveTheme(cfg.theme || "classic");
   const snap = api.snapshot.publicSnapshot(guild.id);
   const cards = snap.leaderboard.cards || [];
   const channelIds = cfg.publicChannelIds?.length
@@ -41,13 +48,19 @@ async function publishLeaderboard(guild) {
       ? [cfg.publicChannelId]
       : [];
 
+  const pageSize = theme.pageSize || 10;
   const pages = [];
-  for (let i = 0; i < cards.length; i += 10) {
-    pages.push(cards.slice(i, i + 10));
+  for (let i = 0; i < cards.length; i += pageSize) {
+    pages.push(cards.slice(i, i + pageSize));
   }
   if (!pages.length) pages.push([]);
 
   const messageIds = { ...(cfg.messageIds || {}) };
+
+  let bannerBuffer = null;
+  if (theme.id === "metallic") {
+    bannerBuffer = await generateLeaderboardBanner(guild.name).catch(() => null);
+  }
 
   for (let page = 0; page < pages.length; page += 1) {
     const channelId = channelIds[page] || channelIds[0];
@@ -57,25 +70,75 @@ async function publishLeaderboard(guild) {
 
     const slice = pages[page].length
       ? pages[page]
-      : Array.from({ length: 10 }, (_, i) => emptyPlaceholder(i + 1));
-    const embeds = slice.map((card) => cardEmbed(card, { mode: "leaderboard" }));
-    const start = slice[0]?.position || page * 10 + 1;
+      : Array.from({ length: pageSize }, (_, i) => emptyPlaceholder(page * pageSize + i + 1));
+    const start = slice[0]?.position || page * pageSize + 1;
     const end = slice.at(-1)?.position || start + slice.length - 1;
-    const heading = `# Top ${start}-${end}`;
+
+    let payload;
+
+    if (theme.id === "metallic" && cfg.componentsV2 === true) {
+      try {
+        const v2 = metallicComponentsV2(guild.name, start, end, slice, { sanitizeThumbnail });
+        const files = bannerBuffer
+          ? [new AttachmentBuilder(bannerBuffer, { name: "leaderboard-banner.png" })]
+          : [];
+        payload = { ...v2, files };
+      } catch {
+        payload = null;
+      }
+    }
+
+    if (!payload && theme.id === "metallic") {
+      const files = [];
+      const embeds = [];
+      if (bannerBuffer) {
+        files.push(new AttachmentBuilder(bannerBuffer, { name: "leaderboard-banner.png" }));
+        embeds.push(
+          new EmbedBuilder()
+            .setColor(0x000000)
+            .setImage("attachment://leaderboard-banner.png")
+            .setTitle(`${guild.name} Top ${start}-${end}`)
+        );
+      }
+      for (const card of slice) {
+        embeds.push(metallicEmbed(card, { sanitizeThumbnail }));
+      }
+      payload = {
+        content: bannerBuffer ? null : `**${guild.name} Top ${start}-${end}**`,
+        embeds: embeds.slice(0, 10),
+        files,
+      };
+    }
+
+    if (!payload) {
+      payload = {
+        content: `# Top ${start}-${end}`,
+        embeds: slice.map((card) => cardEmbed(card, { mode: "leaderboard" })),
+      };
+    }
 
     const existingId = messageIds[`page-${page}`];
     if (existingId) {
       const msg = await channel.messages.fetch(existingId).catch(() => null);
       if (msg) {
-        await msg.edit({ content: heading, embeds });
-        continue;
+        // Editing may fail when switching classic ↔ components v2; replace message.
+        try {
+          await msg.edit(payload);
+          continue;
+        } catch {
+          await msg.delete().catch(() => {});
+        }
       }
     }
-    const sent = await channel.send({ content: heading, embeds });
+    const sent = await channel.send(payload);
     messageIds[`page-${page}`] = sent.id;
   }
 
-  api.leaderboard.updateConfig(guild.id, { messageIds, setupCompleted: true });
+  api.leaderboard.updateConfig(guild.id, {
+    messageIds,
+    setupCompleted: true,
+    theme: theme.id,
+  });
 }
 
 async function publishLineup(guild, regionKey = null) {

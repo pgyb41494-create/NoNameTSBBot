@@ -10,12 +10,21 @@ const api = require("../utils/loadApi");
 const { surface, danger, brand } = require("../utils/embeds");
 const { isAdminOrOwner } = require("../utils/permissions");
 const { publishLeaderboard, publishLineup } = require("./boardPublish");
+const { listThemes, resolveTheme } = require("./leaderboardThemes");
 
 const HUB_ID = "asc:hub";
+const THEME_ID = "asc:lb:theme";
 
 function moduleStatus(guildId) {
+  const theme = resolveTheme(api.leaderboard.getConfig(guildId).theme);
   return [
-    { label: "Top Leaderboard", value: "leaderboard", description: api.leaderboard.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
+    {
+      label: "Top Leaderboard",
+      value: "leaderboard",
+      description: api.leaderboard.getConfig(guildId).setupCompleted
+        ? `OK · theme: ${theme.label}`
+        : "Not configured",
+    },
     { label: "Ranking / Stages", value: "ranking", description: api.ranking.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
     { label: "1v1 Score", value: "score", description: api.score.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
     { label: "Line Up", value: "lineup", description: api.lineup.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
@@ -31,7 +40,7 @@ function hubPayload(guildId) {
         title: `${brand.name} server setup`,
         description:
           "Pick a module. This is the clan setup hub (`'serversetup` / `/serversetup`).\n\n" +
-          "> **Leaderboard** — `#top-*` cards with GIF + avatar\n" +
+          "> **Leaderboard** — themes: Classic cards or Metallic v2 (server banner)\n" +
           "> **Ranking** — `'stage @user 0 Low Weak`\n" +
           "> **Score** — `/score` records W/L on cards\n" +
           "> **Line Up** — regional boards\n" +
@@ -57,10 +66,30 @@ function moduleButtons(moduleKey) {
   );
 }
 
+function leaderboardThemeRow(guildId) {
+  const current = resolveTheme(api.leaderboard.getConfig(guildId).theme);
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(THEME_ID)
+      .setPlaceholder(`Theme: ${current.label}`)
+      .addOptions(
+        listThemes().map((t) => ({
+          label: t.label,
+          value: t.id,
+          description: t.description,
+          default: t.id === current.id,
+        }))
+      )
+  );
+}
+
 async function openModule(interaction, key) {
   const guides = {
     leaderboard:
-      "Creates `#ascendant-boards` (draft: `1 @user`) and `#top-1-10`.\nAfter placing players, press **Publish / refresh**.",
+      "Creates `#ascendant-boards` (draft: `1 @user`) and `#top-1-10`.\n" +
+      "Pick a **theme**, place players, then **Publish / refresh**.\n\n" +
+      "**Classic cards** — GIF footer embeds\n" +
+      "**Metallic v2** — generated `{Server} LEADERBOARD` banner + Information separators",
     ranking:
       "Enables `'stage @user 0 Low Weak` (or `/stage`). Stages print on leaderboard and lineup cards.",
     score:
@@ -73,9 +102,12 @@ async function openModule(interaction, key) {
       "Trainers are configured on the website dashboard (staff login only).",
   };
 
+  const components = [moduleButtons(key)];
+  if (key === "leaderboard") components.unshift(leaderboardThemeRow(interaction.guildId));
+
   return interaction.update({
     embeds: [surface({ title: key[0].toUpperCase() + key.slice(1), description: guides[key] || "Module." })],
-    components: [moduleButtons(key)],
+    components,
   });
 }
 
@@ -113,7 +145,7 @@ async function createChannels(interaction, key) {
     await publishLeaderboard(guild);
     return interaction.update({
       embeds: [surface({ title: "Leaderboard ready", description: `Management: ${mgmt}\nPublic: ${pub}` })],
-      components: [moduleButtons(key)],
+      components: [leaderboardThemeRow(guild.id), moduleButtons(key)],
     });
   }
 
@@ -185,6 +217,28 @@ async function handleSetupInteraction(interaction) {
     }
     return openModule(interaction, interaction.values[0]);
   }
+  if (id === THEME_ID) {
+    if (!isAdminOrOwner(interaction.member, interaction.guild)) {
+      return interaction.reply({ content: "Administrator only.", ephemeral: true });
+    }
+    const theme = resolveTheme(interaction.values[0]);
+    api.leaderboard.updateConfig(interaction.guildId, { theme: theme.id });
+    await publishLeaderboard(interaction.guild).catch(() => {});
+    return interaction.update({
+      embeds: [
+        surface({
+          title: "Leaderboard",
+          description:
+            `Theme set to **${theme.label}**.\n\n` +
+            "Creates `#ascendant-boards` (draft: `1 @user`) and `#top-1-10`.\n" +
+            "Pick a **theme**, place players, then **Publish / refresh**.\n\n" +
+            "**Classic cards** — GIF footer embeds\n" +
+            "**Metallic v2** — generated `{Server} LEADERBOARD` banner + Information separators",
+        }),
+      ],
+      components: [leaderboardThemeRow(interaction.guildId), moduleButtons("leaderboard")],
+    });
+  }
   if (id === "asc:setup:back") {
     return interaction.update(hubPayload(interaction.guildId));
   }
@@ -194,9 +248,13 @@ async function handleSetupInteraction(interaction) {
   if (publish) {
     if (publish[1] === "leaderboard") await publishLeaderboard(interaction.guild);
     if (publish[1] === "lineup") await publishLineup(interaction.guild);
+    const components =
+      publish[1] === "leaderboard"
+        ? [leaderboardThemeRow(interaction.guildId), moduleButtons("leaderboard")]
+        : [moduleButtons(publish[1])];
     return interaction.update({
       embeds: [surface({ title: "Published", description: "Boards refreshed." })],
-      components: [moduleButtons(publish[1])],
+      components,
     });
   }
   return false;

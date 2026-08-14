@@ -17,24 +17,30 @@ function helpEmbed() {
   const p = brand.prefix;
   return surface({
     title: `${brand.name} commands`,
-    description:
-      `Prefix is \`${p}\` (example \`${p}help\`). Slash works too.\n\n` +
-      `**Setup**\n` +
-      `\`${p}serversetup\` / \`/serversetup\` — leaderboard, lineup, ranking, score\n\n` +
-      `**Profile & coach**\n` +
-      \`/profile\` · \`${p}profile\`\n` +
-      \`/tsbcoach\` · \`${p}tsbcoach\` (aliases: coach, vod)\n\n` +
-      `**Boards**\n` +
-      `\`${p}tsbtop\` / \`/tsbtop\` (alias: top)\n` +
-      `\`${p}lineup\` / \`/lineup\`\n` +
-      `\`${p}stage\` / \`/stage\` (aliases: tier, rank)\n` +
-      `\`${p}score\` / \`/score\`\n` +
-      `\`${p}challenge\` / \`/challenge\`\n` +
-      `\`${p}war\` / \`/war\` (alias: wars)\n\n` +
-      `**Moderation**\n` +
-      \`/kick\` \`/ban\` \`/unban\` \`/timeout\` \`/purge\`\n` +
-      `\`${p}blacklist\` / \`/blacklist\`\n\n` +
-      `**Info**\n` +
-      \`/help\` \`/serverinfo\` \`/userinfo\` \`/avatar\``,
+    description: [
+      `Prefix is \`${p}\` (example \`${p}help\`). Slash works too.`,
+      "",
+      "**Setup**",
+      `\`${p}serversetup\` / \`/serversetup\` — leaderboard, lineup, ranking, score`,
+      "",
+      "**Profile & coach**",
+      `\`/profile\` · \`${p}profile\``,
+      `\`/tsbcoach\` · \`${p}tsbcoach\` (aliases: coach, vod)`,
+      "",
+      "**Boards**",
+      `\`${p}tsbtop\` / \`/tsbtop\` (alias: top)`,
+      `\`${p}lineup\` / \`/lineup\``,
+      `\`${p}stage\` / \`/stage\` (aliases: tier, rank)`,
+      `\`${p}score\` / \`/score\``,
+      `\`${p}challenge\` / \`/challenge\``,
+      `\`${p}war\` / \`/war\` (alias: wars)`,
+      "",
+      "**Moderation**",
+      "`/kick` `/ban` `/unban` `/timeout` `/purge`",
+      `\`${p}blacklist\` / \`/blacklist\``,
+      "",
+      "**Info**",
+      "`/help` `/serverinfo` `/userinfo` `/avatar`",
+    ].join("\n"),
   });
 }

@@ -1,0 +1,6 @@
+# https://nixpacks.com/docs/configuration/file
+[start]
+cmd = "node index.js"
+
+[variables]
+NODE_ENV = "production"

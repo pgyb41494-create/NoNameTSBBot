@@ -1,19 +1,34 @@
 const { EmbedBuilder } = require("discord.js");
 const api = require("../utils/loadApi");
-const { formatCardDescription } = api.cards;
+const { formatCardDescription, cardTitle, sanitizeThumbnail, CARD_COLOR, VACANT_COLOR } = api.cards;
 const { brand } = api;
 
-function cardEmbed(card) {
+function cardEmbed(card, { mode = "leaderboard" } = {}) {
   const embed = new EmbedBuilder()
-    .setColor(brand.color)
-    .setDescription(formatCardDescription(card))
+    .setColor(card.empty ? VACANT_COLOR : CARD_COLOR)
+    .setTitle(cardTitle(card))
+    .setDescription(formatCardDescription(card, { mode }))
     .setImage(card.gifUrl || brand.defaultGif);
 
-  if (card.avatarUrl) {
-    embed.setThumbnail(card.avatarUrl);
-    embed.setAuthor({ name: card.name, iconURL: card.avatarUrl });
-  }
+  const thumb = sanitizeThumbnail(card.avatarUrl);
+  if (!card.empty && thumb) embed.setThumbnail(thumb);
   return embed;
+}
+
+function emptyPlaceholder(position) {
+  return {
+    position,
+    name: "Vacant",
+    robloxTag: ".Vacant.",
+    region: "-",
+    stage: "-",
+    status: "Empty",
+    wins: 0,
+    losses: 0,
+    gifUrl: brand.defaultGif,
+    empty: true,
+    color: VACANT_COLOR,
+  };
 }
 
 async function publishLeaderboard(guild) {
@@ -39,8 +54,15 @@ async function publishLeaderboard(guild) {
     if (!channelId) continue;
     const channel = await guild.channels.fetch(channelId).catch(() => null);
     if (!channel) continue;
-    const embeds = (pages[page].length ? pages[page] : [{ position: 1, name: "???", robloxTag: ".???.", region: "—", stage: "???", status: "Empty", wins: 0, losses: 0, gifUrl: brand.defaultGif, empty: true }]).map(cardEmbed);
-    const heading = `# Top ${pages[page][0]?.position || 1}–${pages[page].at(-1)?.position || pages[page].length || 10}`;
+
+    const slice = pages[page].length
+      ? pages[page]
+      : Array.from({ length: 10 }, (_, i) => emptyPlaceholder(i + 1));
+    const embeds = slice.map((card) => cardEmbed(card, { mode: "leaderboard" }));
+    const start = slice[0]?.position || page * 10 + 1;
+    const end = slice.at(-1)?.position || start + slice.length - 1;
+    const heading = `# Top ${start}-${end}`;
+
     const existingId = messageIds[`page-${page}`];
     if (existingId) {
       const msg = await channel.messages.fetch(existingId).catch(() => null);
@@ -68,9 +90,11 @@ async function publishLineup(guild, regionKey = null) {
     if (!stored?.channelId) continue;
     const channel = await guild.channels.fetch(stored.channelId).catch(() => null);
     if (!channel) continue;
-    const embeds = (region.main.length ? region.main : []).map(cardEmbed);
+    const embeds = (region.main.length ? region.main : []).map((card) =>
+      cardEmbed(card, { mode: "lineup" })
+    );
     if (!embeds.length) continue;
-    const heading = `# Line Up ${region.label}`;
+    const heading = `# Line Up - ${region.label}`;
     if (stored.messageId) {
       const msg = await channel.messages.fetch(stored.messageId).catch(() => null);
       if (msg) {

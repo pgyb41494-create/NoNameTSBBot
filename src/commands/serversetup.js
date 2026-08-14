@@ -10,7 +10,7 @@ module.exports = {
   slash: () =>
     new SlashCommandBuilder()
       .setName("serversetup")
-      .setDescription("Configure leaderboard, lineup, ranking, score, blacklist, trainers")
+      .setDescription("Configure leaderboard, lineup, ranking, and score boards")
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async executePrefix(message) {

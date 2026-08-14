@@ -33,14 +33,14 @@ function helpEmbed() {
       `\`${p}stage\` / \`/stage\` (aliases: tier, rank)`,
       `\`${p}score\` / \`/score\``,
       `\`${p}challenge\` / \`/challenge\``,
-      `\`${p}war\` / \`/war\` (alias: wars)`,
       "",
       "**Moderation**",
       "`/kick` `/ban` `/unban` `/timeout` `/purge`",
-      `\`${p}blacklist\` / \`/blacklist\``,
       "",
       "**Info**",
       "`/help` `/serverinfo` `/userinfo` `/avatar`",
+      "",
+      "Blacklist + wars are managed on the website dashboard.",
     ].join("\n"),
   });
 }

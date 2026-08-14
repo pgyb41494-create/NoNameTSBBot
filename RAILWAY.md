@@ -12,8 +12,8 @@ Deploy **NoNameTSBBot** only. It starts Discord **and** the website API (vendore
 - `API_PUBLIC_URL=https://YOUR-BOT.up.railway.app`
 - `DISCORD_REDIRECT_URI=https://YOUR-BOT.up.railway.app/auth/discord/callback`
 - `API_TOKEN=` (long random secret)
-- `PUBLIC_GUILD_ID=` (your clan Discord server id)
 - `STAFF_DISCORD_IDS=1515419032520626261,1196512159266504797`
+- Do **not** set `PUBLIC_GUILD_ID` — this is a public multi-server bot; the site uses network-wide boards
 - Optional: `DATA_DIR=/data` with a Railway volume
 
 ### Discord Developer Portal

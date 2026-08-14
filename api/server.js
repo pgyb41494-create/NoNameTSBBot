@@ -64,21 +64,9 @@ function createApp() {
     res.json(snapshot.publicSnapshot(req.params.guildId));
   });
 
+  // Network-wide public boards (inviteable multi-server bot — no PUBLIC_GUILD_ID)
   app.get("/api/public", (_req, res) => {
-    const guildId = process.env.PUBLIC_GUILD_ID || guilds.listGuilds()[0]?.guildId;
-    if (!guildId) {
-      return res.json({
-        guildId: null,
-        brand: { name: brand.name, tagline: brand.tagline, gif: brand.defaultGif },
-        leaderboard: { setupCompleted: false, gif: brand.defaultGif, cards: [] },
-        lineup: { setupCompleted: false, gif: brand.defaultGif, regions: [] },
-        blacklist: [],
-        trainers: [],
-        wars: [],
-        demo: true,
-      });
-    }
-    res.json({ ...snapshot.publicSnapshot(guildId), demo: false });
+    res.json(snapshot.networkPublic());
   });
 
   const bot = express.Router();

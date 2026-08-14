@@ -195,102 +195,168 @@ function applyLineupDraft(guildId, parsed) {
 
 async function ensureTipsMessage(channel, guildId, kind) {
   const content = kind === "lineup" ? buildLineupTips(guildId) : buildLeaderboardTips(10);
-  const recent = await channel.messages.fetch({ limit: 30 }).catch(() => null);
+  const cfg = kind === "lineup" ? api.lineup.getConfig(guildId) : api.leaderboard.getConfig(guildId);
+
   let tips = null;
-  if (recent) {
-    tips = [...recent.values()].find((m) =>
-      m.author?.bot && (kind === "lineup" ? isLineupTipsMessage(m) : isLeaderboardTipsMessage(m))
-    );
+  if (cfg.tipsMessageId) {
+    tips = await channel.messages.fetch(cfg.tipsMessageId).catch(() => null);
+  }
+
+  const recent = await channel.messages.fetch({ limit: 40 }).catch(() => null);
+  if (!tips && recent) {
+    tips =
+      [...recent.values()].find((m) =>
+        m.author?.bot && (kind === "lineup" ? isLineupTipsMessage(m) : isLeaderboardTipsMessage(m))
+      ) || null;
   }
 
   if (tips) {
-    await tips.edit({ content, components: [] }).catch(async () => {
+    await tips.edit({ content, embeds: [], components: [] }).catch(async () => {
       tips = await channel.send({ content });
     });
   } else {
     tips = await channel.send({ content });
   }
 
-  try {
-    await tips.pin().catch(() => {});
-  } catch {
-    // ignore
-  }
+  await tips.pin().catch(() => {});
 
-  if (kind === "lineup") {
-    api.lineup.updateConfig(guildId, { tipsMessageId: tips.id });
-  } else {
-    api.leaderboard.updateConfig(guildId, { tipsMessageId: tips.id });
-  }
+  if (kind === "lineup") api.lineup.updateConfig(guildId, { tipsMessageId: tips.id, managementChannelId: channel.id });
+  else api.leaderboard.updateConfig(guildId, { tipsMessageId: tips.id, managementChannelId: channel.id });
+
   return tips;
+}
+
+function shouldKeepMessage(msg, tipsMessageId) {
+  if (!msg) return false;
+  if (tipsMessageId && msg.id === tipsMessageId) return true;
+  if (isLeaderboardTipsMessage(msg) || isLineupTipsMessage(msg)) return true;
+  return false;
+}
+
+/** Delete everything in the mgmt channel except the tips text block. */
+async function sweepManagementChannel(channel, guildId, kind) {
+  if (!channel?.isTextBased?.() || !guildId || !kind) return null;
+
+  const tips = await ensureTipsMessage(channel, guildId, kind);
+  const tipsMessageId = tips.id;
+
+  const fetched = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+  if (!fetched?.size) return tips;
+
+  const toDelete = [...fetched.values()].filter((msg) => !shouldKeepMessage(msg, tipsMessageId));
+  if (!toDelete.length) return tips;
+
+  const twoWeeks = 14 * 24 * 60 * 60 * 1000;
+  const bulkable = toDelete.filter((m) => Date.now() - m.createdTimestamp < twoWeeks);
+  const older = toDelete.filter((m) => Date.now() - m.createdTimestamp >= twoWeeks);
+
+  if (bulkable.length >= 2) {
+    await channel.bulkDelete(bulkable, true).catch(async () => {
+      for (const msg of bulkable) await msg.delete().catch(() => {});
+    });
+  } else {
+    for (const msg of bulkable) await msg.delete().catch(() => {});
+  }
+  for (const msg of older) await msg.delete().catch(() => {});
+
+  return tips;
+}
+
+function resolveManagementKind(channel, guildId) {
+  if (!channel?.isTextBased?.() || !guildId) return null;
+  const lb = api.leaderboard.getConfig(guildId);
+  const lu = api.lineup.getConfig(guildId);
+
+  if (
+    (lb.managementChannelId && channel.id === lb.managementChannelId) ||
+    channel.name === "ascendant-boards"
+  ) {
+    return "leaderboard";
+  }
+  if (
+    (lu.managementChannelId && channel.id === lu.managementChannelId) ||
+    channel.name === "ascendant-lineups"
+  ) {
+    return "lineup";
+  }
+  return null;
+}
+
+async function sweepIfManagementChannel(messageOrChannel, guildId, { delayMs = 700 } = {}) {
+  const channel = messageOrChannel.channel || messageOrChannel;
+  const kind = resolveManagementKind(channel, guildId);
+  if (!kind) return false;
+  if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+  await sweepManagementChannel(channel, guildId, kind);
+  return true;
 }
 
 async function handleManagementDraft(message) {
   if (!message.guild || message.author.bot) return false;
-  if (!isAdminOrOwner(message.member, message.guild)) return false;
 
-  const lb = api.leaderboard.getConfig(message.guild.id);
-  const lu = api.lineup.getConfig(message.guild.id);
-  const isLb = lb.managementChannelId && message.channelId === lb.managementChannelId;
-  const isLu = lu.managementChannelId && message.channelId === lu.managementChannelId;
-  if (!isLb && !isLu) return false;
+  const kind = resolveManagementKind(message.channel, message.guild.id);
+  if (!kind) return false;
+
+  // Always schedule a sweep so junk / old embeds get cleared
+  const sweepPromise = sweepIfManagementChannel(message, message.guild.id, { delayMs: 800 });
+
+  if (!isAdminOrOwner(message.member, message.guild)) {
+    await sweepPromise;
+    return true;
+  }
 
   const content = message.content.trim();
+  const lb = api.leaderboard.getConfig(message.guild.id);
+  const lu = api.lineup.getConfig(message.guild.id);
 
-  if (isLb) {
+  if (kind === "leaderboard") {
     if (/^send$/i.test(content)) {
       await publishLeaderboard(message.guild);
       await message.react("✅").catch(() => {});
-      await message.reply({ content: "Leaderboard published.", allowedMentions: { repliedUser: false } });
+      await sweepPromise;
       return true;
     }
 
     const parsed = parseLeaderboardDraft(content);
     if (parsed) {
       applyLeaderboardDraft(message.guild.id, parsed);
-      const filled = parsed.slots.filter((s) => s.discordId).length;
       await message.react("✅").catch(() => {});
-      await message.reply({
-        content: `Draft updated (\`${filled}/${parsed.end - parsed.start + 1}\` filled). Type \`send\` to publish.`,
-        allowedMentions: { repliedUser: false },
-      });
+      await sweepPromise;
       return true;
     }
 
-    // Legacy one-liner: `1 @user`
     const one = content.match(/^(\d{1,2})\s+<@!?(\d+)>$/);
     if (one) {
       api.leaderboard.place(message.guild.id, Number(one[1]), one[2]);
       await publishLeaderboard(message.guild).catch(() => {});
       await message.react("✅").catch(() => {});
+      await sweepPromise;
       return true;
     }
-    return false;
+
+    await sweepPromise;
+    return true;
   }
 
-  // Lineup
   if (/^send(\s+\S+)?$/i.test(content)) {
     const arg = content.split(/\s+/)[1]?.toLowerCase() || "all";
     if (arg === "all") await publishLineup(message.guild);
     else await publishLineup(message.guild, arg);
     await message.react("✅").catch(() => {});
-    await message.reply({ content: "Lineup published.", allowedMentions: { repliedUser: false } });
+    await sweepPromise;
     return true;
   }
 
   const parsed = parseLineupDraft(content, lu);
   if (parsed) {
     applyLineupDraft(message.guild.id, parsed);
-    const filled = parsed.slots.filter((s) => s.discordId).length;
     await message.react("✅").catch(() => {});
-    await message.reply({
-      content: `Draft updated for **${parsed.regionKey}** (\`${filled}\` filled). Type \`send\` to publish.`,
-      allowedMentions: { repliedUser: false },
-    });
+    await sweepPromise;
     return true;
   }
 
-  return false;
+  await sweepPromise;
+  return true;
 }
 
 module.exports = {
@@ -300,6 +366,9 @@ module.exports = {
   buildLineupDraftTemplate,
   ensureTipsMessage,
   handleManagementDraft,
+  sweepManagementChannel,
+  sweepIfManagementChannel,
+  resolveManagementKind,
   parseLeaderboardDraft,
   parseLineupDraft,
 };

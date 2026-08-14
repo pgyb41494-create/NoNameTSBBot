@@ -268,8 +268,28 @@ async function handleSetupInteraction(interaction) {
   if (create) return createChannels(interaction, create[1]);
   const publish = id.match(/^asc:setup:(\w+):publish$/);
   if (publish) {
-    if (publish[1] === "leaderboard") await publishLeaderboard(interaction.guild);
-    if (publish[1] === "lineup") await publishLineup(interaction.guild);
+    if (publish[1] === "leaderboard") {
+      await publishLeaderboard(interaction.guild);
+      const cfg = api.leaderboard.getConfig(interaction.guildId);
+      const ch = cfg.managementChannelId
+        ? await interaction.guild.channels.fetch(cfg.managementChannelId).catch(() => null)
+        : null;
+      if (ch) await ensureTipsMessage(ch, interaction.guildId, "leaderboard");
+      const { sweepManagementChannel } = require("./mgmtDraft");
+      if (ch) await sweepManagementChannel(ch, interaction.guildId, "leaderboard");
+    }
+    if (publish[1] === "lineup") {
+      await publishLineup(interaction.guild);
+      const cfg = api.lineup.getConfig(interaction.guildId);
+      const ch = cfg.managementChannelId
+        ? await interaction.guild.channels.fetch(cfg.managementChannelId).catch(() => null)
+        : null;
+      if (ch) {
+        await ensureTipsMessage(ch, interaction.guildId, "lineup");
+        const { sweepManagementChannel } = require("./mgmtDraft");
+        await sweepManagementChannel(ch, interaction.guildId, "lineup");
+      }
+    }
     const components =
       publish[1] === "leaderboard"
         ? [leaderboardThemeRow(interaction.guildId), moduleButtons("leaderboard")]

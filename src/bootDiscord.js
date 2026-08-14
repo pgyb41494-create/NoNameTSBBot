@@ -87,8 +87,10 @@ module.exports = function bootDiscord(setClient) {
     client.user.setActivity(`${brand.prefix}help · /profile`, { type: 3 });
     try {
       await client.application.fetch();
-      const n = await deployCommands(client);
-      console.log(`Slash commands registered (${n}).`);
+      const result = await deployCommands(client);
+      console.log(
+        `Slash commands registered per guild (${result.commands} commands × ${result.guilds} servers). Global commands cleared.`
+      );
     } catch (err) {
       console.warn("Slash deploy skipped:", err.message);
     }

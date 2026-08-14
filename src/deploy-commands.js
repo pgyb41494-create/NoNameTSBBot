@@ -38,51 +38,81 @@ function collectSlash() {
   return body;
 }
 
-async function deployCommands(client = null) {
-  const body = collectSlash();
-  if (!body.length) throw new Error("No slash commands found to deploy");
-
-  // Prefer the logged-in application (most reliable on Railway)
-  if (client?.application?.commands) {
-    await client.application.commands.set(body);
-    return body.length;
-  }
-
+function credentials() {
   const token = process.env.DISCORD_TOKEN || process.env.TOKEN;
-  const clientId = String(process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || "").trim();
-  const devGuildId = String(process.env.DEV_GUILD_ID || "").trim();
-  if (!token || !clientId) throw new Error("DISCORD_TOKEN and CLIENT_ID required");
-  const rest = new REST({ version: "10" }).setToken(token);
-  if (devGuildId) {
-    await rest.put(Routes.applicationGuildCommands(clientId, devGuildId), { body });
-  } else {
-    await rest.put(Routes.applicationCommands(clientId), { body });
-  }
-  return body.length;
+  const clientId = String(
+    process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || ""
+  ).trim();
+  return { token, clientId };
 }
 
+/** Wipe global application commands so only per-guild commands remain. */
+async function clearGlobalCommands(client = null) {
+  if (client?.application?.commands) {
+    await client.application.commands.set([]);
+    return;
+  }
+  const { token, clientId } = credentials();
+  if (!token || !clientId) throw new Error("DISCORD_TOKEN and CLIENT_ID required");
+  const rest = new REST({ version: "10" }).setToken(token);
+  await rest.put(Routes.applicationCommands(clientId), { body: [] });
+}
+
+/** Register slash commands for one guild only. */
 async function deployGuildCommands(guildId, client = null) {
   const body = collectSlash();
   const gid = String(guildId || "").trim();
-  if (!gid || !body.length) return;
+  if (!gid || !body.length) return 0;
 
-  if (client?.application?.commands) {
-    await client.application.commands.set(body); // global refresh when joining a guild
+  if (client?.guilds?.cache?.has(gid)) {
+    const guild = client.guilds.cache.get(gid);
+    await guild.commands.set(body);
     return body.length;
   }
 
-  const token = process.env.DISCORD_TOKEN || process.env.TOKEN;
-  const clientId = String(process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || "").trim();
-  if (!token || !clientId) return;
+  const { token, clientId } = credentials();
+  if (!token || !clientId) return 0;
   const rest = new REST({ version: "10" }).setToken(token);
   await rest.put(Routes.applicationGuildCommands(clientId, gid), { body });
   return body.length;
 }
 
+/**
+ * Clear globals, then register commands in every guild the bot is in.
+ * Returns { commands, guilds }.
+ */
+async function deployCommands(client = null) {
+  const body = collectSlash();
+  if (!body.length) throw new Error("No slash commands found to deploy");
+
+  await clearGlobalCommands(client);
+
+  if (client?.guilds) {
+    let guilds = 0;
+    for (const guild of client.guilds.cache.values()) {
+      try {
+        await guild.commands.set(body);
+        guilds += 1;
+      } catch (err) {
+        console.warn(`Guild slash deploy failed for ${guild.name}:`, err.message);
+      }
+    }
+    return { commands: body.length, guilds };
+  }
+
+  // CLI / no client: deploy to DEV_GUILD_ID only if set
+  const devGuildId = String(process.env.DEV_GUILD_ID || "").trim();
+  if (!devGuildId) {
+    throw new Error("No Discord client and no DEV_GUILD_ID — cannot deploy per-guild commands.");
+  }
+  const n = await deployGuildCommands(devGuildId, null);
+  return { commands: n, guilds: 1 };
+}
+
 if (require.main === module) {
   deployCommands()
-    .then((n) => {
-      console.log(`Deployed ${n} slash commands`);
+    .then((result) => {
+      console.log(`Deployed ${result.commands} slash commands to ${result.guilds} guild(s); globals cleared.`);
     })
     .catch((err) => {
       console.error(err);
@@ -90,4 +120,9 @@ if (require.main === module) {
     });
 }
 
-module.exports = { collectSlash, deployCommands, deployGuildCommands };
+module.exports = {
+  collectSlash,
+  clearGlobalCommands,
+  deployCommands,
+  deployGuildCommands,
+};

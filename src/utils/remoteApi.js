@@ -1,6 +1,6 @@
 /**
  * Obscura-style remote API client.
- * Used when API_SERVER_URL is set and EMBED_API=0 (separate Railway API service).
+ * Used when API_SERVER_URL points at the separate website API service.
  */
 const BASE = (process.env.API_SERVER_URL || "").replace(/\/$/, "");
 const TOKEN = process.env.API_TOKEN || process.env.BOT_TOKEN || process.env.DISCORD_TOKEN || "";
@@ -71,7 +71,7 @@ module.exports = {
   brand: brandMod,
   authorName,
   startServer: () => {
-    console.warn("[remoteApi] EMBED_API=0 — API server is external at", BASE);
+    console.warn("[remoteApi] API server is external at", BASE);
   },
   cards,
   regions,

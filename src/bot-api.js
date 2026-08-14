@@ -1,6 +1,6 @@
 /**
  * Thin Discord HTTP API (Obscura-style bot-api).
- * Used when EMBED_API=0 so a separate API service can call Discord through this bot.
+ * Always started by default so the separate website API can call Discord via DISCORD_BOT_API.
  */
 const express = require("express");
 const cors = require("cors");

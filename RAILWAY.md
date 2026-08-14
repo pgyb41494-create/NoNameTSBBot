@@ -1,31 +1,27 @@
-# Production URLs (split like Obscura)
+# Production (Obscura split — no EMBED_API needed)
 
-## API (website + OAuth + data)
+## API — website + OAuth + data
 https://nonametsbapi-production.up.railway.app
 
-Set on the **API** Railway service:
+Variables:
 - `WEBSITE_URL=https://no-name-tsb-website.vercel.app`
 - `API_PUBLIC_URL=https://nonametsbapi-production.up.railway.app`
 - `DISCORD_REDIRECT_URI=https://nonametsbapi-production.up.railway.app/auth/discord/callback`
 - `DISCORD_BOT_API=https://nonametsbbot-production.up.railway.app`
 - `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `API_TOKEN` / `STAFF_DISCORD_IDS`
 
-## Bot (Discord)
+## Bot — Discord only (+ thin bot-api on PORT)
 https://nonametsbbot-production.up.railway.app
 
-Set on the **Bot** Railway service:
-- `DISCORD_TOKEN`, `CLIENT_ID`
-- `EMBED_API=0` (API is a separate service)
-- `API_TOKEN` (same secret as the API)
-- Optional: `PORT` is set by Railway automatically
+Variables (delete `EMBED_API` if it’s still there):
+- `DISCORD_TOKEN`
+- `CLIENT_ID`
+- `API_TOKEN` (same value as the API service)
 
-## Discord Developer Portal → OAuth2 → Redirects
-Use exactly this (API, not bot — and no duplicated domain):
+You do **not** need `EMBED_API`, `API_PUBLIC_URL`, `DISCORD_REDIRECT_URI`, or `WEBSITE_URL` on the bot.
 
+## Discord OAuth redirect
 https://nonametsbapi-production.up.railway.app/auth/discord/callback
 
-Wrong example (do not use):
-https://nonametsbbot-production.up.railway.app.up.railway.app/auth/discord/callback
-
-## Vercel website
+## Vercel
 `VITE_API_URL=https://nonametsbapi-production.up.railway.app`

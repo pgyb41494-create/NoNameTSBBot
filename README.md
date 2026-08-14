@@ -4,23 +4,21 @@ Inviteable Discord bot for The Strongest Battlegrounds clans.
 
 Prefix: **`'`** (`'serversetup`, `'profile`). Slash works too.
 
-## Railway
+## Railway (Obscura split)
 
-The bot depends on the API package from GitHub:
+Two services:
 
-```json
-"NoNameBotAPI": "github:pgyb41494-create/NoNameTSBAPI#main"
-```
+1. **NoNameTSBAPI** — website OAuth + public/staff data  
+2. **This bot** — Discord + thin `bot-api` (no `EMBED_API` needed)
 
-`npm install` pulls it automatically. No sibling folder needed.
+Bot env vars:
+- `DISCORD_TOKEN`
+- `CLIENT_ID`
+- `API_TOKEN` (same secret as the API)
 
-Recommended Railway setup:
+API should set `DISCORD_BOT_API` to this bot’s Railway URL.
 
-1. Deploy **this bot** with `EMBED_API=1` and expose port `8787`
-2. Point the website `VITE_API_URL` to this bot’s public Railway URL
-3. Set `WEBSITE_URL=https://no-name-tsb-website.vercel.app`
-
-Required env vars: `DISCORD_TOKEN`, `CLIENT_ID`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`, `WEBSITE_URL`, `API_PUBLIC_URL`
+Website: `VITE_API_URL=https://nonametsbapi-production.up.railway.app`
 
 Enable **Message Content Intent** and **Server Members Intent**.
 

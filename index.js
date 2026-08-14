@@ -21,13 +21,9 @@ if (!token || token.length < 50) {
   process.exit(1);
 }
 
-const embedApi = process.env.EMBED_API !== "0";
+// Opt-in only. Default = Obscura split: Discord + thin bot-api (website API is a separate service).
+const embedApi = process.env.EMBED_API === "1";
 
-/**
- * Obscura layout:
- * - EMBED_API=1 (default): Discord bot + full website API in one process (Railway-friendly)
- * - EMBED_API=0: Discord bot + thin bot-api only; website API runs as a separate service
- */
 if (embedApi) {
   try {
     api.startServer();
@@ -35,7 +31,7 @@ if (embedApi) {
     console.warn("API already running or failed to bind:", err.message);
   }
 } else {
-  // Bind HTTP immediately so Railway health checks pass before Discord is ready
+  // Always expose Discord HTTP for the separate API / dashboard (Railway health + DISCORD_BOT_API)
   try {
     startBotApi(null);
   } catch (err) {

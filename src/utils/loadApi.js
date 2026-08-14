@@ -2,9 +2,9 @@ const fs = require("fs");
 const path = require("path");
 
 /**
- * Resolve the data/API package the same way Obscura keeps Discord + API linked:
- * 1) Vendored ./api in this bot repo (default — works alone on Railway)
- * 2) Optional remote HTTP client when EMBED_API=0 and API_SERVER_URL is set
+ * Obscura-style resolution:
+ * 1) Vendored ./api for Discord command data (always available in this repo)
+ * 2) Optional remote HTTP client when API_SERVER_URL is set (shared website API)
  * 3) Sibling NoNameBotAPI for local monorepo work
  */
 function candidates() {
@@ -20,7 +20,7 @@ function candidates() {
 }
 
 function resolveApiModule() {
-  if (process.env.API_SERVER_URL && process.env.EMBED_API === "0") {
+  if (process.env.API_SERVER_URL) {
     return require("./remoteApi");
   }
 

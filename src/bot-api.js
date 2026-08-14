@@ -1,6 +1,6 @@
 /**
  * Thin Discord HTTP API (Obscura-style bot-api).
- * Always started by default so the separate website API can call Discord via DISCORD_BOT_API.
+ * Always started so the separate website API can call Discord via DISCORD_BOT_API.
  */
 const express = require("express");
 const cors = require("cors");
@@ -19,8 +19,8 @@ function createBotApi(client) {
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: "2mb" }));
-  app.use(botAuth);
 
+  // Public health for Railway — must stay unauthenticated
   app.get("/health", (_req, res) => {
     res.json({
       ok: true,
@@ -28,6 +28,11 @@ function createBotApi(client) {
       ready: Boolean(botBridge.getClient()?.user),
     });
   });
+  app.get("/", (_req, res) => {
+    res.json({ ok: true, role: "discord-bot-api" });
+  });
+
+  app.use(botAuth);
 
   app.get("/discord/guilds", (_req, res) => {
     try {

@@ -2,6 +2,14 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
+// Bind Discord bot-api FIRST so Railway health checks pass even if Discord login is slow
+const { startBotApi } = require("./src/bot-api");
+try {
+  startBotApi(null);
+} catch (err) {
+  console.warn("bot-api failed to start:", err.message);
+}
+
 const {
   Client,
   GatewayIntentBits,
@@ -13,7 +21,6 @@ const api = require("./src/utils/loadApi");
 const { brand } = api;
 const loadCommands = require("./src/handlers/loadCommands");
 const { deployCommands, deployGuildCommands } = require("./src/deploy-commands");
-const { startBotApi } = require("./src/bot-api");
 
 const token = process.env.DISCORD_TOKEN || process.env.TOKEN;
 if (!token || token.length < 50) {
@@ -21,21 +28,12 @@ if (!token || token.length < 50) {
   process.exit(1);
 }
 
-// Opt-in only. Default = Obscura split: Discord + thin bot-api (website API is a separate service).
-const embedApi = process.env.EMBED_API === "1";
-
-if (embedApi) {
+// Optional single-service mode only (not needed with separate NoNameTSBAPI)
+if (process.env.EMBED_API === "1") {
   try {
     api.startServer();
   } catch (err) {
-    console.warn("API already running or failed to bind:", err.message);
-  }
-} else {
-  // Always expose Discord HTTP for the separate API / dashboard (Railway health + DISCORD_BOT_API)
-  try {
-    startBotApi(null);
-  } catch (err) {
-    console.warn("bot-api failed to start:", err.message);
+    console.warn("Embedded API failed to bind (bot-api already owns PORT?):", err.message);
   }
 }
 
@@ -102,4 +100,6 @@ client.once("ready", async () => {
   }
 });
 
-client.login(token);
+client.login(token).catch((err) => {
+  console.error("Discord login failed:", err.message);
+});

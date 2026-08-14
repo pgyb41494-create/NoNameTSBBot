@@ -74,6 +74,7 @@ client.on("guildCreate", async (guild) => {
 });
 
 client.once("ready", async () => {
+  api.botBridge.setClient(client);
   console.log(`${brand.name} online as ${client.user.tag}`);
   client.user.setActivity(`${brand.prefix}help · /profile`, { type: 3 });
   if (process.env.CLIENT_ID) {

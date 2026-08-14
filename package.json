@@ -9,6 +9,7 @@
     "deploy-commands": "node src/deploy-commands.js"
   },
   "dependencies": {
+    "NoNameBotAPI": "github:pgyb41494-create/NoNameTSBAPI#main",
     "discord.js": "^14.18.0",
     "dotenv": "^16.4.7",
     "ffmpeg-static": "^5.2.0"

@@ -1,24 +1,27 @@
 # NoNameTSBBot
 
-Inviteable Discord bot for The Strongest Battlegrounds clans. Working name is **ASA**.
+Inviteable Discord bot for The Strongest Battlegrounds clans.
 
-Prefix: **`'`** (`'serversetup`, `'profile`). Slash commands work too (`/profile`, `/tsbcoach`, `/kick`, `/ban`, …).
+Prefix: **`'`** (`'serversetup`, `'profile`). Slash works too.
 
-## Setup
+## Railway
 
-1. Clone this repo next to the API:
+The bot depends on the API package from GitHub:
 
-```text
-NoNameTSBBot/
-NoNameTSBAPI/   (or NoNameBotAPI/)
+```json
+"NoNameBotAPI": "github:pgyb41494-create/NoNameTSBAPI#main"
 ```
 
-2. Copy `.env.example` to `.env` and set `DISCORD_TOKEN` + `CLIENT_ID`.
-3. `npm install`
-4. `npm start`
+`npm install` pulls it automatically. No sibling folder needed.
 
-If the API folder is not a sibling, set `API_PACKAGE` to its path.
+Recommended Railway setup:
 
-Enable **Message Content Intent** and **Server Members Intent** on the Discord bot.
+1. Deploy **this bot** with `EMBED_API=1` and expose port `8787`
+2. Point the website `VITE_API_URL` to this bot’s public Railway URL
+3. Set `WEBSITE_URL=https://no-name-tsb-website.vercel.app`
+
+Required env vars: `DISCORD_TOKEN`, `CLIENT_ID`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`, `WEBSITE_URL`, `API_PUBLIC_URL`
+
+Enable **Message Content Intent** and **Server Members Intent**.
 
 Repo: https://github.com/pgyb41494-create/NoNameTSBBot

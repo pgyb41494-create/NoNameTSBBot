@@ -69,7 +69,7 @@ function createBotApi(client) {
   app.post("/discord/guilds/:guildId/channels/:channelId/messages", async (req, res) => {
     try {
       res.json(
-        await botBridge.sendChannelMessage(req.params.guildId, req.params.channelId, req.body?.content || "")
+        await botBridge.sendChannelMessage(req.params.guildId, req.params.channelId, req.body || {})
       );
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
@@ -78,7 +78,7 @@ function createBotApi(client) {
 
   app.post("/discord/users/:userId/messages", async (req, res) => {
     try {
-      res.json(await botBridge.sendDirectMessage(req.params.userId, req.body?.content || ""));
+      res.json(await botBridge.sendDirectMessage(req.params.userId, req.body || {}));
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }

@@ -170,11 +170,13 @@ async function handle(req, res) {
       const c = requireDiscord(res);
       if (!c) return;
       const body = await readBody(req);
+      const { buildMessagePayload } = require("./api/lib/messagePayload");
+      const payload = buildMessagePayload(body);
       const channel = await c.channels.fetch(msgChannelMatch[2]);
       if (!channel || !channel.isTextBased?.()) {
         return json(res, 400, { error: "That channel cannot receive messages." });
       }
-      const sent = await channel.send({ content: String(body.content || "").slice(0, 2000) });
+      const sent = await channel.send(payload);
       return json(res, 200, { id: sent.id, channelId: sent.channelId });
     }
 
@@ -183,8 +185,10 @@ async function handle(req, res) {
       const c = requireDiscord(res);
       if (!c) return;
       const body = await readBody(req);
+      const { buildMessagePayload } = require("./api/lib/messagePayload");
+      const payload = buildMessagePayload(body);
       const user = await c.users.fetch(dmMatch[1]);
-      const sent = await user.send({ content: String(body.content || "").slice(0, 2000) });
+      const sent = await user.send(payload);
       return json(res, 200, { id: sent.id, userId: user.id });
     }
 

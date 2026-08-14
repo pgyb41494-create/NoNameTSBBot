@@ -1,40 +1,31 @@
-# Railway deploy (Obscura-style)
+# Production URLs (split like Obscura)
 
-## Recommended: one Bot service
+## API (website + OAuth + data)
+https://nonametsbapi-production.up.railway.app
 
-Deploy **NoNameTSBBot** only. It starts Discord **and** the website API (vendored `./api`), same idea as Obscura’s bot process exposing HTTP.
-
-### Env vars on the Bot service
-
-- `DISCORD_TOKEN`, `CLIENT_ID`, `CLIENT_SECRET`
-- `EMBED_API=1`
+Set on the **API** Railway service:
 - `WEBSITE_URL=https://no-name-tsb-website.vercel.app`
-- `API_PUBLIC_URL=https://YOUR-BOT.up.railway.app`
-- `DISCORD_REDIRECT_URI=https://YOUR-BOT.up.railway.app/auth/discord/callback`
-- `API_TOKEN=` (long random secret)
-- `STAFF_DISCORD_IDS=1515419032520626261,1196512159266504797`
-- Do **not** set `PUBLIC_GUILD_ID` — this is a public multi-server bot; the site uses network-wide boards
-- Optional: `DATA_DIR=/data` with a Railway volume
+- `API_PUBLIC_URL=https://nonametsbapi-production.up.railway.app`
+- `DISCORD_REDIRECT_URI=https://nonametsbapi-production.up.railway.app/auth/discord/callback`
+- `DISCORD_BOT_API=https://nonametsbbot-production.up.railway.app`
+- `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `API_TOKEN` / `STAFF_DISCORD_IDS`
 
-### Discord Developer Portal
+## Bot (Discord)
+https://nonametsbbot-production.up.railway.app
 
-OAuth redirect URL must be the **API/bot** callback, not the Vercel site:
+Set on the **Bot** Railway service:
+- `DISCORD_TOKEN`, `CLIENT_ID`
+- `EMBED_API=0` (API is a separate service)
+- `API_TOKEN` (same secret as the API)
+- Optional: `PORT` is set by Railway automatically
 
-`https://YOUR-BOT.up.railway.app/auth/discord/callback`
+## Discord Developer Portal → OAuth2 → Redirects
+Use exactly this (API, not bot — and no duplicated domain):
 
-### Vercel website
+https://nonametsbapi-production.up.railway.app/auth/discord/callback
 
-`VITE_API_URL=https://YOUR-BOT.up.railway.app`
+Wrong example (do not use):
+https://nonametsbbot-production.up.railway.app.up.railway.app/auth/discord/callback
 
----
-
-## Optional split (two Railway services)
-
-Like Obscura’s `discord-bot` + `api-server`:
-
-| Service | Repo | Notes |
-|--------|------|--------|
-| Bot | NoNameTSBBot | `EMBED_API=0` → thin Discord `bot-api` on `PORT` |
-| API | NoNameTSBAPI | Website OAuth + JSON data; `DISCORD_BOT_API=https://bot.up.railway.app` |
-
-Website `VITE_API_URL` → the API service. Keep clan data on **one** service only (prefer the API in split mode, and point the bot at it with `API_SERVER_URL` + `EMBED_API=0` only if you are ready for async remote calls).
+## Vercel website
+`VITE_API_URL=https://nonametsbapi-production.up.railway.app`

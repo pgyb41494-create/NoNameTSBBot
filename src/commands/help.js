@@ -22,7 +22,7 @@ function helpEmbed() {
       `**Setup**\n\`${p}serversetup\` · \`/serversetup\`\n\n` +
       `**Profile & coach**\n\`/profile\` · \`/tsbcoach\`\n\n` +
       `**Boards**\n\`${p}tsbtop 1 @user\` · \`${p}lineup add na 1 @user\` · \`${p}stage @user 0 Low Weak\` · \`/score\`\n\n` +
-      `**Website lists**\n\`${p}blacklist add @user reason\` · \`${p}trainer add @user specialty\`\n\n` +
+      `**Website**\nBlacklist reports + trainers are managed on the dashboard.\n\n` +
       `**Moderation**\n\`/kick\` \`/ban\` \`/unban\` \`/timeout\` \`/purge\`\n\n` +
       `**Info**\n\`/serverinfo\` \`/userinfo\` \`/avatar\``,
   });

@@ -70,7 +70,7 @@ async function openModule(interaction, key) {
     blacklist:
       "Use `'blacklist add @user reason` — entries appear on the website Blacklisted tab.",
     trainers:
-      "Use `'trainer add @user specialty` — entries appear on the website Trainers tab.",
+      "Trainers are configured on the website dashboard (staff login only).",
   };
 
   return interaction.update({

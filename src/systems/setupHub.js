@@ -11,6 +11,7 @@ const { surface, danger, brand } = require("../utils/embeds");
 const { isAdminOrOwner } = require("../utils/permissions");
 const { publishLeaderboard, publishLineup } = require("./boardPublish");
 const { listThemes, resolveTheme } = require("./leaderboardThemes");
+const { ensureTipsMessage, handleManagementDraft } = require("./mgmtDraft");
 
 const HUB_ID = "asc:hub";
 const THEME_ID = "asc:lb:theme";
@@ -86,8 +87,9 @@ function leaderboardThemeRow(guildId) {
 async function openModule(interaction, key) {
   const guides = {
     leaderboard:
-      "Creates `#ascendant-boards` (draft: `1 @user`) and `#top-1-10`.\n" +
-      "Pick a **theme**, place players, then **Publish / refresh**.\n\n" +
+      "Creates `#ascendant-boards` + `#top-1-10`.\n" +
+      "In the boards channel, paste the **draft text block**, edit slots, then type `send`.\n" +
+      "Pick a **theme**, then **Publish / refresh** if needed.\n\n" +
       "**Classic cards** — separate GIF card embeds\n" +
       "**Metallic v2** — one message, generated banner, Discord separator lines",
     ranking:
@@ -95,7 +97,8 @@ async function openModule(interaction, key) {
     score:
       "Enables `/score` 1v1 logging. Wins/losses show on website + Discord cards.",
     lineup:
-      "Creates `#ascendant-lineups` and `#lineup-na`. Use `'lineup add na 1 @user` then publish.",
+      "Creates `#ascendant-lineups` + `#lineup-na`.\n" +
+      "Paste the **draft text block** (region + slots), then type `send` — no buttons.",
     blacklist:
       "Blacklist is managed on the website (Report + staff Dashboard). No Discord command.",
     trainers:
@@ -147,28 +150,17 @@ async function createChannels(interaction, key) {
       managementChannelId: mgmt.id,
       publicChannelIds: [pub.id],
     });
-    if (mgmtNew) {
-      await mgmt.send({
-        embeds: [
-          surface({
-            title: "Leaderboard draft",
-            description: "Type `1 @user` through `10 @user` here to place players. Then run `'serversetup` → Publish.",
-          }),
-        ],
-      });
-    }
+    await ensureTipsMessage(mgmt, guild.id, "leaderboard");
     await publishLeaderboard(guild);
     const note =
       !mgmtNew && !pubNew
         ? "Reused existing channels (no duplicates)."
-        : mgmtNew || pubNew
-          ? "Created missing channels; existing ones were reused."
-          : "";
+        : "Created missing channels; existing ones were reused.";
     return interaction.update({
       embeds: [
         surface({
           title: "Leaderboard ready",
-          description: `Management: ${mgmt}\nPublic: ${pub}${note ? `\n\n${note}` : ""}`,
+          description: `Management: ${mgmt}\nPublic: ${pub}\n\n${note}\nPaste the draft text block in ${mgmt}, then type \`send\`.`,
         }),
       ],
       components: [leaderboardThemeRow(guild.id), moduleButtons(key)],
@@ -193,16 +185,7 @@ async function createChannels(interaction, key) {
       managementChannelId: mgmt.id,
       regions: cfg.regions,
     });
-    if (mgmtNew) {
-      await mgmt.send({
-        embeds: [
-          surface({
-            title: "Lineup management",
-            description: "`'lineup add na 1 @user` · `'lineup remove na 1` · `'lineup publish na`",
-          }),
-        ],
-      });
-    }
+    await ensureTipsMessage(mgmt, guild.id, "lineup");
     await publishLineup(guild, "na");
     const note =
       !mgmtNew && !naNew
@@ -212,7 +195,7 @@ async function createChannels(interaction, key) {
       embeds: [
         surface({
           title: "Lineup ready",
-          description: `Management: ${mgmt}\nNA board: ${na}\n\n${note}`,
+          description: `Management: ${mgmt}\nNA board: ${na}\n\n${note}\nPaste the draft text block in ${mgmt}, then type \`send\`.`,
         }),
       ],
       components: [moduleButtons(key)],
@@ -300,17 +283,7 @@ async function handleSetupInteraction(interaction) {
 }
 
 async function handleDraftMessage(message) {
-  if (!message.guild || message.author.bot) return false;
-  const cfg = api.leaderboard.getConfig(message.guild.id);
-  if (!cfg.managementChannelId || message.channelId !== cfg.managementChannelId) return false;
-  const match = message.content.trim().match(/^(\d{1,2})\s+<@!?(\d+)>$/);
-  if (!match) return false;
-  const position = Number(match[1]);
-  const userId = match[2];
-  api.leaderboard.place(message.guild.id, position, userId);
-  await publishLeaderboard(message.guild).catch(() => {});
-  await message.react("✅").catch(() => {});
-  return true;
+  return handleManagementDraft(message);
 }
 
 module.exports = { HUB_ID, hubPayload, handleSetupInteraction, handleDraftMessage };

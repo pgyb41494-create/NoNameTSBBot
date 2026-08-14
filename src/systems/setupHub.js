@@ -68,7 +68,7 @@ async function openModule(interaction, key) {
     lineup:
       "Creates `#asa-lineups` and `#lineup-na`. Use `'lineup add na 1 @user` then publish.",
     blacklist:
-      "Use `'blacklist add @user reason` — entries appear on the website Blacklisted tab.",
+      "Blacklist is managed on the website (Report + staff Dashboard). No Discord command.",
     trainers:
       "Trainers are configured on the website dashboard (staff login only).",
   };
@@ -166,7 +166,12 @@ async function createChannels(interaction, key) {
 
   if (key === "blacklist" || key === "trainers") {
     return interaction.update({
-      embeds: [surface({ title: "Website lists", description: "No channels needed. Use the matching prefix commands." })],
+      embeds: [
+        surface({
+          title: "Website lists",
+          description: "No Discord channels or commands needed. Use the website dashboard.",
+        }),
+      ],
       components: [moduleButtons(key)],
     });
   }

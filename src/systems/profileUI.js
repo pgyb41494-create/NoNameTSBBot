@@ -53,7 +53,7 @@ function manageRow(userId, admin = false) {
   }
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
-      .setCustomId(`asa:profile:manage:${userId}`)
+      .setCustomId(`asc:profile:manage:${userId}`)
       .setPlaceholder("Manage profile")
       .addOptions(options)
   );
@@ -72,7 +72,7 @@ async function payloadFor(guild, userId) {
 
 function createModal() {
   return new ModalBuilder()
-    .setCustomId("asa:profile:create")
+    .setCustomId("asc:profile:create")
     .setTitle("Create profile")
     .addComponents(
       new ActionRowBuilder().addComponents(
@@ -117,7 +117,7 @@ async function handleProfileCommand({ guild, actor, targetUser, query, member })
       ],
       components: [
         new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId("asa:profile:start").setLabel("Create profile").setStyle(ButtonStyle.Primary)
+          new ButtonBuilder().setCustomId("asc:profile:start").setLabel("Create profile").setStyle(ButtonStyle.Primary)
         ),
       ],
     };
@@ -134,13 +134,13 @@ async function handleProfileCommand({ guild, actor, targetUser, query, member })
 
 async function handleProfileInteraction(interaction) {
   const id = interaction.customId || "";
-  if (!id.startsWith("asa:profile")) return false;
+  if (!id.startsWith("asc:profile")) return false;
 
-  if (id === "asa:profile:start") {
+  if (id === "asc:profile:start") {
     return interaction.showModal(createModal());
   }
 
-  if (id === "asa:profile:create" && interaction.isModalSubmit()) {
+  if (id === "asc:profile:create" && interaction.isModalSubmit()) {
     const displayName = interaction.fields.getTextInputValue("display_name").trim();
     const robloxUsername = interaction.fields.getTextInputValue("roblox_username").trim();
     let roblox;
@@ -169,14 +169,14 @@ async function handleProfileInteraction(interaction) {
       ],
       components: [
         new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId("asa:profile:verify").setLabel("Verify bio").setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId("asc:profile:verify").setLabel("Verify bio").setStyle(ButtonStyle.Success),
           new ButtonBuilder().setLabel("Open Roblox").setStyle(ButtonStyle.Link).setURL(`https://www.roblox.com/users/${roblox.id}/profile`)
         ),
       ],
     });
   }
 
-  if (id === "asa:profile:verify") {
+  if (id === "asc:profile:verify") {
     const session = sessions.get(interaction.user.id);
     if (!session) {
       return interaction.reply({ embeds: [danger("Session expired", "Run `/profile` again.")], ephemeral: true });
@@ -201,7 +201,7 @@ async function handleProfileInteraction(interaction) {
     return interaction.update({ ...payload, content: null });
   }
 
-  if (id.startsWith("asa:profile:manage:") && interaction.isStringSelectMenu()) {
+  if (id.startsWith("asc:profile:manage:") && interaction.isStringSelectMenu()) {
     const targetId = id.split(":")[3];
     const action = interaction.values[0];
     if (action === "region") {
@@ -210,7 +210,7 @@ async function handleProfileInteraction(interaction) {
         components: [
           new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
-              .setCustomId(`asa:profile:region:${targetId}`)
+              .setCustomId(`asc:profile:region:${targetId}`)
               .setPlaceholder("Region")
               .addOptions(REGIONS.slice(0, 25).map((r) => ({ label: r.label, value: r.value })))
           ),
@@ -223,7 +223,7 @@ async function handleProfileInteraction(interaction) {
         components: [
           new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
-              .setCustomId(`asa:profile:character:${targetId}`)
+              .setCustomId(`asc:profile:character:${targetId}`)
               .setPlaceholder("Main character")
               .addOptions(CHARACTERS.map((c) => ({ label: c, value: c })))
           ),
@@ -235,7 +235,7 @@ async function handleProfileInteraction(interaction) {
       return interaction.update({ embeds: [ok("Profile deleted", "You can create a new one with `/profile`.")], components: [] });
     }
     const modal = new ModalBuilder()
-      .setCustomId(`asa:profile:edit:${action}:${targetId}`)
+      .setCustomId(`asc:profile:edit:${action}:${targetId}`)
       .setTitle("Edit profile")
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -249,7 +249,7 @@ async function handleProfileInteraction(interaction) {
     return interaction.showModal(modal);
   }
 
-  if (id.startsWith("asa:profile:region:") && interaction.isStringSelectMenu()) {
+  if (id.startsWith("asc:profile:region:") && interaction.isStringSelectMenu()) {
     const targetId = id.split(":")[3];
     api.profiles.saveProfile(interaction.guildId, targetId, { region: interaction.values[0] });
     await publishLeaderboard(interaction.guild).catch(() => {});
@@ -258,14 +258,14 @@ async function handleProfileInteraction(interaction) {
     return interaction.update(payload);
   }
 
-  if (id.startsWith("asa:profile:character:") && interaction.isStringSelectMenu()) {
+  if (id.startsWith("asc:profile:character:") && interaction.isStringSelectMenu()) {
     const targetId = id.split(":")[3];
     api.profiles.saveProfile(interaction.guildId, targetId, { main_character: interaction.values[0] });
     const payload = await payloadFor(interaction.guild, targetId);
     return interaction.update(payload);
   }
 
-  if (id.startsWith("asa:profile:edit:") && interaction.isModalSubmit()) {
+  if (id.startsWith("asc:profile:edit:") && interaction.isModalSubmit()) {
     const [, , , action, targetId] = id.split(":");
     const value = interaction.fields.getTextInputValue("value").trim();
     if (action === "roblox") {

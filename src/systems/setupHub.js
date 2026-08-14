@@ -11,7 +11,7 @@ const { surface, danger, brand } = require("../utils/embeds");
 const { isAdminOrOwner } = require("../utils/permissions");
 const { publishLeaderboard, publishLineup } = require("./boardPublish");
 
-const HUB_ID = "asa:hub";
+const HUB_ID = "asc:hub";
 
 function moduleStatus(guildId) {
   return [
@@ -51,22 +51,22 @@ function hubPayload(guildId) {
 
 function moduleButtons(moduleKey) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`asa:setup:${moduleKey}:create`).setLabel("Create channels").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`asa:setup:${moduleKey}:publish`).setLabel("Publish / refresh").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`asa:setup:back`).setLabel("Back").setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId(`asc:setup:${moduleKey}:create`).setLabel("Create channels").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`asc:setup:${moduleKey}:publish`).setLabel("Publish / refresh").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`asc:setup:back`).setLabel("Back").setStyle(ButtonStyle.Secondary)
   );
 }
 
 async function openModule(interaction, key) {
   const guides = {
     leaderboard:
-      "Creates `#asa-boards` (draft: `1 @user`) and `#top-1-10`.\nAfter placing players, press **Publish / refresh**.",
+      "Creates `#ascendant-boards` (draft: `1 @user`) and `#top-1-10`.\nAfter placing players, press **Publish / refresh**.",
     ranking:
       "Enables `'stage @user 0 Low Weak` (or `/stage`). Stages print on leaderboard and lineup cards.",
     score:
       "Enables `/score` 1v1 logging. Wins/losses show on website + Discord cards.",
     lineup:
-      "Creates `#asa-lineups` and `#lineup-na`. Use `'lineup add na 1 @user` then publish.",
+      "Creates `#ascendant-lineups` and `#lineup-na`. Use `'lineup add na 1 @user` then publish.",
     blacklist:
       "Blacklist is managed on the website (Report + staff Dashboard). No Discord command.",
     trainers:
@@ -88,7 +88,7 @@ async function createChannels(interaction, key) {
 
   if (key === "leaderboard") {
     const mgmt = await guild.channels.create({
-      name: "asa-boards",
+      name: "ascendant-boards",
       type: ChannelType.GuildText,
       reason: `${brand.name} leaderboard management`,
     });
@@ -119,7 +119,7 @@ async function createChannels(interaction, key) {
 
   if (key === "lineup") {
     const mgmt = await guild.channels.create({
-      name: "asa-lineups",
+      name: "ascendant-lineups",
       type: ChannelType.GuildText,
     });
     const na = await guild.channels.create({
@@ -185,12 +185,12 @@ async function handleSetupInteraction(interaction) {
     }
     return openModule(interaction, interaction.values[0]);
   }
-  if (id === "asa:setup:back") {
+  if (id === "asc:setup:back") {
     return interaction.update(hubPayload(interaction.guildId));
   }
-  const create = id.match(/^asa:setup:(\w+):create$/);
+  const create = id.match(/^asc:setup:(\w+):create$/);
   if (create) return createChannels(interaction, create[1]);
-  const publish = id.match(/^asa:setup:(\w+):publish$/);
+  const publish = id.match(/^asc:setup:(\w+):publish$/);
   if (publish) {
     if (publish[1] === "leaderboard") await publishLeaderboard(interaction.guild);
     if (publish[1] === "lineup") await publishLineup(interaction.guild);

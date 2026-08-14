@@ -29,7 +29,7 @@ function run(bin, args) {
 async function extractFrames(inputPath, count = 8) {
   const bin = ffmpegPath();
   if (!bin || !fs.existsSync(inputPath)) return [];
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "asa-coach-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascendant-coach-"));
   const out = path.join(dir, "frame-%02d.jpg");
   try {
     await run(bin, [
@@ -65,7 +65,7 @@ async function downloadToTemp(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Could not download clip (${res.status})`);
   const buf = Buffer.from(await res.arrayBuffer());
-  const tmp = path.join(os.tmpdir(), `asa-clip-${Date.now()}.mp4`);
+  const tmp = path.join(os.tmpdir(), `ascendant-clip-${Date.now()}.mp4`);
   fs.writeFileSync(tmp, buf);
   return tmp;
 }

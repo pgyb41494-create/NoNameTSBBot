@@ -34,6 +34,13 @@ if (embedApi) {
   } catch (err) {
     console.warn("API already running or failed to bind:", err.message);
   }
+} else {
+  // Bind HTTP immediately so Railway health checks pass before Discord is ready
+  try {
+    startBotApi(null);
+  } catch (err) {
+    console.warn("bot-api failed to start:", err.message);
+  }
 }
 
 const client = new Client({
@@ -87,13 +94,6 @@ client.on("guildCreate", async (guild) => {
 
 client.once("ready", async () => {
   api.botBridge.setClient(client);
-  if (!embedApi) {
-    try {
-      startBotApi(client);
-    } catch (err) {
-      console.warn("bot-api failed to start:", err.message);
-    }
-  }
   console.log(`${brand.name} online as ${client.user.tag}`);
   client.user.setActivity(`${brand.prefix}help · /profile`, { type: 3 });
   if (process.env.CLIENT_ID) {

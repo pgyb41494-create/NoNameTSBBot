@@ -9,6 +9,7 @@ Variables:
 - `DISCORD_REDIRECT_URI=https://nonametsbapi-production.up.railway.app/auth/discord/callback`
 - `DISCORD_BOT_API=https://nonametsbbot-production.up.railway.app`
 - `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `API_TOKEN` / `STAFF_DISCORD_IDS`
+- `DATA_DIR=/data` — attach a Railway **Volume** to the API service, mount path `/data` (or `/app/data`)
 
 ## Bot — Discord only (+ thin bot-api on PORT)
 https://nonametsbbot-production.up.railway.app

@@ -24,12 +24,13 @@ function collectSlash() {
 
 async function deployCommands() {
   const token = process.env.DISCORD_TOKEN || process.env.TOKEN;
-  const clientId = process.env.CLIENT_ID;
+  const clientId = String(process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || "").trim();
+  const devGuildId = String(process.env.DEV_GUILD_ID || "").trim();
   if (!token || !clientId) throw new Error("DISCORD_TOKEN and CLIENT_ID required");
   const rest = new REST({ version: "10" }).setToken(token);
   const body = collectSlash();
-  if (process.env.DEV_GUILD_ID) {
-    await rest.put(Routes.applicationGuildCommands(clientId, process.env.DEV_GUILD_ID), { body });
+  if (devGuildId) {
+    await rest.put(Routes.applicationGuildCommands(clientId, devGuildId), { body });
   } else {
     await rest.put(Routes.applicationCommands(clientId), { body });
   }
@@ -38,10 +39,11 @@ async function deployCommands() {
 
 async function deployGuildCommands(guildId) {
   const token = process.env.DISCORD_TOKEN || process.env.TOKEN;
-  const clientId = process.env.CLIENT_ID;
-  if (!token || !clientId) return;
+  const clientId = String(process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || "").trim();
+  const gid = String(guildId || "").trim();
+  if (!token || !clientId || !gid) return;
   const rest = new REST({ version: "10" }).setToken(token);
-  await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: collectSlash() });
+  await rest.put(Routes.applicationGuildCommands(clientId, gid), { body: collectSlash() });
 }
 
 if (require.main === module) {

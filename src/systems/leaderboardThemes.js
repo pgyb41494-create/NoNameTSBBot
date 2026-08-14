@@ -16,7 +16,7 @@ const THEMES = {
     id: "metallic",
     label: "Metallic v2",
     description: "Server banner + Information separators",
-    pageSize: 5,
+    pageSize: 10,
   },
 };
 

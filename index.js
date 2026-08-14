@@ -13,6 +13,7 @@ const api = require("./src/utils/loadApi");
 const { brand } = api;
 const loadCommands = require("./src/handlers/loadCommands");
 const { deployCommands, deployGuildCommands } = require("./src/deploy-commands");
+const { startBotApi } = require("./src/bot-api");
 
 const token = process.env.DISCORD_TOKEN || process.env.TOKEN;
 if (!token || token.length < 50) {
@@ -20,7 +21,14 @@ if (!token || token.length < 50) {
   process.exit(1);
 }
 
-if (process.env.EMBED_API !== "0") {
+const embedApi = process.env.EMBED_API !== "0";
+
+/**
+ * Obscura layout:
+ * - EMBED_API=1 (default): Discord bot + full website API in one process (Railway-friendly)
+ * - EMBED_API=0: Discord bot + thin bot-api only; website API runs as a separate service
+ */
+if (embedApi) {
   try {
     api.startServer();
   } catch (err) {
@@ -62,7 +70,11 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 client.on("guildCreate", async (guild) => {
-  api.guilds.updateGuild(guild.id, { name: guild.name });
+  try {
+    await Promise.resolve(api.guilds.updateGuild(guild.id, { name: guild.name }));
+  } catch (err) {
+    console.warn("guildCreate update failed:", err.message);
+  }
   if (process.env.CLIENT_ID) {
     try {
       await deployGuildCommands(guild.id);
@@ -75,6 +87,13 @@ client.on("guildCreate", async (guild) => {
 
 client.once("ready", async () => {
   api.botBridge.setClient(client);
+  if (!embedApi) {
+    try {
+      startBotApi(client);
+    } catch (err) {
+      console.warn("bot-api failed to start:", err.message);
+    }
+  }
   console.log(`${brand.name} online as ${client.user.tag}`);
   client.user.setActivity(`${brand.prefix}help · /profile`, { type: 3 });
   if (process.env.CLIENT_ID) {

@@ -4,28 +4,42 @@ const { surface, danger } = require("../utils/embeds");
 
 module.exports = {
   name: "ask",
-  aliases: ["tsbl", "tsblask"],
+  aliases: ["tsbl", "tsblask", "pregunta"],
   slash: () =>
     new SlashCommandBuilder()
       .setName("ask")
-      .setDescription("Ask a TSBL / LATAM competitive rules question")
+      .setDescription("Pregunta de reglas TSBL / LATAM")
       .addStringOption((o) =>
-        o.setName("question").setDescription("Your TSBL question").setRequired(true).setMaxLength(800)
+        o.setName("question").setDescription("Tu pregunta de TSBL").setRequired(true).setMaxLength(800)
+      )
+      .addStringOption((o) =>
+        o
+          .setName("lang")
+          .setDescription("Idioma de la respuesta")
+          .addChoices(
+            { name: "Español", value: "es" },
+            { name: "English", value: "en" }
+          )
       ),
 
   async executePrefix(message, args) {
-    const question = args.join(" ").trim();
-    if (!question) {
+    const parsed = parseAskArgs(args);
+    if (!parsed.question) {
       return message.reply({
-        embeds: [danger("Usage", "`'ask <TSBL question>` — e.g. `'ask challenge cooldown`")],
+        embeds: [
+          danger(
+            "Uso",
+            "`'ask <pregunta TSBL>` — ej. `'ask cooldown de retos`\nInglés: `'ask en challenge cooldown`"
+          ),
+        ],
       });
     }
     const pending = await message.reply({
-      embeds: [surface({ title: "TSBL…", description: "Checking competitive rules." })],
+      embeds: [surface({ title: "TSBL…", description: "Revisando las reglas competitivas." })],
     });
     try {
-      const result = await api.coach.askTsbl({ question });
-      return pending.edit(formatAsk(result));
+      const result = await api.coach.askTsbl(parsed);
+      return pending.edit(formatAsk(result, parsed.lang));
     } catch (err) {
       return pending.edit({ embeds: [danger("Ask failed", err.message)] });
     }
@@ -33,19 +47,31 @@ module.exports = {
 
   async executeSlash(interaction) {
     const question = interaction.options.getString("question", true);
+    const lang = interaction.options.getString("lang") || undefined;
     await interaction.deferReply();
     try {
-      const result = await api.coach.askTsbl({ question });
-      return interaction.editReply(formatAsk(result));
+      const result = await api.coach.askTsbl({ question, lang });
+      return interaction.editReply(formatAsk(result, lang));
     } catch (err) {
       return interaction.editReply({ embeds: [danger("Ask failed", err.message)] });
     }
   },
 };
 
-function formatAsk(result) {
+function parseAskArgs(args) {
+  const raw = args.join(" ").trim();
+  const m = raw.match(/^(es|en|español|espanol|spanish|english|inglés|ingles)\s+(.+)$/i);
+  if (m) {
+    const tag = m[1].toLowerCase();
+    const lang = /^(en|english|inglés|ingles)$/.test(tag) ? "en" : "es";
+    return { question: m[2].trim(), lang };
+  }
+  return { question: raw };
+}
+
+function formatAsk(result, lang) {
   if (!result?.ok) {
-    return { embeds: [danger("TSBL Ask", result?.message || "Could not answer.")] };
+    return { embeds: [danger("TSBL", result?.message || "No se pudo responder.")] };
   }
   let body = String(result.answer || "").trim();
   body = body.replace(/^(on_topic|off_topic|refused|unknown)\s*[:\-]?\s*/i, "").trim() || body;
@@ -53,7 +79,7 @@ function formatAsk(result) {
   return {
     embeds: [
       surface({
-        title: "TSBL",
+        title: lang === "en" ? "TSBL" : "TSBL",
         description: body,
       }),
     ],

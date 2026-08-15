@@ -8,7 +8,7 @@ module.exports = {
       .setName("profile")
       .setDescription("View or create your TSB profile")
       .addUserOption((o) => o.setName("user").setDescription("Discord user").setRequired(false))
-      .addStringOption((o) => o.setName("query").setDescription("Roblox username or Discord ID").setRequired(false)),
+      .addStringOption((o) => o.setName("query").setDescription("Roblox username, Discord ID, or code (ACD)").setRequired(false)),
 
   async executePrefix(message, args) {
     const payload = await handleProfileCommand({

@@ -27,7 +27,7 @@ function profileEmbed(profile, extras = {}) {
     title: `Profile: ${profile.roblox_display_name || profile.display_name || profile.roblox_username || "Player"}`,
     thumbnail: profile.roblox_avatar_url,
     fields: [
-      { name: "ID", value: String(profile.profile_id || "—"), inline: true },
+      { name: "Code", value: `\`${profile.profile_id || "—"}\``, inline: true },
       { name: "Roblox", value: roblox, inline: true },
       { name: "Display", value: profile.roblox_display_name || profile.display_name || "—", inline: true },
       { name: "Main", value: profile.main_character || "—", inline: true },

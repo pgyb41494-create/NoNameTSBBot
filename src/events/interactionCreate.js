@@ -1,5 +1,6 @@
 const { handleSetupInteraction } = require("../systems/setupHub");
 const { handleProfileInteraction } = require("../systems/profileUI");
+const { handleRulesInteraction } = require("../commands/rules");
 
 module.exports = {
   async execute(interaction, client) {
@@ -13,5 +14,6 @@ module.exports = {
 
     if (await handleProfileInteraction(interaction)) return;
     if (await handleSetupInteraction(interaction)) return;
+    if (await handleRulesInteraction(interaction)) return;
   },
 };

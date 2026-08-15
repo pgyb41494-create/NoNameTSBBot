@@ -1,47 +1,41 @@
 const { SlashCommandBuilder } = require("discord.js");
-const api = require("../utils/loadApi");
-const { danger, ok } = require("../utils/embeds");
+const { recordScore } = require("../systems/tsb/score/system");
+const { danger } = require("../utils/embeds");
 const { isAdminOrOwner } = require("../utils/permissions");
-const { publishLeaderboard } = require("../systems/boardPublish");
 
 module.exports = {
   name: "score",
   slash: () =>
     new SlashCommandBuilder()
       .setName("score")
-      .setDescription("Record a 1v1 result")
+      .setDescription("Record a TSB 1v1 / clan match (bumps leaderboard when configured)")
+      .addStringOption((o) => o.setName("match_type").setDescription("Match type").setRequired(true)
+        .addChoices({ name: "1v1", value: "1v1" }, { name: "Clan", value: "Clan" }))
+      .addUserOption((o) => o.setName("participant_1").setDescription("First participant").setRequired(true))
+      .addUserOption((o) => o.setName("participant_2").setDescription("Second participant").setRequired(true))
+      .addStringOption((o) => o.setName("score").setDescription("Score e.g. 10-0").setRequired(true))
       .addUserOption((o) => o.setName("winner").setDescription("Winner").setRequired(true))
-      .addUserOption((o) => o.setName("loser").setDescription("Loser").setRequired(true))
-      .addStringOption((o) => o.setName("score").setDescription("e.g. 10-7").setRequired(true))
-      .addStringOption((o) => o.setName("region").setDescription("Region").setRequired(false)),
+      .addStringOption((o) => o.setName("region").setDescription("Region label").setRequired(false))
+      .addBooleanOption((o) => o.setName("crossregion").setDescription("Include cross-region details").setRequired(false))
+      .addStringOption((o) => o.setName("region_1").setDescription("Cross-region side 1 label").setRequired(false))
+      .addStringOption((o) => o.setName("region_1_score").setDescription("Cross-region side 1 score").setRequired(false))
+      .addUserOption((o) => o.setName("region_1_winner").setDescription("Cross-region side 1 winner").setRequired(false))
+      .addStringOption((o) => o.setName("region_2").setDescription("Cross-region side 2 label").setRequired(false))
+      .addStringOption((o) => o.setName("region_2_score").setDescription("Cross-region side 2 score").setRequired(false))
+      .addUserOption((o) => o.setName("region_2_winner").setDescription("Cross-region side 2 winner").setRequired(false))
+      .addStringOption((o) => o.setName("referees").setDescription("Referee mentions / names").setRequired(false))
+      .addStringOption((o) => o.setName("notes").setDescription("Notes (include auto for autowin)").setRequired(false)),
 
-  async executePrefix(message, args) {
+  async executePrefix(message) {
     if (!isAdminOrOwner(message.member, message.guild)) {
       return message.reply({ embeds: [danger("Missing permissions", "Staff only.")] });
     }
-    const users = [...message.mentions.users.values()];
-    if (users.length < 2) return message.reply({ embeds: [danger("Usage", "`'score @winner @loser 10-7`")] });
-    const score = args.find((a) => /\d+\s*-\s*\d+/.test(a)) || "1-0";
-    api.score.recordMatch(message.guild.id, {
-      winnerId: users[0].id,
-      loserId: users[1].id,
-      score,
+    return message.reply({
+      embeds: [danger("Use slash", "Use `/score` with match type, participants, score, and winner.")],
     });
-    await publishLeaderboard(message.guild).catch(() => {});
-    return message.reply({ embeds: [ok("Match recorded", `${users[0]} beat ${users[1]} · \`${score}\``)] });
   },
 
   async executeSlash(interaction) {
-    const winner = interaction.options.getUser("winner");
-    const loser = interaction.options.getUser("loser");
-    const score = interaction.options.getString("score");
-    api.score.recordMatch(interaction.guildId, {
-      winnerId: winner.id,
-      loserId: loser.id,
-      score,
-      region: interaction.options.getString("region"),
-    });
-    await publishLeaderboard(interaction.guild).catch(() => {});
-    return interaction.reply({ embeds: [ok("Match recorded", `${winner} beat ${loser} · \`${score}\``)] });
+    return recordScore(interaction);
   },
 };

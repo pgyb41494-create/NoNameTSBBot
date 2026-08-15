@@ -14,6 +14,7 @@ const { isOwner } = require("../utils/permissions");
 const { REGIONS } = api.regions;
 const { CHARACTERS } = api.characters;
 const { publishLeaderboard, publishLineup } = require("./boardPublish");
+const { profileDividerAttachment } = require("./profileDivider");
 
 const sessions = new Map();
 
@@ -26,7 +27,6 @@ function profileEmbed(profile, extras = {}) {
   const embed = surface({
     title: `Profile: ${profile.roblox_display_name || profile.display_name || profile.roblox_username || "Player"}`,
     thumbnail: profile.roblox_avatar_url,
-    image: brand.defaultGif || "https://developers.oneway.lat/evidencias/asa_3_1.gif",
     fields: [
       { name: "Code", value: `\`${profile.profile_id || "—"}\``, inline: true },
       { name: "Roblox", value: roblox, inline: true },
@@ -66,9 +66,11 @@ async function payloadFor(guild, userId) {
   if (!profile) return null;
   const stage = api.ranking.getStage(guild.id, userId) || "Unranked";
   const record = api.score.getRecord(guild.id, userId);
+  const divider = await profileDividerAttachment();
   return {
     embeds: [profileEmbed(profile, { stage, wins: record.wins, losses: record.losses })],
     components: [manageRow(userId)],
+    files: divider ? [divider] : [],
   };
 }
 

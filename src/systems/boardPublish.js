@@ -131,20 +131,34 @@ async function publishLineup(guild, regionKey = null) {
     if (!stored?.channelId) continue;
     const channel = await guild.channels.fetch(stored.channelId).catch(() => null);
     if (!channel) continue;
-    const embeds = (region.main.length ? region.main : []).map((card) =>
+    const mainEmbeds = (region.main.length ? region.main : []).map((card) =>
       cardEmbed(card, { mode: "lineup" })
     );
-    if (!embeds.length) continue;
-    const heading = `# Line Up - ${region.label}`;
-    if (stored.messageId) {
-      const msg = await channel.messages.fetch(stored.messageId).catch(() => null);
-      if (msg) {
-        await msg.edit({ content: heading, embeds: embeds.slice(0, 10) });
-        continue;
+    if (mainEmbeds.length) {
+      const heading = `# Line Up - ${region.label}`;
+      stored.messageId = await replaceMessage(channel, stored.messageId, {
+        content: heading,
+        embeds: mainEmbeds.slice(0, 10),
+      });
+    }
+
+    const subEmbeds = (region.sub?.length ? region.sub : []).map((card) =>
+      cardEmbed(card, { mode: "lineup" })
+    );
+    if (subEmbeds.length) {
+      const subChannelId = stored.subChannelId && stored.subChannelId !== stored.channelId
+        ? stored.subChannelId
+        : stored.channelId;
+      const subChannel = subChannelId === channel.id
+        ? channel
+        : await guild.channels.fetch(subChannelId).catch(() => null);
+      if (subChannel) {
+        stored.subMessageId = await replaceMessage(subChannel, stored.subMessageId, {
+          content: `# Sub Line Up - ${region.label}`,
+          embeds: subEmbeds.slice(0, 10),
+        });
       }
     }
-    const sent = await channel.send({ content: heading, embeds: embeds.slice(0, 10) });
-    stored.messageId = sent.id;
   }
   api.lineup.updateConfig(guild.id, { regions: cfg.regions, setupCompleted: true });
 }

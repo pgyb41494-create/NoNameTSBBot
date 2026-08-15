@@ -44,7 +44,9 @@ function buildLineupTips(guildId) {
     "Or commands:\n" +
     "```\n" +
     `${p}lineup add <region> <pos> @user\n` +
+    `${p}lineup replace <region> <pos> @user\n` +
     `${p}lineup remove <region> <pos>\n` +
+    `${p}lineup sub add <region> <pos> @user\n` +
     `${p}lineup publish <region|all>\n` +
     `${p}lineup list\n` +
     "```\n" +
@@ -210,12 +212,20 @@ async function ensureTipsMessage(channel, guildId, kind) {
       ) || null;
   }
 
+  let components = [];
+  if (kind === "lineup") {
+    try {
+      const { lineupBotComponents } = require("./tsb/lineup/botUI");
+      components = lineupBotComponents();
+    } catch {}
+  }
+
   if (tips) {
-    await tips.edit({ content, embeds: [], components: [] }).catch(async () => {
-      tips = await channel.send({ content });
+    await tips.edit({ content, embeds: [], components }).catch(async () => {
+      tips = await channel.send({ content, components });
     });
   } else {
-    tips = await channel.send({ content });
+    tips = await channel.send({ content, components });
   }
 
   await tips.pin().catch(() => {});
@@ -269,12 +279,14 @@ function resolveManagementKind(channel, guildId) {
 
   if (
     (lb.managementChannelId && channel.id === lb.managementChannelId) ||
+    channel.name === "tsb-boards" ||
     channel.name === "ascendant-boards"
   ) {
     return "leaderboard";
   }
   if (
     (lu.managementChannelId && channel.id === lu.managementChannelId) ||
+    channel.name === "tsb-lineups" ||
     channel.name === "ascendant-lineups"
   ) {
     return "lineup";

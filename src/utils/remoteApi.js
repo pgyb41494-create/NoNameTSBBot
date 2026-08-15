@@ -105,6 +105,8 @@ module.exports = {
   ranking: {
     getConfig: (guildId) => req(`/api/bot/ranking/${guildId}`),
     updateConfig: (guildId, body) => req(`/api/bot/ranking/${guildId}`, { method: "POST", body }),
+    setConfig: (guildId, body) => req(`/api/bot/ranking/${guildId}`, { method: "POST", body: { ...body, setupCompleted: true } }),
+    resetConfig: (guildId) => req(`/api/bot/ranking/${guildId}`, { method: "POST", body: { setupCompleted: false } }),
     setStage: (guildId, userId, stage, moderatorId) =>
       req(`/api/bot/ranking/${guildId}/stage`, { method: "POST", body: { userId, stage, moderatorId } }),
     getStage: async (guildId, userId) => {
@@ -117,6 +119,35 @@ module.exports = {
     updateConfig: (guildId, body) => req(`/api/bot/score-config/${guildId}`, { method: "POST", body }),
     getRecord: (guildId, userId) => req(`/api/bot/score/${guildId}/${userId}`),
     recordMatch: (guildId, body) => req(`/api/bot/score/${guildId}`, { method: "POST", body }),
+    getPlayerState: async (guildId, userId) => {
+      const cfg = await req(`/api/bot/score-config/${guildId}`).catch(() => ({ playerState: {} }));
+      return cfg.playerState?.[String(userId)] || {
+        lastMatchAt: null,
+        lastResult: null,
+        cooldownUntil: null,
+        autowinStrikes: 0,
+      };
+    },
+    setPlayerState: async (guildId, userId, patch) => {
+      const cfg = await req(`/api/bot/score-config/${guildId}`).catch(() => ({ playerState: {} }));
+      const playerState = { ...(cfg.playerState || {}) };
+      playerState[String(userId)] = { ...(playerState[String(userId)] || {}), ...patch };
+      return req(`/api/bot/score-config/${guildId}`, { method: "POST", body: { playerState } });
+    },
+    pushMatch: async (guildId, match) => {
+      const cfg = await req(`/api/bot/score-config/${guildId}`).catch(() => ({ matches: [] }));
+      const matches = [match, ...(cfg.matches || [])].slice(0, 100);
+      return req(`/api/bot/score-config/${guildId}`, { method: "POST", body: { matches } });
+    },
+  },
+  tryouts: {
+    getSettings: (guildId) => req(`/api/bot/tryouts/${guildId}`),
+    patchSettings: (guildId, body) => req(`/api/bot/tryouts/${guildId}`, { method: "POST", body }),
+    saveSession: (guildId, session) => req(`/api/bot/tryouts/${guildId}/session`, { method: "POST", body: session }),
+    listSessions: async (guildId) => {
+      const cfg = await req(`/api/bot/tryouts/${guildId}`).catch(() => ({ sessions: {} }));
+      return Object.values(cfg.sessions || {});
+    },
   },
   blacklist: {
     getList: (guildId) => req(`/api/bot/blacklist/${guildId}`),

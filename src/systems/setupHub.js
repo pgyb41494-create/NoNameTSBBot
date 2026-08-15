@@ -11,7 +11,7 @@ const { surface, danger, brand } = require("../utils/embeds");
 const { isAdminOrOwner } = require("../utils/permissions");
 const { publishLeaderboard, publishLineup } = require("./boardPublish");
 const { listThemes, resolveTheme } = require("./leaderboardThemes");
-const { ensureTipsMessage, handleManagementDraft } = require("./mgmtDraft");
+const { ensureTipsMessage, handleManagementDraft, sweepIfManagementChannel } = require("./mgmtDraft");
 
 const HUB_ID = "asc:hub";
 const THEME_ID = "asc:lb:theme";
@@ -309,4 +309,11 @@ async function handleDraftMessage(message) {
   return Boolean(result.handled);
 }
 
-module.exports = { HUB_ID, hubPayload, handleSetupInteraction, handleDraftMessage };
+const { hubPayload: tsbHubPayload } = require("./tsb/hub");
+
+module.exports = {
+  HUB_ID: "tsb:hub",
+  hubPayload: tsbHubPayload,
+  handleSetupInteraction,
+  handleDraftMessage,
+};

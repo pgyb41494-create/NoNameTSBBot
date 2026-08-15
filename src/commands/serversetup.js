@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
-const { hubPayload } = require("../systems/setupHub");
+const { hubPayload } = require("../systems/tsb/hub");
 const { danger } = require("../utils/embeds");
 const { isAdminOrOwner } = require("../utils/permissions");
 const { brand } = require("../utils/loadApi");
@@ -10,7 +10,7 @@ module.exports = {
   slash: () =>
     new SlashCommandBuilder()
       .setName("serversetup")
-      .setDescription("Configure leaderboard, lineup, ranking, and score boards")
+      .setDescription("Configure TSB Systems (leaderboard, ranking, score, lineups, tryouts)")
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async executePrefix(message) {

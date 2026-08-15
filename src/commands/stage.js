@@ -1,9 +1,21 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 const api = require("../utils/loadApi");
-const { danger, ok } = require("../utils/embeds");
+const { danger } = require("../utils/embeds");
 const { isAdminOrOwner } = require("../utils/permissions");
-const { publishLeaderboard, publishLineup } = require("../systems/boardPublish");
-const { parseStage, tryoutAssignCap, isStageAtMost } = require("../../api/lib/stages");
+const { parseStage, tryoutAssignCap, isStageAtMost, splitStageParts } = require("../../api/lib/stages");
+const {
+  applyStageRoles,
+  buildStageRankingLogEmbed,
+  maybeLogStage,
+  maybeRefreshBoards,
+} = require("../systems/tsb/ranking/applyStage");
+const { getRankingConfig, canUseRanking } = require("../systems/tsb/ranking/config");
+
+function canAssignStage(member, guild) {
+  if (isAdminOrOwner(member, guild)) return true;
+  if (member?.permissions?.has?.(PermissionFlagsBits.ManageRoles)) return true;
+  return canUseRanking(member, guild);
+}
 
 module.exports = {
   name: "stage",
@@ -11,13 +23,14 @@ module.exports = {
   slash: () =>
     new SlashCommandBuilder()
       .setName("stage")
-      .setDescription("Set a player's TSB phase/stage (tryout assign)")
+      .setDescription("Assign stage / tier / sub-tier roles like Obscura ranking")
       .addUserOption((o) => o.setName("user").setDescription("Player").setRequired(true))
-      .addStringOption((o) => o.setName("stage").setDescription("e.g. 2 High Weak").setRequired(true))
+      .addStringOption((o) => o.setName("stage").setDescription("e.g. 2 High Weak or 1 applicant").setRequired(true))
+      .addStringOption((o) => o.setName("notes").setDescription("Optional ranking-log notes").setRequired(false))
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
 
   async executePrefix(message, args) {
-    if (!isAdminOrOwner(message.member, message.guild)) {
+    if (!canAssignStage(message.member, message.guild)) {
       return message.reply({ embeds: [danger("Missing permissions", "Staff only.")] });
     }
     const user = message.mentions.users.first();
@@ -25,34 +38,38 @@ module.exports = {
     if (!user || !stage) {
       return message.reply({ embeds: [danger("Usage", "`'stage @user 2 High Weak`")] });
     }
-    return applyStage(message, message.guild.id, user, stage, message.author.id, message.member);
+    return applyStageCommand(message, message.guild, user, stage, message.author, message.member);
   },
 
   async executeSlash(interaction) {
+    if (!canAssignStage(interaction.member, interaction.guild)) {
+      return interaction.reply({ embeds: [danger("Missing permissions", "Staff only.")], ephemeral: true });
+    }
     const user = interaction.options.getUser("user");
     const stage = interaction.options.getString("stage");
-    return applyStage(
+    const notes = interaction.options.getString("notes");
+    return applyStageCommand(
       interaction,
-      interaction.guildId,
+      interaction.guild,
       user,
       stage,
-      interaction.user.id,
-      interaction.member
+      interaction.user,
+      interaction.member,
+      notes
     );
   },
 };
 
-async function applyStage(ctx, guildId, user, stageInput, moderatorId, moderatorMember) {
-  const parsed = parseStage(stageInput);
-  if (!parsed) {
-    return reply(ctx, danger("Invalid stage", "Use e.g. `2 High Weak` or `phase 2 mid stable`."));
+async function applyStageCommand(ctx, guild, user, stageInput, actor, actorMember, notes) {
+  const parts = splitStageParts(stageInput);
+  if (!parts) {
+    return reply(ctx, danger("Invalid stage", "Use e.g. `2 High Weak` or `1 applicant`."));
   }
 
-  // Soft tryout cap: assigner cannot give above their own stage, and never above 2 High Strong if they are Phase 0/1.
-  const assignerStage = api.ranking.getStage(guildId, moderatorId);
-  if (assignerStage && parsed !== "Applicant") {
+  const assignerStage = api.ranking.getStage(guild.id, actor.id);
+  if (assignerStage && !parts.asApplicant) {
     const cap = tryoutAssignCap(assignerStage);
-    if (!isStageAtMost(parsed, cap)) {
+    if (!isStageAtMost(parts.text, cap)) {
       return reply(
         ctx,
         danger(
@@ -63,21 +80,51 @@ async function applyStage(ctx, guildId, user, stageInput, moderatorId, moderator
     }
   }
 
-  api.ranking.setStage(guildId, user.id, parsed, moderatorId);
-  const guild = ctx.guild || (await ctx.client.guilds.fetch(guildId).catch(() => null));
-  if (guild) {
-    await publishLeaderboard(guild).catch(() => {});
-    await publishLineup(guild).catch(() => {});
+  const member = await guild.members.fetch(user.id).catch(() => null);
+  if (!member) {
+    return reply(ctx, danger("Not in server", "That user is not in this server."));
   }
-  return reply(
-    ctx,
-    ok("Stage set", `${user} → **${api.ranking.getStage(guildId, user.id)}**`)
-  );
+
+  const tsbRanking = getRankingConfig(guild.id);
+  const { assigned, failed, phaseRole } = await applyStageRoles({
+    guild,
+    member,
+    actorTag: actor.username,
+    phaseNum: parts.phaseNum,
+    tier: parts.tier,
+    subtier: parts.subtier,
+    asApplicant: parts.asApplicant,
+    tsbRanking,
+  });
+
+  api.ranking.setStage(guild.id, user.id, parts.text, actor.id);
+
+  const resultEmbed = await buildStageRankingLogEmbed({
+    guild,
+    member,
+    evaluator: actor,
+    phaseNum: parts.phaseNum,
+    tier: parts.tier,
+    subtier: parts.subtier,
+    asApplicant: parts.asApplicant,
+    notes: notes || "-",
+    tsbRanking,
+    phaseRole,
+    assigned,
+    failed,
+  });
+
+  await maybeLogStage(guild, tsbRanking, resultEmbed);
+  maybeRefreshBoards(guild, user.id);
+
+  return reply(ctx, resultEmbed, { raw: true });
 }
 
-function reply(ctx, embed) {
+function reply(ctx, embed, { raw = false } = {}) {
+  const payload = raw ? { embeds: [embed] } : { embeds: [embed] };
   if (typeof ctx.reply === "function") {
-    return ctx.reply({ embeds: [embed] });
+    if (ctx.deferred && typeof ctx.editReply === "function") return ctx.editReply(payload);
+    return ctx.reply(payload);
   }
   return Promise.resolve();
 }

@@ -72,7 +72,10 @@ module.exports = {
             { name: "Fair play", value: "fairplay" },
             { name: "Conducta / 1v1", value: "conduct" },
             { name: "Tryouts", value: "tryouts" },
-            { name: "Phases", value: "phases" }
+            { name: "Phases", value: "phases" },
+            { name: "Clanes", value: "clans" },
+            { name: "Gladiators", value: "glads" },
+            { name: "Autowin strikes", value: "autowin" }
           )
       )
       .addStringOption((o) =>
@@ -113,6 +116,9 @@ function parseRulesArgs(args) {
 
 function normalizeSection(raw) {
   const t = String(raw || "").toLowerCase();
+  if (/clan|tag|roster|registro/.test(t)) return "clans";
+  if (/glad|gladiator|3v3|7v7|ping/.test(t)) return "glads";
+  if (/autowin|strike|clumsy|suspen/.test(t)) return "autowin";
   if (/fair|fflag|blox|macro|exploit|fps|cliente|trampas/.test(t)) return "fairplay";
   if (/conduct|passive|run|character|ultimate|1v1|pasiv|correr|personaje/.test(t)) return "conduct";
   if (/tryout|host|ft3|ft5/.test(t)) return "tryouts";

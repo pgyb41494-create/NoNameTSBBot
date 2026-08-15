@@ -26,6 +26,7 @@ function profileEmbed(profile, extras = {}) {
   const embed = surface({
     title: `Profile: ${profile.roblox_display_name || profile.display_name || profile.roblox_username || "Player"}`,
     thumbnail: profile.roblox_avatar_url,
+    image: brand.defaultGif || "https://developers.oneway.lat/evidencias/asa_3_1.gif",
     fields: [
       { name: "Code", value: `\`${profile.profile_id || "—"}\``, inline: true },
       { name: "Roblox", value: roblox, inline: true },
@@ -35,6 +36,7 @@ function profileEmbed(profile, extras = {}) {
       { name: "Country", value: profile.country ? `${profile.country} ${profile.country_flag || ""}`.trim() : "—", inline: true },
       { name: "Stage", value: extras.stage || "Unranked", inline: true },
       { name: "Record", value: `${extras.wins || 0}W · ${extras.losses || 0}L`, inline: true },
+      { name: "\u200b", value: "\u200b", inline: true },
     ],
   });
   return embed;

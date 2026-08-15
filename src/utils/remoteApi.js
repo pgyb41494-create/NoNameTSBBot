@@ -137,6 +137,8 @@ module.exports = {
   },
   coach: {
     reviewClip: (body) => req(`/api/bot/coach/review`, { method: "POST", body }),
+    askTsbl: ({ question } = {}) =>
+      req(`/api/bot/coach/ask`, { method: "POST", body: { question } }),
   },
   snapshot: {
     publicSnapshot: (guildId) => req(`/api/bot/snapshot/${guildId}`),

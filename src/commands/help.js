@@ -26,6 +26,7 @@ function helpEmbed() {
       "**Profile & coach**",
       `\`/profile\` · \`${p}profile\``,
       `\`/tsbcoach\` · \`${p}tsbcoach\` (aliases: coach, vod)`,
+      `\`${p}ask\` / \`/ask\` — TSBL competitive rules Q&A`,
       "",
       "**Boards**",
       `\`${p}tsbtop\` / \`/tsbtop\` (alias: top)`,

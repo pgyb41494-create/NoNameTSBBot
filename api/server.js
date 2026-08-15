@@ -129,6 +129,15 @@ function createApp() {
   bot.post("/coach/review", async (req, res) => {
     try {
       const result = await coach.reviewClip(req.body || {});
+
+  bot.post("/coach/ask", async (req, res) => {
+    try {
+      const result = await coach.askTsbl(req.body?.question || req.body?.q || "");
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
       res.json(result);
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });

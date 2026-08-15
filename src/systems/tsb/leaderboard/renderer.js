@@ -24,12 +24,13 @@ function pageChannelName(start, end, suffix) {
   return `top-${start}-${end}-${safe}`;
 }
 
-async function getOrCreatePageChannel(guild, start, end, cfg, existingPage = null) {
+async function getOrCreatePageChannel(guild, start, end, cfg, existingPage = null, { create = true } = {}) {
   const name = pageChannelName(start, end, cfg.suffix);
   if (existingPage?.channelId) {
     const existing = await guild.channels.fetch(existingPage.channelId).catch(() => null);
     if (existing?.isTextBased?.()) return existing;
   }
+  if (!create) return null;
   const byName = guild.channels.cache.find((c) => c.name === name && c.isTextBased?.());
   if (byName) return byName;
   return guild.channels.create({
@@ -40,8 +41,11 @@ async function getOrCreatePageChannel(guild, start, end, cfg, existingPage = nul
   });
 }
 
-async function upsertLeaderboard(guild) {
+async function upsertLeaderboard(guild, { createChannels = true } = {}) {
   const cfg = getLeaderboardConfig(guild.id);
+  if (!createChannels && !cfg.setupCompleted && !(cfg.publicChannelIds || []).length) {
+    return { skipped: true, boardPages: [], channelId: null, messageIds: {} };
+  }
   const total = Math.max(1, Math.min(MAX_TOP, cfg.topPerChannel || cfg.slotCount || 10));
   ensureSlots(guild.id, total);
   const ranges = getPageRanges(total);
@@ -51,9 +55,16 @@ async function upsertLeaderboard(guild) {
 
   for (const range of ranges) {
     const prior = previousPages.find((p) => p.start === range.start && p.end === range.end);
-    const channel = await getOrCreatePageChannel(guild, range.start, range.end, cfg, prior);
+    const channel = await getOrCreatePageChannel(guild, range.start, range.end, cfg, prior, {
+      create: createChannels,
+    });
+    if (!channel) continue;
     publicChannelIds.push(channel.id);
     boardPages.push({ start: range.start, end: range.end, channelId: channel.id });
+  }
+
+  if (!publicChannelIds.length) {
+    return { skipped: true, boardPages: [], channelId: null, messageIds: {} };
   }
 
   updateLeaderboardConfig(guild.id, {
@@ -75,7 +86,18 @@ async function upsertLeaderboard(guild) {
 }
 
 async function refreshLeaderboard(guild) {
-  return upsertLeaderboard(guild);
+  const cfg = getLeaderboardConfig(guild.id);
+  const hasChannels = (cfg.publicChannelIds || []).length || cfg.publicChannelId || cfg.leaderboardChannelId;
+  if (!cfg.setupCompleted && !hasChannels) {
+    return { skipped: true, boardPages: [], channelId: null, messageIds: {} };
+  }
+  await publishLeaderboard(guild);
+  return {
+    channelId: cfg.leaderboardChannelId || cfg.publicChannelIds?.[0] || null,
+    boardPages: cfg.boardPages || [],
+    messageIds: cfg.messageIds || {},
+    edited: true,
+  };
 }
 
 module.exports = {

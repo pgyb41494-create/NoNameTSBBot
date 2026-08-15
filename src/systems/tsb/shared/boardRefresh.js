@@ -16,7 +16,7 @@ async function refreshUserBoards(guild, discordId) {
       const onMain = (region.slots || []).some((s) => String(s.discordId || "") === id);
       const onSub = (region.subSlots || []).some((s) => String(s.discordId || "") === id);
       if (!onMain && !onSub) continue;
-      await publishRegionLineup(guild, key);
+      await publishRegionLineup(guild, key, { createChannels: false });
       results.lineup.push(key);
     }
   } catch (err) {
@@ -26,7 +26,7 @@ async function refreshUserBoards(guild, discordId) {
   try {
     const lb = getLeaderboardConfig(guild.id);
     const onBoard = (lb.slots || []).some((s) => String(s.discordId || "") === id);
-    if (onBoard) results.leaderboard = await refreshLeaderboard(guild);
+    if (onBoard && lb.setupCompleted) results.leaderboard = await refreshLeaderboard(guild);
   } catch (err) {
     console.warn("[BoardRefresh] leaderboard refresh failed:", err.message);
   }

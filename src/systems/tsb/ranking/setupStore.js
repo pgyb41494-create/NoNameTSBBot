@@ -1085,7 +1085,7 @@ async function finishAndSave(interaction) {
     const { stageUsageLines } = require("./parseStageInput");
     const usage = stageUsageLines(prefix, cmd, { ...data, regionRequired: false });
 
-    // Refresh live boards so rank/cooldown labels pick up the new ranking config
+    // Refresh existing boards only — ranking must never create leaderboard/lineup channels.
     setImmediate(() => {
         try {
             const { refreshLeaderboard } = require("../leaderboard/renderer");
@@ -1093,7 +1093,7 @@ async function finishAndSave(interaction) {
         } catch {}
         try {
             const { publishAllLineups } = require("../lineup/renderer");
-            publishAllLineups(interaction.guild).catch(() => {});
+            publishAllLineups(interaction.guild, { createChannels: false }).catch(() => {});
         } catch {}
     });
 
@@ -1101,11 +1101,10 @@ async function finishAndSave(interaction) {
         embeds: [{
             title: "Ranking configured",
             description:
-                "Ranking system saved.\n\n" +
+                "Ranking system saved. This only creates **roles**, not channels.\n\n" +
                 configSummary(data, prefix) +
                 "\n\n**Command usage**\n" +
-                usage.map((line) => `> ${line}`).join("\n") +
-                "\n\n_Refreshing boards / lineups in the background…_",
+                usage.map((line) => `> ${line}`).join("\n"),
             color: 0x57F287
         }],
         components: []

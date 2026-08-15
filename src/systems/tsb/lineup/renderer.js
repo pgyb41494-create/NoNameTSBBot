@@ -33,7 +33,7 @@ function buildLineupListDescription(cfg) {
     .join("\n");
 }
 
-async function resolveOrCreateLineupChannel(guild, region, board) {
+async function resolveOrCreateLineupChannel(guild, region, board, { create = true } = {}) {
   const cfg = getLineupConfig(guild.id);
   const separateSub = !!cfg.separateSubChannels;
   const isSub = board === "sub";
@@ -49,23 +49,23 @@ async function resolveOrCreateLineupChannel(guild, region, board) {
     }
   }
   if (isSub && !separateSub) {
-    return resolveOrCreateLineupChannel(guild, region, "main");
+    return resolveOrCreateLineupChannel(guild, region, "main", { create });
   }
   const name = isSub
     ? `tsb-lineup-${region.key}-sub`.toLowerCase()
     : `tsb-lineup-${region.key}`.toLowerCase();
-  return (
-    guild.channels.cache.find((c) => c.name === name && c.isTextBased?.()) ||
-    guild.channels.create({
-      name,
-      type: ChannelType.GuildText,
-      topic: isSub ? `Sub Line Up ${region.label}` : `Line Up ${region.label}`,
-      reason: "TSB lineup publish",
-    })
-  );
+  if (!create) return null;
+  const byName = guild.channels.cache.find((c) => c.name === name && c.isTextBased?.());
+  if (byName) return byName;
+  return guild.channels.create({
+    name,
+    type: ChannelType.GuildText,
+    topic: isSub ? `Sub Line Up ${region.label}` : `Line Up ${region.label}`,
+    reason: "TSB lineup publish",
+  });
 }
 
-async function publishRegionLineup(guild, regionKey) {
+async function publishRegionLineup(guild, regionKey, { createChannels = true } = {}) {
   const cfg = getLineupConfig(guild.id);
   ensureRegions(
     guild.id,
@@ -76,29 +76,36 @@ async function publishRegionLineup(guild, regionKey) {
   let region = getRegion(guild.id, regionKey);
   if (!region) throw new Error(`Unknown region: ${regionKey}`);
 
+  if (!createChannels && !region.channelId && !region.subChannelId) return null;
+
   const separateSub = !!cfg.separateSubChannels;
-  const mainChannel = await resolveOrCreateLineupChannel(guild, region, "main");
+  const mainChannel = await resolveOrCreateLineupChannel(guild, region, "main", {
+    create: createChannels,
+  });
+  if (!mainChannel) return null;
   const subChannel = separateSub
-    ? await resolveOrCreateLineupChannel(guild, region, "sub")
+    ? await resolveOrCreateLineupChannel(guild, region, "sub", { create: createChannels })
     : mainChannel;
 
   const regions = { ...getLineupConfig(guild.id).regions };
   regions[regionKey] = {
     ...regions[regionKey],
     channelId: mainChannel.id,
-    subChannelId: separateSub ? subChannel.id : mainChannel.id,
+    subChannelId: (separateSub ? subChannel?.id : mainChannel.id) || mainChannel.id,
   };
-  updateLineupConfig(guild.id, { regions, setupCompleted: true });
+  updateLineupConfig(guild.id, { regions, setupCompleted: createChannels ? true : cfg.setupCompleted });
 
   await publishLineup(guild, regionKey);
   return { channel: mainChannel, subChannel };
 }
 
-async function publishAllLineups(guild) {
+async function publishAllLineups(guild, { createChannels = true } = {}) {
   const cfg = getLineupConfig(guild.id);
+  if (!createChannels && !cfg.setupCompleted) return [];
   const results = [];
   for (const key of cfg.enabledRegionKeys || Object.keys(cfg.regions || {})) {
-    results.push(await publishRegionLineup(guild, key));
+    const published = await publishRegionLineup(guild, key, { createChannels });
+    if (published) results.push(published);
   }
   return results;
 }

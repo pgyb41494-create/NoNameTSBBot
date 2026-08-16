@@ -7,38 +7,62 @@ const {
   TextInputStyle,
   StringSelectMenuBuilder,
   PermissionFlagsBits,
+  EmbedBuilder,
 } = require("discord.js");
 const api = require("../utils/loadApi");
 const { surface, danger, ok, brand } = require("../utils/embeds");
 const { isOwner } = require("../utils/permissions");
 const { REGIONS } = api.regions;
 const { CHARACTERS } = api.characters;
-const { publishLeaderboard, publishLineup } = require("./boardPublish");
 const { profileDividerAttachment } = require("./profileDivider");
+const { resolveCountry } = require("./profileCountries");
 
 const sessions = new Map();
 
+function maybe(value) {
+  return Promise.resolve(value);
+}
+
 function profileEmbed(profile, extras = {}) {
-  const roblox = profile.roblox_username
-    ? profile.roblox_id
-      ? `[@${profile.roblox_username}](https://www.roblox.com/users/${profile.roblox_id}/profile)`
-      : `@${profile.roblox_username}`
-    : "—";
-  const embed = surface({
-    title: `Profile: ${profile.roblox_display_name || profile.display_name || profile.roblox_username || "Player"}`,
-    thumbnail: profile.roblox_avatar_url,
-    fields: [
-      { name: "Code", value: `\`${profile.profile_id || "—"}\``, inline: true },
-      { name: "Roblox", value: roblox, inline: true },
-      { name: "Display", value: profile.roblox_display_name || profile.display_name || "—", inline: true },
-      { name: "Main", value: profile.main_character || "—", inline: true },
+  const titleName =
+    profile.display_name || profile.roblox_display_name || profile.roblox_username || "Player";
+  const robloxUsername = profile.roblox_username || "—";
+  const robloxUrl = profile.roblox_id
+    ? `https://www.roblox.com/users/${profile.roblox_id}/profile`
+    : null;
+  const country = profile.country_flag
+    ? `${profile.country_flag} ${profile.country || ""}`.trim()
+    : profile.country || "—";
+  const record =
+    extras.wins || extras.losses
+      ? `> **Record:** ${extras.wins || 0}W · ${extras.losses || 0}L`
+      : "> No scored matches yet";
+
+  const embed = new EmbedBuilder()
+    .setColor(brand.color || 0x2b2d31)
+    .setTitle(`Profile: ${titleName}`)
+    .addFields(
+      { name: "Display Name", value: profile.display_name || "—", inline: true },
+      {
+        name: "Roblox",
+        value: robloxUrl ? `[@${robloxUsername}](${robloxUrl})` : robloxUsername,
+        inline: true,
+      },
+      { name: "Roblox Display Name", value: profile.roblox_display_name || "—", inline: true },
+      { name: "Main Character", value: profile.main_character || "—", inline: true },
       { name: "Region", value: api.regions.regionLabel(profile.region), inline: true },
-      { name: "Country", value: profile.country ? `${profile.country} ${profile.country_flag || ""}`.trim() : "—", inline: true },
-      { name: "Stage", value: extras.stage || "Unranked", inline: true },
-      { name: "Record", value: `${extras.wins || 0}W · ${extras.losses || 0}L`, inline: true },
-      { name: "\u200b", value: "\u200b", inline: true },
-    ],
-  });
+      { name: "Country", value: country, inline: true },
+      { name: "Stage", value: extras.stage || "No stage", inline: true },
+      { name: "Code", value: `\`${profile.profile_id || "—"}\``, inline: true },
+      { name: "1v1 Score", value: record, inline: false }
+    )
+    .setFooter({ text: "Profile system" })
+    .setTimestamp();
+
+  if (profile.roblox_avatar_url) {
+    embed.setThumbnail(profile.roblox_avatar_url);
+    embed.setAuthor({ name: titleName, iconURL: profile.roblox_avatar_url });
+  }
   return embed;
 }
 
@@ -62,15 +86,23 @@ function manageRow(userId, admin = false) {
 }
 
 async function payloadFor(guild, userId) {
-  const profile = api.profiles.getProfile(guild.id, userId);
+  const profile = await maybe(api.profiles.getProfile(guild.id, userId));
   if (!profile) return null;
-  const stage = api.ranking.getStage(guild.id, userId) || "Unranked";
-  const record = api.score.getRecord(guild.id, userId);
+  const stage = (await maybe(api.ranking.getStage(guild.id, userId))) || "Unranked";
+  const record = (await maybe(api.score.getRecord(guild.id, userId))) || { wins: 0, losses: 0 };
+  const embed = profileEmbed(profile, { stage, wins: record.wins, losses: record.losses });
+  const files = [];
   const divider = await profileDividerAttachment();
+  if (divider) {
+    embed.setImage("attachment://profile-divider.png");
+    files.push(divider);
+  } else if (brand.defaultGif) {
+    embed.setImage(brand.defaultGif);
+  }
   return {
-    embeds: [profileEmbed(profile, { stage, wins: record.wins, losses: record.losses })],
+    embeds: [embed],
     components: [manageRow(userId)],
-    files: divider ? [divider] : [],
+    files,
   };
 }
 
@@ -80,12 +112,150 @@ function createModal() {
     .setTitle("Create profile")
     .addComponents(
       new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId("display_name").setLabel("Display name").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(32)
+        new TextInputBuilder()
+          .setCustomId("display_name")
+          .setLabel("Display name")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(32)
       ),
       new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId("roblox_username").setLabel("Roblox username").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(32)
+        new TextInputBuilder()
+          .setCustomId("roblox_username")
+          .setLabel("Roblox username")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(32)
       )
     );
+}
+
+function countryModal() {
+  return new ModalBuilder()
+    .setCustomId("asc:profile:country")
+    .setTitle("Select country")
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("country_name")
+          .setLabel("Country name")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setPlaceholder("e.g. Brazil")
+          .setMaxLength(40)
+      )
+    );
+}
+
+function regionRow() {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId("asc:profile:region")
+      .setPlaceholder("Select your primary region")
+      .addOptions(REGIONS.slice(0, 25).map((r) => ({ label: r.label, value: r.value })))
+  );
+}
+
+function characterRow() {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId("asc:profile:character")
+      .setPlaceholder("Select your main character")
+      .addOptions(CHARACTERS.map((c) => ({ label: c, value: c })))
+  );
+}
+
+function registerPrompt(userId) {
+  return {
+    embeds: [
+      surface({
+        title: "Profile setup",
+        description: "You are not registered yet. Would you like to create your profile now?",
+      }),
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`asc:profile:yes:${userId}`)
+          .setLabel("Yes, register me")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`asc:profile:no:${userId}`)
+          .setLabel("No")
+          .setStyle(ButtonStyle.Secondary)
+      ),
+    ],
+  };
+}
+
+function verificationRequired(guildId) {
+  try {
+    const { getLeaderboardConfig } = require("./tsb/leaderboard/config");
+    const cfg = getLeaderboardConfig(guildId);
+    if (cfg && typeof cfg.then === "function") return true;
+    return cfg.requireRobloxVerification !== false;
+  } catch {
+    return true;
+  }
+}
+
+function genVerifyCode() {
+  const chars = "ABCDEF0123456789";
+  let code = "";
+  for (let i = 0; i < 6; i += 1) code += chars[Math.floor(Math.random() * chars.length)];
+  return `${String(brand.name || "ASCENDANT").replace(/\s+/g, "").toUpperCase()}-${code}`;
+}
+
+function refreshBoards(guild, userId) {
+  try {
+    const { refreshUserBoardsBackground } = require("./tsb/shared/boardRefresh");
+    refreshUserBoardsBackground(guild, userId);
+  } catch {}
+}
+
+async function persistSession(guild, userId, session) {
+  await maybe(
+    api.profiles.saveProfile(guild.id, userId, {
+      display_name: session.displayName,
+      roblox_username: session.roblox.name,
+      roblox_display_name: session.roblox.displayName,
+      roblox_id: session.roblox.id,
+      roblox_avatar_url: session.roblox.avatarUrl,
+      region: session.region || null,
+      country: session.country?.name || null,
+      country_flag: session.country?.flag || null,
+      main_character: session.mainCharacter || null,
+      verified_at: new Date().toISOString(),
+    })
+  );
+  sessions.delete(userId);
+  refreshBoards(guild, userId);
+  return payloadFor(guild, userId);
+}
+
+function verifyPayload(session) {
+  return {
+    content: null,
+    embeds: [
+      surface({
+        title: "Verify Roblox",
+        thumbnail: session.roblox?.avatarUrl,
+        description:
+          `Found **${session.roblox.displayName}** (@${session.roblox.name}).\n\n` +
+          `Add this exact phrase to your Roblox **About / bio**, then confirm within 10 minutes:\n\n\`${session.code}\``,
+      }),
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("asc:profile:verify").setLabel("I added it").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId("asc:profile:verify:cancel").setLabel("Cancel").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setLabel("Open Roblox")
+          .setStyle(ButtonStyle.Link)
+          .setURL(`https://www.roblox.com/users/${session.roblox.id}/profile`)
+      ),
+    ],
+  };
 }
 
 async function handleProfileCommand({ guild, actor, targetUser, query, member }) {
@@ -94,37 +264,25 @@ async function handleProfileCommand({ guild, actor, targetUser, query, member })
 
   if (targetUser) {
     userId = targetUser.id;
-    profile = api.profiles.getProfile(guild.id, userId);
+    profile = await maybe(api.profiles.getProfile(guild.id, userId));
   } else if (query) {
     const mention = query.match(/^<@!?(\d+)>$/) || query.match(/^(\d{17,19})$/);
     if (mention) {
       userId = mention[1];
-      profile = api.profiles.getProfile(guild.id, userId);
+      profile = await maybe(api.profiles.getProfile(guild.id, userId));
     } else {
-      profile = api.profiles.findByRoblox(guild.id, query);
+      profile = await maybe(api.profiles.findByRoblox(guild.id, query));
       if (profile) userId = profile.discord_id;
     }
   } else {
-    profile = api.profiles.getProfile(guild.id, actor.id);
+    profile = await maybe(api.profiles.getProfile(guild.id, actor.id));
   }
 
   if (!profile) {
     if (userId !== actor.id) {
       return { embeds: [danger("No profile", "That player has not created a profile.")] };
     }
-    return {
-      embeds: [
-        surface({
-          title: "Create your profile",
-          description: "Link Roblox so leaderboard cards, lineups, and **TSB AI Coach** can confirm it's you.",
-        }),
-      ],
-      components: [
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId("asc:profile:start").setLabel("Create profile").setStyle(ButtonStyle.Primary)
-        ),
-      ],
-    };
+    return registerPrompt(actor.id);
   }
 
   const canManage =
@@ -136,12 +294,50 @@ async function handleProfileCommand({ guild, actor, targetUser, query, member })
   return data;
 }
 
+function getSession(interaction) {
+  return sessions.get(interaction.user.id) || null;
+}
+
+function expiredSession(interaction) {
+  const payload = {
+    embeds: [danger("Session expired", "Use `/profile` or `'profile` again.")],
+    ephemeral: true,
+  };
+  if (interaction.replied || interaction.deferred) {
+    return interaction.followUp(payload);
+  }
+  if (interaction.isModalSubmit?.() || !interaction.message) {
+    return interaction.reply(payload);
+  }
+  return interaction.reply(payload);
+}
+
 async function handleProfileInteraction(interaction) {
   const id = interaction.customId || "";
   if (!id.startsWith("asc:profile")) return false;
 
+  if (id.startsWith("asc:profile:yes:")) {
+    const ownerId = id.slice("asc:profile:yes:".length);
+    if (ownerId !== interaction.user.id) {
+      return interaction.reply({ content: "This is not your profile.", ephemeral: true });
+    }
+    return interaction.showModal(createModal());
+  }
+
   if (id === "asc:profile:start") {
     return interaction.showModal(createModal());
+  }
+
+  if (id.startsWith("asc:profile:no:")) {
+    const ownerId = id.slice("asc:profile:no:".length);
+    if (ownerId !== interaction.user.id) {
+      return interaction.reply({ content: "This is not your profile.", ephemeral: true });
+    }
+    return interaction.update({
+      content: "No problem. Use `/profile` or `'profile` to register anytime.",
+      embeds: [],
+      components: [],
+    });
   }
 
   if (id === "asc:profile:create" && interaction.isModalSubmit()) {
@@ -153,56 +349,141 @@ async function handleProfileInteraction(interaction) {
     } catch (err) {
       return interaction.reply({ embeds: [danger("Roblox lookup failed", err.message)], ephemeral: true });
     }
-    const code = `${brand.name}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
     sessions.set(interaction.user.id, {
       displayName,
+      robloxUsername,
       roblox,
-      code,
       guildId: interaction.guildId,
+      step: "region",
     });
+    return interaction.reply({
+      ephemeral: true,
+      embeds: [surface({ title: "Profile setup", description: "Select your primary region." })],
+      components: [regionRow()],
+    });
+  }
+
+  if (id === "asc:profile:region" && interaction.isStringSelectMenu()) {
+    const session = getSession(interaction);
+    if (!session) return expiredSession(interaction);
+    session.region = interaction.values[0];
+    session.step = "country";
+    sessions.set(interaction.user.id, session);
+    return interaction.showModal(countryModal());
+  }
+
+  if (id === "asc:profile:country" && interaction.isModalSubmit()) {
+    const session = getSession(interaction);
+    if (!session) return expiredSession(interaction);
+    const input = interaction.fields.getTextInputValue("country_name").trim();
+    const resolved = resolveCountry(input);
+    if (!resolved) {
+      return interaction.reply({
+        ephemeral: true,
+        embeds: [
+          danger(
+            "Unknown country",
+            `Could not recognize "${input}". Use the full country name, then try again.`
+          ),
+        ],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId("asc:profile:country:retry")
+              .setLabel("Try again")
+              .setStyle(ButtonStyle.Primary)
+          ),
+        ],
+      });
+    }
+    session.country = resolved;
+    session.step = "confirm_country";
+    sessions.set(interaction.user.id, session);
     return interaction.reply({
       ephemeral: true,
       embeds: [
         surface({
-          title: "Verify Roblox",
-          thumbnail: roblox.avatarUrl,
-          description:
-            `Found **${roblox.displayName}** (@${roblox.name}).\n\n` +
-            `Put this code in your Roblox **About / bio**, then press Verify:\n\n\`${code}\``,
+          title: "Confirm country",
+          description: `Confirm country: ${resolved.flag} **${resolved.name}**?`,
         }),
       ],
       components: [
         new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId("asc:profile:verify").setLabel("Verify bio").setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setLabel("Open Roblox").setStyle(ButtonStyle.Link).setURL(`https://www.roblox.com/users/${roblox.id}/profile`)
+          new ButtonBuilder().setCustomId("asc:profile:country:yes").setLabel("Yes").setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId("asc:profile:country:no").setLabel("No").setStyle(ButtonStyle.Secondary)
         ),
       ],
     });
   }
 
+  if (id === "asc:profile:country:retry" || id === "asc:profile:country:no") {
+    if (!sessions.has(interaction.user.id)) {
+      return interaction.reply({ embeds: [danger("Session expired", "Use `/profile` again.")], ephemeral: true });
+    }
+    return interaction.showModal(countryModal());
+  }
+
+  if (id === "asc:profile:country:yes") {
+    const session = getSession(interaction);
+    if (!session) return expiredSession(interaction);
+    session.step = "character";
+    sessions.set(interaction.user.id, session);
+    return interaction.update({
+      content: null,
+      embeds: [surface({ title: "Profile setup", description: "Select your main TSB character." })],
+      components: [characterRow()],
+    });
+  }
+
+  if (id === "asc:profile:character" && interaction.isStringSelectMenu()) {
+    const session = getSession(interaction);
+    if (!session) return expiredSession(interaction);
+    session.mainCharacter = interaction.values[0];
+    session.step = "verify";
+    session.code = genVerifyCode();
+    sessions.set(interaction.user.id, session);
+
+    if (!verificationRequired(interaction.guildId)) {
+      const payload = await persistSession(interaction.guild, interaction.user.id, session);
+      return interaction.update({ ...payload, content: null });
+    }
+    return interaction.update(verifyPayload(session));
+  }
+
   if (id === "asc:profile:verify") {
-    const session = sessions.get(interaction.user.id);
-    if (!session) {
-      return interaction.reply({ embeds: [danger("Session expired", "Run `/profile` again.")], ephemeral: true });
+    const session = getSession(interaction);
+    if (!session) return expiredSession(interaction);
+    if (!session.code || !session.roblox?.id) {
+      return interaction.update({
+        content: "Session expired. Use `/profile` again.",
+        embeds: [],
+        components: [],
+      });
     }
     const okBio = await api.roblox.checkRobloxBio(session.roblox.id, session.code);
     if (!okBio) {
-      return interaction.reply({
-        embeds: [danger("Not found", `I don't see \`${session.code}\` in that Roblox bio yet.`)],
-        ephemeral: true,
+      return interaction.update({
+        content: null,
+        embeds: [
+          danger(
+            "Not found",
+            `The code was not found in your Roblox bio. Make sure you added:\n\`${session.code}\`\n\nThen click the button again.`
+          ),
+        ],
+        components: verifyPayload(session).components,
       });
     }
-    api.profiles.saveProfile(session.guildId, interaction.user.id, {
-      display_name: session.displayName,
-      roblox_username: session.roblox.name,
-      roblox_display_name: session.roblox.displayName,
-      roblox_id: session.roblox.id,
-      roblox_avatar_url: session.roblox.avatarUrl,
-      verified_at: new Date().toISOString(),
-    });
-    sessions.delete(interaction.user.id);
-    const payload = await payloadFor(interaction.guild, interaction.user.id);
+    const payload = await persistSession(interaction.guild, interaction.user.id, session);
     return interaction.update({ ...payload, content: null });
+  }
+
+  if (id === "asc:profile:verify:cancel") {
+    sessions.delete(interaction.user.id);
+    return interaction.update({
+      content: "Profile creation canceled.",
+      embeds: [],
+      components: [],
+    });
   }
 
   if (id.startsWith("asc:profile:manage:") && interaction.isStringSelectMenu()) {
@@ -214,7 +495,7 @@ async function handleProfileInteraction(interaction) {
         components: [
           new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
-              .setCustomId(`asc:profile:region:${targetId}`)
+              .setCustomId(`asc:profile:setregion:${targetId}`)
               .setPlaceholder("Region")
               .addOptions(REGIONS.slice(0, 25).map((r) => ({ label: r.label, value: r.value })))
           ),
@@ -227,7 +508,7 @@ async function handleProfileInteraction(interaction) {
         components: [
           new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
-              .setCustomId(`asc:profile:character:${targetId}`)
+              .setCustomId(`asc:profile:setcharacter:${targetId}`)
               .setPlaceholder("Main character")
               .addOptions(CHARACTERS.map((c) => ({ label: c, value: c })))
           ),
@@ -235,8 +516,12 @@ async function handleProfileInteraction(interaction) {
       });
     }
     if (action === "delete") {
-      api.profiles.deleteProfile(interaction.guildId, targetId);
-      return interaction.update({ embeds: [ok("Profile deleted", "You can create a new one with `/profile`.")], components: [] });
+      await maybe(api.profiles.deleteProfile(interaction.guildId, targetId));
+      return interaction.update({
+        embeds: [ok("Profile deleted", "You can create a new one with `/profile`.")],
+        components: [],
+        files: [],
+      });
     }
     const modal = new ModalBuilder()
       .setCustomId(`asc:profile:edit:${action}:${targetId}`)
@@ -253,18 +538,17 @@ async function handleProfileInteraction(interaction) {
     return interaction.showModal(modal);
   }
 
-  if (id.startsWith("asc:profile:region:") && interaction.isStringSelectMenu()) {
+  if (id.startsWith("asc:profile:setregion:") && interaction.isStringSelectMenu()) {
     const targetId = id.split(":")[3];
-    api.profiles.saveProfile(interaction.guildId, targetId, { region: interaction.values[0] });
-    await publishLeaderboard(interaction.guild).catch(() => {});
-    await publishLineup(interaction.guild).catch(() => {});
+    await maybe(api.profiles.saveProfile(interaction.guildId, targetId, { region: interaction.values[0] }));
+    refreshBoards(interaction.guild, targetId);
     const payload = await payloadFor(interaction.guild, targetId);
     return interaction.update(payload);
   }
 
-  if (id.startsWith("asc:profile:character:") && interaction.isStringSelectMenu()) {
+  if (id.startsWith("asc:profile:setcharacter:") && interaction.isStringSelectMenu()) {
     const targetId = id.split(":")[3];
-    api.profiles.saveProfile(interaction.guildId, targetId, { main_character: interaction.values[0] });
+    await maybe(api.profiles.saveProfile(interaction.guildId, targetId, { main_character: interaction.values[0] }));
     const payload = await payloadFor(interaction.guild, targetId);
     return interaction.update(payload);
   }
@@ -274,18 +558,32 @@ async function handleProfileInteraction(interaction) {
     const value = interaction.fields.getTextInputValue("value").trim();
     if (action === "roblox") {
       const roblox = await api.roblox.resolveRobloxUser(value);
-      api.profiles.saveProfile(interaction.guildId, targetId, {
-        roblox_username: roblox.name,
-        roblox_display_name: roblox.displayName,
-        roblox_id: roblox.id,
-        roblox_avatar_url: roblox.avatarUrl,
-      });
+      await maybe(
+        api.profiles.saveProfile(interaction.guildId, targetId, {
+          roblox_username: roblox.name,
+          roblox_display_name: roblox.displayName,
+          roblox_id: roblox.id,
+          roblox_avatar_url: roblox.avatarUrl,
+        })
+      );
     } else if (action === "country") {
-      api.profiles.saveProfile(interaction.guildId, targetId, { country: value });
+      const resolved = resolveCountry(value);
+      if (!resolved) {
+        return interaction.reply({
+          embeds: [danger("Unknown country", `Could not recognize "${value}". Use the full country name.`)],
+          ephemeral: true,
+        });
+      }
+      await maybe(
+        api.profiles.saveProfile(interaction.guildId, targetId, {
+          country: resolved.name,
+          country_flag: resolved.flag,
+        })
+      );
     } else {
-      api.profiles.saveProfile(interaction.guildId, targetId, { display_name: value });
+      await maybe(api.profiles.saveProfile(interaction.guildId, targetId, { display_name: value }));
     }
-    await publishLeaderboard(interaction.guild).catch(() => {});
+    refreshBoards(interaction.guild, targetId);
     const payload = await payloadFor(interaction.guild, targetId);
     return interaction.reply({ ...payload, ephemeral: true });
   }

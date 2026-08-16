@@ -6,6 +6,7 @@ const {
 } = require("./config");
 
 const { upsertLeaderboard } = require("./renderer");
+const { wizardNav, extraFromButton } = require("../shared/wizardNav");
 
 const TOTAL_STEPS = 8;
 const COLOR = 0x2B2D31;
@@ -52,24 +53,13 @@ function getSession(guildId) {
 }
 
 function navButtons(extra = [], { disableNext = false } = {}) {
-    const buttons = [
-        ...extra,
-        { type: 2, style: 2, label: "Back", custom_id: "tsb:lb:back" },
-        {
-            type: 2,
-            style: 2,
-            label: "Next",
-            custom_id: "tsb:lb:next",
-            disabled: !!disableNext
-        },
-        { type: 2, style: 2, label: "TSB Menu", custom_id: "tsb:lb:main_menu" }
-    ];
-
-    const rows = [];
-    for (let i = 0; i < buttons.length; i += 5) {
-        rows.push({ type: 1, components: buttons.slice(i, i + 5) });
-    }
-    return rows;
+    return [wizardNav({
+        customId: "tsb:lb:nav",
+        extras: extra.map(extraFromButton),
+        next: !disableNext,
+        back: true,
+        menu: true,
+    })];
 }
 
 function configSummary(data) {
@@ -398,7 +388,7 @@ async function confirmAndPublish(interaction) {
                 `Channels: ${describeLeaderboardChannels(data)}\n\n` +
                 "In the management channel, post drafts like:\n" +
                 "```\n1-20\n1. @user\n2. none\n...\n```\n" +
-                "Then type `send` → Confirm to publish (1–10, 11–20, … each get their own channel).\n" +
+                "Then type `send` to publish (1–10, 11–20, … each get their own channel).\n" +
                 `Or use \`${require("../shared/guildPrefix").resolveGuildPrefix(guild.id)}tsbtop <pos> @user\` / \`/tsbtop\`.`,
             color: 0x57F287
         }],
@@ -407,7 +397,10 @@ async function confirmAndPublish(interaction) {
 }
 
 async function handleLeaderboardButton(interaction) {
-    const id = interaction.customId;
+    return handleLeaderboardAction(interaction, interaction.customId);
+}
+
+async function handleLeaderboardAction(interaction, id) {
     const session = getSession(interaction.guild.id);
 
     if (id === "tsb:lb:publish_confirm") {
@@ -566,6 +559,12 @@ async function handleLeaderboardButton(interaction) {
 
 async function handleLeaderboardSelect(interaction) {
     const session = getSession(interaction.guild.id);
+
+    if (interaction.customId === "tsb:lb:nav") {
+        const action = interaction.values?.[0];
+        if (!action) return false;
+        return handleLeaderboardAction(interaction, `tsb:lb:${action}`);
+    }
 
     if (interaction.customId === "tsb:lb:mgmt_channel") {
         session.data.managementChannelId = interaction.values[0] || null;

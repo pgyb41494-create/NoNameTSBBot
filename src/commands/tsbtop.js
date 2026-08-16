@@ -1,49 +1,115 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
-const api = require("../utils/loadApi");
-const { danger, ok } = require("../utils/embeds");
-const { publishLeaderboard } = require("../systems/boardPublish");
-const { getLeaderboardConfig } = require("../systems/tsb/leaderboard/config");
+const { SlashCommandBuilder } = require("discord.js");
+const { tsbEmbed, COLOR_SUCCESS, COLOR_DANGER } = require("../systems/tsb/shared/embeds");
+const { getLeaderboardConfig, updateLeaderboardConfig, ensureSlots } = require("../systems/tsb/leaderboard/config");
 const { canManageLeaderboard } = require("../systems/tsb/leaderboard/draft");
+const { refreshLeaderboard, upsertLeaderboard } = require("../systems/tsb/leaderboard/renderer");
+const { resolveGuildPrefix } = require("../systems/tsb/shared/guildPrefix");
+
+function placeOnTopBoard(guildId, position, userId) {
+  const cfg = getLeaderboardConfig(guildId);
+  const count = Math.max(cfg.slots?.length || cfg.topPerChannel || 10, position);
+  ensureSlots(guildId, count);
+  const next = getLeaderboardConfig(guildId);
+  const slots = [...(next.slots || [])];
+  while (slots.length < position) {
+    slots.push({ position: slots.length + 1, discordId: null });
+  }
+  for (let i = 0; i < slots.length; i += 1) {
+    if (String(slots[i]?.discordId || "") === String(userId)) {
+      slots[i] = { position: i + 1, discordId: null };
+    }
+  }
+  slots[position - 1] = { position, discordId: userId };
+  updateLeaderboardConfig(guildId, { slots });
+  return getLeaderboardConfig(guildId);
+}
+
+function updatedEmbed(position, user) {
+  return tsbEmbed({
+    title: "Board updated",
+    description: `> **#${position}** → ${user}`,
+    color: COLOR_SUCCESS,
+  });
+}
 
 module.exports = {
   name: "tsbtop",
-  aliases: ["top"],
+  aliases: ["top", "lbset"],
   slash: () =>
     new SlashCommandBuilder()
       .setName("tsbtop")
-      .setDescription("Place a player on the top leaderboard")
-      .addIntegerOption((o) => o.setName("position").setDescription("1-50").setRequired(true).setMinValue(1).setMaxValue(50))
-      .addUserOption((o) => o.setName("user").setDescription("Player").setRequired(true))
-      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+      .setDescription("Place a player on the TSB top leaderboard")
+      .addIntegerOption((o) =>
+        o.setName("position").setDescription("Board position (1+)").setRequired(true).setMinValue(1).setMaxValue(50)
+      )
+      .addUserOption((o) => o.setName("user").setDescription("Player to place").setRequired(true)),
 
   async executePrefix(message, args) {
     const cfg = getLeaderboardConfig(message.guild.id);
     if (!cfg.setupCompleted) {
-      return message.reply({ embeds: [danger("Not set up", "Use `'serversetup` → **Top Leaderboard**.")] });
+      return message.reply({
+        embeds: [
+          tsbEmbed({
+            title: "Not set up",
+            description: "> Top boards are not set up. Use `'serversetup` → **Top Leaderboard**.",
+            color: COLOR_DANGER,
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      });
     }
     if (!canManageLeaderboard(message.member, message.guild, cfg)) {
-      return message.reply({ embeds: [danger("Missing permissions", "You are not allowed to edit the top board.")] });
+      return message.reply({
+        embeds: [
+          tsbEmbed({
+            title: "Missing permissions",
+            description: "> You are not allowed to edit the top board.",
+            color: COLOR_DANGER,
+          }),
+        ],
+        allowedMentions: { repliedUser: false },
+      });
     }
-    const pos = Number(args[0]);
-    const user = message.mentions.users.first();
-    if (!pos || !user) return message.reply({ embeds: [danger("Usage", "`'tsbtop 1 @user`")] });
-    api.leaderboard.place(message.guild.id, pos, user.id);
-    await publishLeaderboard(message.guild).catch(() => {});
-    return message.reply({ embeds: [ok("Board updated", `#${pos} ${user}`)] });
+    const position = parseInt(args[0], 10);
+    const mention = args[1]?.match(/^<@!?(\d+)>$/);
+    const userId = mention?.[1] || args[1];
+    if (!Number.isFinite(position) || position < 1 || !userId) {
+      const p = resolveGuildPrefix(message.guild.id);
+      return message.reply({
+        content: `Usage: \`${p}tsbtop <position> @user\``,
+        allowedMentions: { repliedUser: false },
+      });
+    }
+    const user = await message.client.users.fetch(userId).catch(() => null);
+    if (!user) {
+      return message.reply({ content: "User not found.", allowedMentions: { repliedUser: false } });
+    }
+    placeOnTopBoard(message.guild.id, position, user.id);
+    await refreshLeaderboard(message.guild).catch(() => upsertLeaderboard(message.guild));
+    return message.reply({
+      embeds: [updatedEmbed(position, user)],
+      allowedMentions: { repliedUser: false },
+    });
   },
 
   async executeSlash(interaction) {
+    if (!interaction.guild) {
+      return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    }
     const cfg = getLeaderboardConfig(interaction.guild.id);
     if (!cfg.setupCompleted) {
-      return interaction.reply({ content: "Top boards are not set up. Use `/serversetup` → **Top Leaderboard**.", ephemeral: true });
+      return interaction.reply({
+        content: "Top boards are not set up. Use `/serversetup` → **Top Leaderboard**.",
+        ephemeral: true,
+      });
     }
     if (!canManageLeaderboard(interaction.member, interaction.guild, cfg)) {
       return interaction.reply({ content: "You are not allowed to edit the top board.", ephemeral: true });
     }
-    const pos = interaction.options.getInteger("position");
-    const user = interaction.options.getUser("user");
-    api.leaderboard.place(interaction.guildId, pos, user.id);
-    await publishLeaderboard(interaction.guild).catch(() => {});
-    return interaction.reply({ embeds: [ok("Board updated", `#${pos} ${user}`)] });
+    const position = interaction.options.getInteger("position", true);
+    const user = interaction.options.getUser("user", true);
+    placeOnTopBoard(interaction.guild.id, position, user.id);
+    await refreshLeaderboard(interaction.guild).catch(() => upsertLeaderboard(interaction.guild));
+    return interaction.reply({ embeds: [updatedEmbed(position, user)] });
   },
 };

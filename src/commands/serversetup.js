@@ -7,11 +7,16 @@ const { brand } = require("../utils/loadApi");
 module.exports = {
   name: "serversetup",
   aliases: ["setup", "tsbsetup"],
-  slash: () =>
+  slash: () => [
     new SlashCommandBuilder()
       .setName("serversetup")
       .setDescription("Configure TSB Systems (leaderboard, ranking, score, lineups, tryouts)")
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    new SlashCommandBuilder()
+      .setName("tsbsetup")
+      .setDescription("Configure TSB Systems (leaderboard, ranking, score, lineups, tryouts)")
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  ],
 
   async executePrefix(message) {
     if (!isAdminOrOwner(message.member, message.guild)) {

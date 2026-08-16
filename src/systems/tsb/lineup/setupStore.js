@@ -7,6 +7,7 @@ const {
 } = require("./config");
 
 const { publishAllLineups } = require("./renderer");
+const { wizardNav, extraFromButton } = require("../shared/wizardNav");
 
 const COLOR = 0x2B2D31;
 const sessions = new Map();
@@ -52,23 +53,13 @@ function configSummary(data, saved = null) {
 }
 
 function navButtons(extra = [], { disableNext = false } = {}) {
-    const buttons = [
-        ...extra,
-        { type: 2, style: 2, label: "Back", custom_id: "tsb:lu:back" },
-        {
-            type: 2,
-            style: 2,
-            label: "Next",
-            custom_id: "tsb:lu:next",
-            disabled: !!disableNext
-        },
-        { type: 2, style: 2, label: "TSB Menu", custom_id: "tsb:lu:main_menu" }
-    ];
-    const rows = [];
-    for (let i = 0; i < buttons.length; i += 5) {
-        rows.push({ type: 1, components: buttons.slice(i, i + 5) });
-    }
-    return rows;
+    return [wizardNav({
+        customId: "tsb:lu:nav",
+        extras: extra.map(extraFromButton),
+        next: !disableNext,
+        back: true,
+        menu: true,
+    })];
 }
 
 function overviewPayload(guildId) {
@@ -85,14 +76,16 @@ function overviewPayload(guildId) {
                 configSummary(session.data, saved),
             color: COLOR
         }],
-        components: [{
-            type: 1,
-            components: [
-                { type: 2, style: 2, label: "Back", custom_id: "tsb:lu:main_menu" },
-                { type: 2, style: 1, label: "Configure Module", custom_id: "tsb:lu:configure" },
-                { type: 2, style: 4, label: "Reset Configuration", custom_id: "tsb:lu:reset" }
-            ]
-        }]
+        components: [wizardNav({
+            customId: "tsb:lu:nav",
+            extras: [
+                { label: "Configure Module", value: "configure", description: "Start lineup wizard" },
+                { label: "Reset Configuration", value: "reset", description: "Clear saved lineup setup" },
+            ],
+            next: false,
+            back: false,
+            menu: true,
+        })]
     };
 }
 
@@ -319,12 +312,11 @@ async function applySetup(interaction) {
         .join(", ");
 
     const { buildLineupTips, sweepManagementChannel } = require("../shared/mgmtCleaner");
-    const { lineupBotComponents } = require("./botUI");
     const { resolveGuildPrefix } = require("../shared/guildPrefix");
 
     const tips = await managementChannel.send({
         content: buildLineupTips(guild.id),
-        components: lineupBotComponents()
+        components: []
     });
 
     updateLineupConfig(guild.id, { tipsMessageId: tips.id });
@@ -342,8 +334,8 @@ async function applySetup(interaction) {
                 `Live boards: ${channels || "none"}\n\n` +
                 "Post a draft in the management channel like the leaderboard:\n" +
                 "```\nmiami\n1-10\n1. @user\n2. none\n```\n" +
-                "Then type `send` → **Confirm**. Or use buttons / " +
-                `\`${p}lineup add …\`.`,
+                "Then type `send` to publish. Or use " +
+                `\`${p}lineup add <region> <pos> @user\` / \`/lineup\`.`,
             color: 0x57F287
         }],
         components: []
@@ -351,7 +343,10 @@ async function applySetup(interaction) {
 }
 
 async function handleLineupButton(interaction) {
-    const id = interaction.customId;
+    return handleLineupAction(interaction, interaction.customId);
+}
+
+async function handleLineupAction(interaction, id) {
     const session = getSession(interaction.guild.id);
 
     if (id === "tsb:lu:publish_confirm") {
@@ -497,6 +492,12 @@ async function handleLineupButton(interaction) {
 async function handleLineupSelect(interaction) {
     const id = interaction.customId;
     const session = getSession(interaction.guild.id);
+
+    if (id === "tsb:lu:nav") {
+        const action = interaction.values?.[0];
+        if (!action) return false;
+        return handleLineupAction(interaction, `tsb:lu:${action}`);
+    }
 
     if (id === "tsb:hub" || id === "tsb:hub") {
         if (interaction.values[0] === "lineup_setup") {

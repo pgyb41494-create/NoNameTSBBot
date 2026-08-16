@@ -212,13 +212,7 @@ async function ensureTipsMessage(channel, guildId, kind) {
       ) || null;
   }
 
-  let components = [];
-  if (kind === "lineup") {
-    try {
-      const { lineupBotComponents } = require("./tsb/lineup/botUI");
-      components = lineupBotComponents();
-    } catch {}
-  }
+  const components = [];
 
   if (tips) {
     await tips.edit({ content, embeds: [], components }).catch(async () => {

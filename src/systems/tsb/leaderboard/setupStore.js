@@ -313,16 +313,18 @@ function openLeaderboardModule(interaction) {
 }
 
 async function createManagementChannel(interaction) {
-    const existing = interaction.guild.channels.cache.find(
-        (c) => c.name === "tsb-boards" && c.isTextBased?.()
-    );
-
-    const channel = existing || await interaction.guild.channels.create({
-        name: "tsb-boards",
-        reason: "Ascendant Top Leaderboard management channel"
+    const { getOrCreateNamedChannel } = require("../shared/channelReuse");
+    const channel = await getOrCreateNamedChannel(interaction.guild, {
+        names: ["tsb-boards", "ascendant-boards"],
+        pattern: /^(?:tsb-|ascendant-)?boards$/,
+        createName: "tsb-boards",
+        reason: "Ascendant Top Leaderboard management channel",
     });
 
     const session = getSession(interaction.guild.id);
+    if (!channel) {
+        return interaction.reply({ content: "Could not find or create a boards channel.", ephemeral: true });
+    }
     session.data.managementChannelId = channel.id;
     return renderStep(interaction);
 }
@@ -340,12 +342,18 @@ async function confirmAndPublish(interaction) {
         : null;
 
     if (!managementChannel) {
-        managementChannel = guild.channels.cache.find(
-            (c) => c.name === "tsb-boards" && c.isTextBased?.()
-        ) || await guild.channels.create({
-            name: "tsb-boards",
-            reason: "Ascendant Top Leaderboard management channel"
+        const { getOrCreateNamedChannel } = require("../shared/channelReuse");
+        managementChannel = await getOrCreateNamedChannel(guild, {
+            names: ["tsb-boards", "ascendant-boards"],
+            pattern: /^(?:tsb-|ascendant-)?boards$/,
+            createName: "tsb-boards",
+            reason: "Ascendant Top Leaderboard management channel",
         });
+        if (!managementChannel) {
+            return interaction.editReply({
+                content: "Could not find or create a boards management channel.",
+            });
+        }
         data.managementChannelId = managementChannel.id;
     }
 

@@ -9,12 +9,7 @@ function canManageLeaderboard(member, guild, cfg) {
 
 function describeLeaderboardChannels(cfg) {
   const ranges = getPageRanges(cfg.topPerChannel || 10);
-  const suffix = String(cfg.suffix || "default")
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-_]/g, "") || "default";
-  return ranges.map((r) => `\`#top-${r.start}-${r.end}-${suffix}\``).join(", ");
+  return ranges.map((r) => `\`#${pageChannelName(r.start, r.end, cfg.suffix)}\``).join(", ");
 }
 
 async function publishLiveLeaderboard(interaction) {

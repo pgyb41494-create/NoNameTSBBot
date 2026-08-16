@@ -122,7 +122,7 @@ function stepPayload(interaction) {
                         options: DEFAULT_REGIONS.map((r) => ({
                             label: r.label,
                             value: r.key,
-                            description: `tsb-lineup-${r.key}`,
+                            description: `lineup-${r.key}`,
                             default: (data.enabledRegionKeys || []).includes(r.key)
                         }))
                     }]
@@ -150,7 +150,7 @@ function stepPayload(interaction) {
 
     if (step === 3) {
         const mode = data.separateSubChannels
-            ? "Separate channel (`#tsb-lineup-<region>-sub`)"
+            ? "Separate channel (`#lineup-<region>-sub`)"
             : "Same channel as main Line Up";
         return {
             embeds: [{
@@ -159,7 +159,7 @@ function stepPayload(interaction) {
                     "Should **Sub Line Up** get its own Discord channel?\n\n" +
                     `Current: **${mode}**\n\n` +
                     "• **Same channel** — main + sub boards post together\n" +
-                    "• **Separate channel** — creates `#tsb-lineup-<region>-sub` per region",
+                    "• **Separate channel** — creates `#lineup-<region>-sub` per region",
                 color: COLOR
             }],
             components: navButtons([
@@ -208,8 +208,8 @@ function stepPayload(interaction) {
 
     // step 5 confirm
     const channelPlan = data.separateSubChannels
-        ? "`#tsb-lineup-<region>` (main) + `#tsb-lineup-<region>-sub` (sub)"
-        : "`#tsb-lineup-<region>` (main + sub together)";
+        ? "`#lineup-<region>` (main) + `#lineup-<region>-sub` (sub)"
+        : "`#lineup-<region>` (main + sub together)";
     return {
         embeds: [{
             title: "Lineup Setup · Step 5/5",
@@ -275,12 +275,18 @@ async function applySetup(interaction) {
         : null;
 
     if (!managementChannel) {
-        managementChannel = guild.channels.cache.find(
-            (c) => c.name === "tsb-lineups" && c.isTextBased?.()
-        ) || await guild.channels.create({
-            name: "tsb-lineups",
-            reason: "Ascendant Lineup management"
+        const { getOrCreateNamedChannel } = require("../shared/channelReuse");
+        managementChannel = await getOrCreateNamedChannel(guild, {
+            names: ["tsb-lineups", "ascendant-lineups"],
+            pattern: /^(?:tsb-|ascendant-)?lineups$/,
+            createName: "tsb-lineups",
+            reason: "Ascendant Lineup management",
         });
+        if (!managementChannel) {
+            return interaction.editReply({
+                content: "Could not find or create a lineups management channel.",
+            });
+        }
     }
 
     ensureRegions(

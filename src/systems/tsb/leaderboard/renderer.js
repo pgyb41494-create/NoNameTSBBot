@@ -1,6 +1,6 @@
-const { ChannelType } = require("discord.js");
 const { getLeaderboardConfig, updateLeaderboardConfig, ensureSlots } = require("./config");
 const { publishLeaderboard } = require("../../boardPublish");
+const { getOrCreateNamedChannel } = require("../shared/channelReuse");
 
 const MAX_TOP = 50;
 
@@ -13,31 +13,44 @@ function getPageRanges(total) {
   return ranges;
 }
 
-function pageChannelName(start, end, suffix) {
-  const safe = String(suffix || "default")
+function sanitizeSuffix(suffix) {
+  return String(suffix || "default")
     .toLowerCase()
     .trim()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9-_]/g, "")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "") || "default";
+}
+
+function pageChannelName(start, end, suffix) {
+  const safe = sanitizeSuffix(suffix);
+  if (safe === "default") return `top-${start}-${end}`;
   return `top-${start}-${end}-${safe}`;
 }
 
+function pageChannelNames(start, end, suffix) {
+  const safe = sanitizeSuffix(suffix);
+  const base = `top-${start}-${end}`;
+  return safe === "default" ? [base, `${base}-default`] : [`${base}-${safe}`, base];
+}
+
 async function getOrCreatePageChannel(guild, start, end, cfg, existingPage = null, { create = true } = {}) {
-  const name = pageChannelName(start, end, cfg.suffix);
-  if (existingPage?.channelId) {
-    const existing = await guild.channels.fetch(existingPage.channelId).catch(() => null);
-    if (existing?.isTextBased?.()) return existing;
-  }
-  if (!create) return null;
-  const byName = guild.channels.cache.find((c) => c.name === name && c.isTextBased?.());
-  if (byName) return byName;
-  return guild.channels.create({
-    name,
-    type: ChannelType.GuildText,
-    topic: `Top ${start}–${end} · ${cfg.suffix || "default"}`,
+  const names = pageChannelNames(start, end, cfg.suffix);
+  const pageIndex = Math.floor((start - 1) / 10);
+  const storedId = existingPage?.channelId
+    || (start === 1 ? cfg.leaderboardChannelId || cfg.publicChannelId : null)
+    || cfg.publicChannelIds?.[pageIndex]
+    || null;
+
+  return getOrCreateNamedChannel(guild, {
+    channelId: storedId,
+    names,
+    pattern: new RegExp(`^top-${start}-${end}(?:-[a-z0-9_-]+)?$`),
+    createName: pageChannelName(start, end, cfg.suffix),
+    topic: `Top ${start}–${end}`,
     reason: "TSB top leaderboard page",
+    create,
   });
 }
 
@@ -53,12 +66,14 @@ async function upsertLeaderboard(guild, { createChannels = true } = {}) {
   const boardPages = [];
   const publicChannelIds = [];
 
+  const used = new Set();
   for (const range of ranges) {
     const prior = previousPages.find((p) => p.start === range.start && p.end === range.end);
     const channel = await getOrCreatePageChannel(guild, range.start, range.end, cfg, prior, {
       create: createChannels,
     });
-    if (!channel) continue;
+    if (!channel || used.has(channel.id)) continue;
+    used.add(channel.id);
     publicChannelIds.push(channel.id);
     boardPages.push({ start: range.start, end: range.end, channelId: channel.id });
   }

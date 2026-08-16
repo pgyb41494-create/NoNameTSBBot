@@ -65,7 +65,7 @@ function hubPayload(guildId = null) {
           "> **Leaderboard:** draft in `#tsb-boards`, publish to `#top-*` channels\n" +
           "> **Ranking:** tier roles shown on boards and lineups (`/stage`)\n" +
           "> **Score:** `/score` records matches and auto-bumps the board\n" +
-          "> **Lineups:** `#tsb-lineups` management + `#tsb-lineup-{region}` boards\n" +
+          "> **Lineups:** `#tsb-lineups` management + `#lineup-{region}` boards\n" +
           "> **Tryouts:** signup channel + ping role · runtime `/tryout`",
       }),
     ],

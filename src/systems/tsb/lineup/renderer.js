@@ -1,4 +1,3 @@
-const { ChannelType } = require("discord.js");
 const {
   getLineupConfig,
   updateLineupConfig,
@@ -6,6 +5,7 @@ const {
   ensureRegions,
 } = require("./config");
 const { publishLineup } = require("../../boardPublish");
+const { getOrCreateNamedChannel } = require("../shared/channelReuse");
 const api = require("../../../utils/loadApi");
 
 async function loadPlayerCard(guild, userId) {
@@ -33,35 +33,37 @@ function buildLineupListDescription(cfg) {
     .join("\n");
 }
 
+function lineupChannelNames(regionKey, isSub) {
+  const key = String(regionKey || "").toLowerCase();
+  const suffix = isSub ? "-sub" : "";
+  return [
+    `lineup-${key}${suffix}`,
+    `tsb-lineup-${key}${suffix}`,
+    `ascendant-lineup-${key}${suffix}`,
+  ];
+}
+
 async function resolveOrCreateLineupChannel(guild, region, board, { create = true } = {}) {
   const cfg = getLineupConfig(guild.id);
   const separateSub = !!cfg.separateSubChannels;
   const isSub = board === "sub";
-  const storedId = isSub ? region.subChannelId : region.channelId;
-  if (storedId) {
-    const existing = await guild.channels.fetch(storedId).catch(() => null);
-    if (existing?.isTextBased?.()) {
-      if (isSub && separateSub && region.channelId && existing.id === region.channelId) {
-        // fall through
-      } else {
-        return existing;
-      }
-    }
-  }
   if (isSub && !separateSub) {
     return resolveOrCreateLineupChannel(guild, region, "main", { create });
   }
-  const name = isSub
-    ? `tsb-lineup-${region.key}-sub`.toLowerCase()
-    : `tsb-lineup-${region.key}`.toLowerCase();
-  if (!create) return null;
-  const byName = guild.channels.cache.find((c) => c.name === name && c.isTextBased?.());
-  if (byName) return byName;
-  return guild.channels.create({
-    name,
-    type: ChannelType.GuildText,
+
+  const storedId = isSub ? region.subChannelId : region.channelId;
+  const skipStored = isSub && separateSub && storedId && storedId === region.channelId;
+  const key = String(region.key || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const names = lineupChannelNames(region.key, isSub);
+
+  return getOrCreateNamedChannel(guild, {
+    channelId: skipStored ? null : storedId,
+    names,
+    pattern: new RegExp(`^(?:tsb-|ascendant-)?lineup-${key}${isSub ? "-sub" : ""}$`),
+    createName: names[0],
     topic: isSub ? `Sub Line Up ${region.label}` : `Line Up ${region.label}`,
     reason: "TSB lineup publish",
+    create,
   });
 }
 

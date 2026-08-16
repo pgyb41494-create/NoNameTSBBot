@@ -17,6 +17,7 @@ function tsbEmbed(options = {}) {
   }
   if (options.thumbnail) embed.setThumbnail(options.thumbnail);
   if (options.image) embed.setImage(options.image);
+  if (Array.isArray(options.fields) && options.fields.length) embed.addFields(options.fields);
   return embed;
 }
 

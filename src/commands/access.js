@@ -1,5 +1,4 @@
 const { SlashCommandBuilder } = require("discord.js");
-const { danger } = require("../utils/embeds");
 const { brand } = require("../utils/loadApi");
 const {
   getUserPerms,
@@ -12,7 +11,10 @@ const {
   openAccessSession,
   detailsEmbed,
   listEmbed,
+  resultEmbed,
+  formatPerms,
 } = require("../systems/tsb/access/panel");
+const { tsbEmbed, COLOR_PRIMARY } = require("../systems/tsb/shared/embeds");
 
 function invokedName(message) {
   const prefix = brand.prefix || "'";
@@ -21,14 +23,16 @@ function invokedName(message) {
 
 function usageEmbed() {
   const p = brand.prefix || "'";
-  return danger(
-    "Usage",
-    `\`${p}access @user\` / \`/access\` — open the TSB permission panel\n` +
-      `\`${p}access @user PHASE LINEUPS\` — grant permissions\n` +
-      `\`${p}access remove @user\` — clear all TSB access\n` +
-      `\`${p}access view @user\` · \`${p}perms [@user]\`\n` +
-      `\`${p}access list\``
-  );
+  return tsbEmbed({
+    title: "Access",
+    color: COLOR_PRIMARY,
+    description:
+      `Open the panel with \`${p}access @user\` or \`/access\`.\n\n` +
+      `> \`${p}access @user PHASE LINEUPS\` — grant permissions\n` +
+      `> \`${p}access remove @user\` — clear all TSB access\n` +
+      `> \`${p}access view @user\` · \`${p}perms [@user]\`\n` +
+      `> \`${p}access list\``,
+  });
 }
 
 async function requireGiveAccess(member, guild, reply) {
@@ -99,7 +103,9 @@ module.exports = {
       }
       setUserPerms(message.guild.id, target.id, []);
       return message.reply({
-        content: `Cleared TSB access for **${target.username}**.`,
+        embeds: [
+          resultEmbed("Access", `Cleared TSB access for <@${target.id}>.`),
+        ],
         allowedMentions: { repliedUser: false },
       });
     }
@@ -112,9 +118,13 @@ module.exports = {
     const permTokens = args.filter((arg) => !arg.startsWith("<@") && findPerm(arg));
     if (permTokens.length) {
       const result = grantPerms(message.guild, target, permTokens);
-      const extra = result.extra.map((id) => `\`${id}\``).join(", ");
       return message.reply({
-        content: `Updated **${target.username}**: ${result.next.map((id) => `\`${id}\``).join(", ") || "*None*"}\nGranted ${extra}.`,
+        embeds: [
+          resultEmbed(
+            "Access",
+            `Updated <@${target.id}>.\n\n${formatPerms(result.next)}\n\nGranted ${formatPerms(result.extra)}.`
+          ),
+        ],
         allowedMentions: { repliedUser: false },
       });
     }

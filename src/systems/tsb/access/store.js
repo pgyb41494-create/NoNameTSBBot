@@ -2,12 +2,12 @@ const { createJsonStore } = require("../../../../api/store/jsonStore");
 const { isAdminOrOwner } = require("../../../utils/permissions");
 
 const PERM_CATEGORIES = [
-  { id: "GIVEACCESS", emoji: "🔑", desc: "Grant TSB access to others" },
-  { id: "PHASE", emoji: "🧬", desc: "Assign phase / stage / rank" },
-  { id: "LEADERBOARD", emoji: "🏆", desc: "Edit top boards and drafts" },
-  { id: "LINEUPS", emoji: "📋", desc: "Edit lineups and drafts" },
-  { id: "SCORE", emoji: "📊", desc: "Record 1v1 / clan scores" },
-  { id: "TRYOUTS", emoji: "⚔️", desc: "Create and end tryouts" },
+  { id: "GIVEACCESS", emoji: "🔑", desc: "Grant TSB access to others", hint: "`'access` `/access`" },
+  { id: "PHASE", emoji: "🧬", desc: "Assign phase / stage / rank", hint: "`'phase` `/phase`" },
+  { id: "LEADERBOARD", emoji: "🏆", desc: "Edit top boards and drafts", hint: "`'tsbtop` · board drafts" },
+  { id: "LINEUPS", emoji: "📋", desc: "Edit lineups and drafts", hint: "`'lineup` · lineup drafts" },
+  { id: "SCORE", emoji: "📊", desc: "Record 1v1 / clan scores", hint: "`/score`" },
+  { id: "TRYOUTS", emoji: "⚔️", desc: "Create and end tryouts", hint: "`'tryout` `/tryout`" },
 ];
 
 const PERM_IDS = PERM_CATEGORIES.map((p) => p.id);

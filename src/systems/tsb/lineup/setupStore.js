@@ -7,7 +7,6 @@ const {
 } = require("./config");
 
 const { publishAllLineups } = require("./renderer");
-const { wizardNav, extraFromButton } = require("../shared/wizardNav");
 
 const COLOR = 0x2B2D31;
 const sessions = new Map();
@@ -53,13 +52,23 @@ function configSummary(data, saved = null) {
 }
 
 function navButtons(extra = [], { disableNext = false } = {}) {
-    return [wizardNav({
-        customId: "tsb:lu:nav",
-        extras: extra.map(extraFromButton),
-        next: !disableNext,
-        back: true,
-        menu: true,
-    })];
+    const buttons = [
+        ...extra,
+        { type: 2, style: 2, label: "Back", custom_id: "tsb:lu:back" },
+        {
+            type: 2,
+            style: 2,
+            label: "Next",
+            custom_id: "tsb:lu:next",
+            disabled: !!disableNext
+        },
+        { type: 2, style: 2, label: "TSB Menu", custom_id: "tsb:lu:main_menu" }
+    ];
+    const rows = [];
+    for (let i = 0; i < buttons.length; i += 5) {
+        rows.push({ type: 1, components: buttons.slice(i, i + 5) });
+    }
+    return rows;
 }
 
 function overviewPayload(guildId) {
@@ -76,16 +85,14 @@ function overviewPayload(guildId) {
                 configSummary(session.data, saved),
             color: COLOR
         }],
-        components: [wizardNav({
-            customId: "tsb:lu:nav",
-            extras: [
-                { label: "Configure Module", value: "configure", description: "Start lineup wizard" },
-                { label: "Reset Configuration", value: "reset", description: "Clear saved lineup setup" },
-            ],
-            next: false,
-            back: false,
-            menu: true,
-        })]
+        components: [{
+            type: 1,
+            components: [
+                { type: 2, style: 2, label: "Back", custom_id: "tsb:lu:main_menu" },
+                { type: 2, style: 1, label: "Configure Module", custom_id: "tsb:lu:configure" },
+                { type: 2, style: 4, label: "Reset Configuration", custom_id: "tsb:lu:reset" }
+            ]
+        }]
     };
 }
 
@@ -492,12 +499,6 @@ async function handleLineupAction(interaction, id) {
 async function handleLineupSelect(interaction) {
     const id = interaction.customId;
     const session = getSession(interaction.guild.id);
-
-    if (id === "tsb:lu:nav") {
-        const action = interaction.values?.[0];
-        if (!action) return false;
-        return handleLineupAction(interaction, `tsb:lu:${action}`);
-    }
 
     if (id === "tsb:hub" || id === "tsb:hub") {
         if (interaction.values[0] === "lineup_setup") {

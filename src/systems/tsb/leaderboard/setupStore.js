@@ -6,7 +6,6 @@ const {
 } = require("./config");
 
 const { upsertLeaderboard } = require("./renderer");
-const { wizardNav, extraFromButton } = require("../shared/wizardNav");
 
 const TOTAL_STEPS = 8;
 const COLOR = 0x2B2D31;
@@ -53,13 +52,24 @@ function getSession(guildId) {
 }
 
 function navButtons(extra = [], { disableNext = false } = {}) {
-    return [wizardNav({
-        customId: "tsb:lb:nav",
-        extras: extra.map(extraFromButton),
-        next: !disableNext,
-        back: true,
-        menu: true,
-    })];
+    const buttons = [
+        ...extra,
+        { type: 2, style: 2, label: "Back", custom_id: "tsb:lb:back" },
+        {
+            type: 2,
+            style: 2,
+            label: "Next",
+            custom_id: "tsb:lb:next",
+            disabled: !!disableNext
+        },
+        { type: 2, style: 2, label: "TSB Menu", custom_id: "tsb:lb:main_menu" }
+    ];
+
+    const rows = [];
+    for (let i = 0; i < buttons.length; i += 5) {
+        rows.push({ type: 1, components: buttons.slice(i, i + 5) });
+    }
+    return rows;
 }
 
 function configSummary(data) {
@@ -559,12 +569,6 @@ async function handleLeaderboardAction(interaction, id) {
 
 async function handleLeaderboardSelect(interaction) {
     const session = getSession(interaction.guild.id);
-
-    if (interaction.customId === "tsb:lb:nav") {
-        const action = interaction.values?.[0];
-        if (!action) return false;
-        return handleLeaderboardAction(interaction, `tsb:lb:${action}`);
-    }
 
     if (interaction.customId === "tsb:lb:mgmt_channel") {
         session.data.managementChannelId = interaction.values[0] || null;

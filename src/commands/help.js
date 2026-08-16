@@ -32,7 +32,7 @@ function helpEmbed() {
       "**Boards**",
       `\`${p}tsbtop\` / \`/tsbtop\` (aliases: \`${p}top\`, \`${p}lbset\`)`,
       `\`${p}lineup add <region> <pos> @user\` / \`/lineup\` — add · replace · remove · sub · publish`,
-      `\`${p}stage @user 2 high strong\` / \`/stage\` (aliases: tier, rank, phase)`,
+      `\`${p}phase @user 2 high strong\` / \`/phase\` (aliases: stage, tier, rank)`,
       `\`/score\` — 1v1 / clan match (prefix not used; same options as Obscura)`,
       `\`${p}tryout\` / \`/tryout\` — create · list · end`,
       `\`${p}challenge\` / \`/challenge\``,

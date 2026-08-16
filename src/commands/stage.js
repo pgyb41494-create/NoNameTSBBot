@@ -9,8 +9,21 @@ const {
   maybeLogStage,
   maybeRefreshBoards,
 } = require("../systems/tsb/ranking/applyStage");
-const { getRankingConfig, canUseRanking } = require("../systems/tsb/ranking/config");
+const { getSafeGuildConfig, canUseRanking, isSetupCompleted } = require("../systems/tsb/ranking/config");
 const { brand } = require("../utils/loadApi");
+const { tsbEmbed, COLOR_DANGER } = require("../systems/tsb/shared/embeds");
+
+function rankingNotReadyPayload() {
+  return {
+    embeds: [
+      tsbEmbed({
+        color: COLOR_DANGER,
+        description:
+          "Ranking is not set up yet. An admin must run `'serversetup` → **Ranking Setup** first.",
+      }),
+    ],
+  };
+}
 
 function canAssignStage(member, guild) {
   if (isAdminOrOwner(member, guild)) return true;
@@ -40,6 +53,9 @@ module.exports = {
   slash: () => [slashCommand("stage"), slashCommand("phase")],
 
   async executePrefix(message, args) {
+    if (!isSetupCompleted(message.guild.id)) {
+      return message.reply({ ...rankingNotReadyPayload(), allowedMentions: { repliedUser: false } });
+    }
     if (!canAssignStage(message.member, message.guild)) {
       return message.reply({ embeds: [danger("Missing permissions", "Staff only.")] });
     }
@@ -61,6 +77,9 @@ module.exports = {
   },
 
   async executeSlash(interaction) {
+    if (!isSetupCompleted(interaction.guild.id)) {
+      return interaction.reply({ ...rankingNotReadyPayload(), ephemeral: true });
+    }
     if (!canAssignStage(interaction.member, interaction.guild)) {
       return interaction.reply({ embeds: [danger("Missing permissions", "Staff only.")], ephemeral: true });
     }
@@ -105,7 +124,17 @@ async function applyStageCommand(ctx, guild, user, stageInput, actor, actorMembe
     return reply(ctx, danger("Not in server", "That user is not in this server."));
   }
 
-  const tsbRanking = getRankingConfig(guild.id);
+  const tsbRanking = getSafeGuildConfig(guild.id);
+  if (!tsbRanking) {
+    return reply(
+      ctx,
+      tsbEmbed({
+        color: COLOR_DANGER,
+        description:
+          "Ranking is not set up yet. An admin must run `'serversetup` → **Ranking Setup** first.",
+      })
+    );
+  }
   const { assigned, failed, phaseRole, tierRole, subtierRole } = await applyStageRoles({
     guild,
     member,

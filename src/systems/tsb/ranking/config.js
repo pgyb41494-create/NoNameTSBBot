@@ -4,15 +4,22 @@ const api = require("../../../utils/loadApi");
 function normalizeCommandName(value) {
   return api.ranking.normalizeCommandName
     ? api.ranking.normalizeCommandName(value)
-    : String(value || "stage").replace(/^[-/>!.]+/, "").trim().toLowerCase() || "stage";
+    : String(value || "phase").replace(/^[-/>!.]+/, "").trim().toLowerCase() || "phase";
 }
 
 function defaultGuildConfig() {
   return api.ranking.defaultConfig ? api.ranking.defaultConfig() : {};
 }
 
+function remapPhaseDefaults(cfg) {
+  if (!cfg || typeof cfg !== "object") return cfg;
+  if (cfg.commandName === "stage") cfg.commandName = "phase";
+  if (String(cfg.tierLabel || "") === "Stage") cfg.tierLabel = "Phase";
+  return cfg;
+}
+
 function getGuildConfig(guildId) {
-  return api.ranking.getConfig(guildId);
+  return remapPhaseDefaults(api.ranking.getConfig(guildId));
 }
 
 function setGuildConfig(guildId, config) {

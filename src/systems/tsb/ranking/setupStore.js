@@ -358,17 +358,17 @@ function configSummary(data, prefix = "!") {
     const cooldown = data.tryoutCooldownDays > 0
         ? `${data.tryoutCooldownDays}d`
         : "off";
-    const cmd = normalizeCommandName(data.commandName || "tier");
+    const cmd = normalizeCommandName(data.commandName || "phase");
     const pfx = String(prefix || "!").trim() || "!";
 
     return (
         "**Current Configuration**\n" +
-        `> **Command:** \`${pfx}${cmd}\` (and \`/stage\`)\n` +
-        `> **Ranks:** \`0-${data.tierCount}\`\n` +
-        `> **Tier label:** \`${data.tierLabel}\`\n` +
-        `> **Allowed roles:** \`${data.authorizedRoles.length}\`\n` +
-        `> **Leaderboard integration:** \`${data.leaderboardIntegration ? "yes" : "no"}\`\n` +
-        `> **Tryout cooldown:** \`${cooldown}\``
+        `> **Command:** ${pfx}${cmd} · /${cmd}\n` +
+        `> **Ranks:** 0-${data.tierCount}\n` +
+        `> **Tier label:** ${data.tierLabel}\n` +
+        `> **Allowed roles:** ${data.authorizedRoles.length}\n` +
+        `> **Leaderboard integration:** ${data.leaderboardIntegration ? "yes" : "no"}\n` +
+        `> **Tryout cooldown:** ${cooldown}`
     );
 }
 
@@ -531,7 +531,7 @@ function stepPayload(interaction) {
     }
 
     // step 9
-    const cmd = normalizeCommandName(data.commandName || "tier");
+    const cmd = normalizeCommandName(data.commandName || "phase");
     const usage = require("./parseStageInput").stageUsageLines(prefix, cmd, data);
     return {
         embeds: [{
@@ -1081,7 +1081,7 @@ async function finishAndSave(interaction) {
     sessions.delete(interaction.guild.id);
 
     const prefix = resolveGuildPrefix(interaction.guild.id);
-    const cmd = normalizeCommandName(data.commandName || "tier");
+    const cmd = normalizeCommandName(data.commandName || "phase");
     const { stageUsageLines } = require("./parseStageInput");
     const usage = stageUsageLines(prefix, cmd, { ...data, regionRequired: false });
 

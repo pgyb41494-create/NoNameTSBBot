@@ -200,7 +200,7 @@ function parsePhaseInput(raw) {
 
 function stageUsageLines(prefix, commandName, data = {}) {
     const pfx = String(prefix || "!").trim() || "!";
-    const cmd = String(commandName || "stage").replace(/^[-/>!.]+/, "").trim().toLowerCase() || "stage";
+    const cmd = String(commandName || "phase").replace(/^[-/>!.]+/, "").trim().toLowerCase() || "phase";
     const sub = (data.subranksSkipped || !(data.subranks || []).length)
         ? "high"
         : String(data.subranks[0]).toLowerCase();
@@ -214,7 +214,7 @@ function stageUsageLines(prefix, commandName, data = {}) {
         `\`${pfx}${cmd} @user 1 applicant\``,
         `\`${pfx}${cmd} @user ${rankBit} "notes here"\``,
         `\`${pfx}${cmd} @user ST3 High Strong\``,
-        `\`/stage\` · input \`${rankBit}\` or \`1 applicant\` · optional notes · region from profile`,
+        `\`/${cmd}\` · input \`${rankBit}\` or \`1 applicant\` · optional notes · region from profile`,
     ];
 }
 

@@ -310,7 +310,7 @@ async function handleScoreButton(interaction) {
 
     if (id.startsWith("tsb:score:") && !session.fromSetup && id !== "tsb:score:main_menu") {
         return interaction.reply({
-            content: "Open 1v1 Score with `/serversetup` → **1v1 Score Setup**.",
+            content: "Open 1v1 Score with `/tsbsetup` → **1v1 Score Setup**.",
             ephemeral: true
         });
     }
@@ -455,7 +455,7 @@ async function handleScoreSelect(interaction) {
 
     if (!session.fromSetup) {
         return interaction.reply({
-            content: "Open 1v1 Score with `/serversetup` → **1v1 Score Setup**.",
+            content: "Open 1v1 Score with `/tsbsetup` → **1v1 Score Setup**.",
             ephemeral: true
         });
     }
@@ -480,7 +480,7 @@ async function handleScoreModal(interaction) {
 
     if (!session.fromSetup) {
         return interaction.reply({
-            content: "Open 1v1 Score with `/serversetup` → **1v1 Score Setup**.",
+            content: "Open 1v1 Score with `/tsbsetup` → **1v1 Score Setup**.",
             ephemeral: true
         });
     }

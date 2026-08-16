@@ -62,8 +62,8 @@ function hubPayload(guildId = null) {
         description:
           "Configure **The Strongest Battlegrounds** modules for this server.\n\n" +
           "Pick a module below. Wizards require **Administrator** or server owner.\n\n" +
-          "> **Leaderboard:** draft in `#tsb-boards`, publish to `#top-*` channels\n" +
-          "> **Ranking:** tier roles shown on boards and lineups (`/stage`)\n" +
+          "> **Leaderboard:** draft in `#tsb-boards`, type `send`, then **Confirm**\n" +
+          "> **Ranking:** tier roles shown on boards and lineups (`'phase` / `/phase`)\n" +
           "> **Score:** `/score` records matches and auto-bumps the board\n" +
           "> **Lineups:** `#tsb-lineups` management + `#lineup-{region}` boards\n" +
           "> **Tryouts:** signup channel + ping role · runtime `/tryout`",

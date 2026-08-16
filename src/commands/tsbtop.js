@@ -99,7 +99,7 @@ module.exports = {
     const cfg = getLeaderboardConfig(interaction.guild.id);
     if (!cfg.setupCompleted) {
       return interaction.reply({
-        content: "Top boards are not set up. Use `/serversetup` → **Top Leaderboard**.",
+        content: "Top boards are not set up. Use `/tsbsetup` → **Top Leaderboard**.",
         ephemeral: true,
       });
     }

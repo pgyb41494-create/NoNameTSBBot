@@ -105,7 +105,7 @@ async function handleLineupBotButton(interaction) {
     const cfg = getLineupConfig(interaction.guild.id);
     if (!cfg.setupCompleted) {
         return interaction.reply({
-            content: "Line Up is not set up yet. Use `/serversetup` → **Line Up Management**.",
+            content: "Line Up is not set up yet. Use `/tsbsetup` → **Line Up Management**.",
             ephemeral: true
         });
     }

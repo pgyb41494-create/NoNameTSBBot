@@ -108,7 +108,7 @@ async function handleLineupPrefix(message, args) {
     const cfg = getLineupConfig(message.guild.id);
 
     if (!cfg.setupCompleted) {
-        return message.reply('Line Up is not set up yet. Use `/serversetup` → **Line Up Management**.');
+        return message.reply('Line Up is not set up yet. Use `/tsbsetup` → **Line Up Management**.');
     }
 
     if (!canManage(message.member, message.guild, cfg)) {
@@ -179,7 +179,7 @@ async function handleLineupSlash(interaction) {
 
     if (!cfg.setupCompleted) {
         return interaction.reply({
-            content: 'Line Up is not set up yet. Use `/serversetup` → **Line Up Management**.',
+            content: 'Line Up is not set up yet. Use `/tsbsetup` → **Line Up Management**.',
             ephemeral: true,
         });
     }

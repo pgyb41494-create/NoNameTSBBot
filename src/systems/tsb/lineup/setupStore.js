@@ -325,11 +325,12 @@ async function applySetup(interaction) {
         .join(", ");
 
     const { buildLineupTips, sweepManagementChannel } = require("../shared/mgmtCleaner");
+    const { lineupBotComponents } = require("./botUI");
     const { resolveGuildPrefix } = require("../shared/guildPrefix");
 
     const tips = await managementChannel.send({
         content: buildLineupTips(guild.id),
-        components: []
+        components: lineupBotComponents()
     });
 
     updateLineupConfig(guild.id, { tipsMessageId: tips.id });
@@ -347,7 +348,7 @@ async function applySetup(interaction) {
                 `Live boards: ${channels || "none"}\n\n` +
                 "Post a draft in the management channel like the leaderboard:\n" +
                 "```\nmiami\n1-10\n1. @user\n2. none\n```\n" +
-                "Then type `send` to publish. Or use " +
+                "Then type `send` and press **Confirm** to publish. Or use " +
                 `\`${p}lineup add <region> <pos> @user\` / \`/lineup\`.`,
             color: 0x57F287
         }],
@@ -392,7 +393,7 @@ async function handleLineupAction(interaction, id) {
 
     if (id.startsWith("tsb:lu:") && !session.fromSetup && id !== "tsb:lu:main_menu") {
         return interaction.reply({
-            content: "Open Line Up with `/serversetup` → **Line Up Management**.",
+            content: "Open Line Up with `/tsbsetup` → **Line Up Management**.",
             ephemeral: true
         });
     }
@@ -515,7 +516,7 @@ async function handleLineupSelect(interaction) {
 
     if (!session.fromSetup) {
         return interaction.reply({
-            content: "Open Line Up with `/serversetup` → **Line Up Management**.",
+            content: "Open Line Up with `/tsbsetup` → **Line Up Management**.",
             ephemeral: true
         });
     }
@@ -537,7 +538,7 @@ async function handleLineupModal(interaction) {
     const session = getSession(interaction.guild.id);
     if (!session.fromSetup) {
         return interaction.reply({
-            content: "Open Line Up with `/serversetup` → **Line Up Management**.",
+            content: "Open Line Up with `/tsbsetup` → **Line Up Management**.",
             ephemeral: true
         });
     }

@@ -21,16 +21,20 @@ module.exports = {
   async executePrefix(message) {
     if (!isAdminOrOwner(message.member, message.guild)) {
       return message.reply({
-        embeds: [danger("Missing permissions", `You need **Administrator** to use \`${brand.prefix}serversetup\`.`)],
+        embeds: [danger(
+          "Missing permissions",
+          `You need **Administrator** or server owner to use \`${brand.prefix}tsbsetup\`.`
+        )],
+        allowedMentions: { repliedUser: false },
       });
     }
-    return message.reply(hubPayload(message.guild.id));
+    return message.reply({ ...hubPayload(message.guild.id), allowedMentions: { repliedUser: false } });
   },
 
   async executeSlash(interaction) {
     if (!isAdminOrOwner(interaction.member, interaction.guild)) {
       return interaction.reply({
-        embeds: [danger("Missing permissions", "Administrator only.")],
+        embeds: [danger("Missing permissions", "You need **Administrator** or server owner to use `/tsbsetup`.")],
         ephemeral: true,
       });
     }

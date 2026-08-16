@@ -406,7 +406,7 @@ async function confirmAndPublish(interaction) {
                 `Channels: ${describeLeaderboardChannels(data)}\n\n` +
                 "In the management channel, post drafts like:\n" +
                 "```\n1-20\n1. @user\n2. none\n...\n```\n" +
-                "Then type `send` to publish (1–10, 11–20, … each get their own channel).\n" +
+                "Then type `send` and press **Confirm** to publish (1–10, 11–20, … each get their own channel).\n" +
                 `Or use \`${require("../shared/guildPrefix").resolveGuildPrefix(guild.id)}tsbtop <pos> @user\` / \`/tsbtop\`.`,
             color: 0x57F287
         }],
@@ -450,7 +450,7 @@ async function handleLeaderboardAction(interaction, id) {
 
     if (id.startsWith("tsb:lb:") && !session.fromSetup && id !== "tsb:lb:main_menu") {
         return interaction.reply({
-            content: "Open Top Leaderboard with `/serversetup` → **Top Leaderboard**.",
+            content: "Open Top Leaderboard with `/tsbsetup` → **Top Leaderboard**.",
             ephemeral: true
         });
     }

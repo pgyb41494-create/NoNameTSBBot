@@ -21,7 +21,7 @@ function helpEmbed() {
       `Prefix is \`${p}\` (example \`${p}help\`). Slash works too.`,
       "",
       "**Setup**",
-      `\`${p}serversetup\` / \`/serversetup\` / \`/tsbsetup\` (alias \`${p}tsbsetup\`) — leaderboard, ranking, score, lineups, tryouts`,
+      `\`${p}tsbsetup\` / \`/tsbsetup\` (alias \`${p}serversetup\` / \`/serversetup\`) — leaderboard, ranking, score, lineups, tryouts`,
       "",
       "**Profile & coach**",
       `\`/profile\` · \`${p}profile\``,

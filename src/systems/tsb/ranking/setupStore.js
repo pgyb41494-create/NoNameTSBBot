@@ -1101,10 +1101,11 @@ async function finishAndSave(interaction) {
         embeds: [{
             title: "Ranking configured",
             description:
-                "Ranking system saved. This only creates **roles**, not channels.\n\n" +
+                "Ranking system saved.\n\n" +
                 configSummary(data, prefix) +
                 "\n\n**Command usage**\n" +
-                usage.map((line) => `> ${line}`).join("\n"),
+                usage.map((line) => `> ${line}`).join("\n") +
+                "\n\nRefreshing boards / lineups in the background…",
             color: 0x57F287
         }],
         components: []
@@ -1123,7 +1124,7 @@ async function handleRankingButton(interaction) {
     // Ranking wizard buttons only work after entering via -setup → Ranking Setup
     if (id.startsWith("tsb:rank:") && !session.fromSetup) {
         return interaction.reply({
-            content: "Open Ranking Setup with `/serversetup` → **Ranking Setup**.",
+            content: "Open Ranking Setup with `/tsbsetup` → **Ranking Setup**.",
             ephemeral: true
         });
     }

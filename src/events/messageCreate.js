@@ -1,21 +1,18 @@
 const { brand } = require("../utils/loadApi");
+const { handleLeaderboardDraftMessage } = require("../systems/tsb/leaderboard/draft");
+const { handleLineupDraftMessage } = require("../systems/tsb/lineup/draft");
 const {
   resolveManagementKind,
   sweepIfManagementChannel,
-  handleManagementDraft,
-} = require("../systems/mgmtDraft");
+} = require("../systems/tsb/shared/mgmtCleaner");
 
 module.exports = {
   async execute(message, client) {
     if (message.author.bot || !message.guild) return;
 
-    const kind = resolveManagementKind(message.channel, message.guild.id);
     let draftHandled = false;
-
-    if (kind) {
-      const result = await handleManagementDraft(message);
-      draftHandled = Boolean(result?.handled);
-    }
+    if (await handleLineupDraftMessage(message)) draftHandled = true;
+    else if (await handleLeaderboardDraftMessage(message)) draftHandled = true;
 
     if (!draftHandled) {
       if (message.mentions.has(client.user) && message.content.trim() === `<@${client.user.id}>`) {
@@ -32,8 +29,7 @@ module.exports = {
       }
     }
 
-    // Obscura-style: keep only the tips text block in management channels
-    if (kind) {
+    if (resolveManagementKind(message, message.guild.id)) {
       await sweepIfManagementChannel(message, message.guild.id, { delayMs: 900 });
     }
   },

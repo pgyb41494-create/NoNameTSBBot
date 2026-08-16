@@ -323,7 +323,7 @@ async function recordScore(interaction) {
 
     if (!cfg.setupCompleted) {
         return interaction.reply({
-            content: "1v1 Score is not set up yet. Use `/serversetup` → **1v1 Score Setup**.",
+            content: "1v1 Score is not set up yet. Use `/tsbsetup` → **1v1 Score Setup**.",
             ephemeral: true
         });
     }
@@ -332,7 +332,7 @@ async function recordScore(interaction) {
         const needsRoles = !(cfg.allowedRoleIds || []).length;
         return interaction.reply({
             content: needsRoles
-                ? "No score staff roles are configured yet. An admin must finish `/serversetup` → **1v1 Score Setup** (allowed roles)."
+                ? "No score staff roles are configured yet. An admin must finish `/tsbsetup` → **1v1 Score Setup** (allowed roles)."
                 : "You are not allowed to use `/score`.",
             ephemeral: true
         });

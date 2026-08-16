@@ -86,13 +86,17 @@ function metallicComponentsV2(guildName, start, end, cards, { sanitizeThumbnail,
     container.addMediaGalleryComponents(
       new MediaGalleryBuilder().addItems((item) => item.setURL("attachment://leaderboard-banner.png"))
     );
-    addGap(container);
+    container.addSeparatorComponents((sep) =>
+      sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large)
+    );
   }
 
   container.addTextDisplayComponents((td) =>
     td.setContent(`# ${guildName} Leaderboard`)
   );
-  addGap(container);
+  container.addSeparatorComponents((sep) =>
+    sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large)
+  );
 
   cards.forEach((card, index) => {
     const body = entryBody(card);

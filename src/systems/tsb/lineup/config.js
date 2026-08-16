@@ -94,6 +94,25 @@ function getRegion(guildId, regionKey) {
   return getLineupConfig(guildId).regions?.[regionKey] || null;
 }
 
+function resizeSlots(existing, count) {
+  const slots = [...(existing || [])];
+  while (slots.length < count) {
+    slots.push({ position: slots.length + 1, discordId: null });
+  }
+  return slots.slice(0, count).map((s, i) => ({
+    position: i + 1,
+    discordId: s.discordId || null,
+  }));
+}
+
+function updateRegion(guildId, regionKey, patch) {
+  const cfg = getLineupConfig(guildId);
+  const regions = { ...(cfg.regions || {}) };
+  if (!regions[regionKey]) return null;
+  regions[regionKey] = { ...regions[regionKey], ...patch };
+  return updateLineupConfig(guildId, { regions });
+}
+
 function setRegionSlot(guildId, regionKey, position, discordId, board = "main") {
   return api.lineup.setSlot(guildId, regionKey, board, position, discordId);
 }
@@ -105,5 +124,7 @@ module.exports = {
   updateLineupConfig,
   ensureRegions,
   getRegion,
+  updateRegion,
+  resizeSlots,
   setRegionSlot,
 };

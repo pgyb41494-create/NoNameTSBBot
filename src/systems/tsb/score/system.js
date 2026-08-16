@@ -18,11 +18,13 @@ const {
     getProfileByDiscordId,
     resolveRobloxUser
 } = require("../shared/profileAdapter");
+const { hasAccessPerm } = require("../access/store");
 
 function canUseScore(member, guild, cfg) {
     if (!member) return false;
     if (guild.ownerId === member.id) return true;
     if (member.permissions?.has?.(PermissionFlagsBits.Administrator)) return true;
+    if (hasAccessPerm(guild.id, member.id, "SCORE")) return true;
     const allowed = cfg.allowedRoleIds || [];
     // Empty allowed list = locked (admins/owner only) — configure roles in -setup
     if (!allowed.length) return false;

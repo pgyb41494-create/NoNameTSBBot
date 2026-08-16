@@ -256,7 +256,12 @@ async function handleTryoutRuntime(interaction) {
     const session = live.get(token);
     if (!session) return interaction.reply({ content: "Tryout no longer exists.", ephemeral: true });
     const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
-    if (interaction.user.id !== session.creatorId && !isAdmin) {
+    const { hasAccessPerm } = require("../access/store");
+    if (
+      interaction.user.id !== session.creatorId
+      && !isAdmin
+      && !hasAccessPerm(interaction.guild.id, interaction.user.id, "TRYOUTS")
+    ) {
       return interaction.reply({ content: "Only the creator or an admin can end this tryout.", ephemeral: true });
     }
     await closeSession(interaction.client, token, interaction.user.id);

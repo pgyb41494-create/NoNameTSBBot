@@ -1,5 +1,6 @@
 const { PermissionFlagsBits } = require("discord.js");
 const api = require("../../../utils/loadApi");
+const { hasAccessPerm } = require("../access/store");
 
 function normalizeCommandName(value) {
   return api.ranking.normalizeCommandName
@@ -65,6 +66,7 @@ function canUseRanking(member, guild, cfg = null) {
   if (!member || !guild) return false;
   if (guild.ownerId === member.id) return true;
   if (member.permissions?.has?.(PermissionFlagsBits.Administrator)) return true;
+  if (hasAccessPerm(guild.id, member.id, "PHASE")) return true;
   const config = cfg || getGuildConfig(guild.id);
   const allowed = config.authorizedRoles || config.authorizedRoleIds || [];
   if (!allowed.length) return false;

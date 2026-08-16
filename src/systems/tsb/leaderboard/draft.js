@@ -5,11 +5,13 @@ const {
 } = require("./config");
 
 const { refreshLeaderboard, publishLeaderboard, upsertLeaderboard, MAX_TOP, getPageRanges, pageChannelName } = require("./renderer");
+const { hasAccessPerm } = require("../access/store");
 
 function canManageLeaderboard(member, guild, cfg) {
     if (!member) return false;
     if (guild.ownerId === member.id) return true;
     if (member.permissions?.has?.("Administrator")) return true;
+    if (hasAccessPerm(guild.id, member.id, "LEADERBOARD")) return true;
     return (cfg.allowedRoles || []).some((id) => member.roles.cache.has(id));
 }
 

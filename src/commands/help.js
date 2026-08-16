@@ -22,6 +22,7 @@ function helpEmbed() {
       "",
       "**Setup**",
       `\`${p}tsbsetup\` / \`/tsbsetup\` (alias \`${p}serversetup\` / \`/serversetup\`) — leaderboard, ranking, score, lineups, tryouts`,
+      `\`${p}access @user\` / \`/access\` — grant TSB staff access (phase, boards, lineups, score, tryouts)`,
       "",
       "**Profile & coach**",
       `\`/profile\` · \`${p}profile\``,

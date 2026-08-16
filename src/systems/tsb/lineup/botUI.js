@@ -10,10 +10,13 @@ const {
     buildLineupListDescription,
 } = require("./renderer");
 
+const { hasAccessPerm } = require("../access/store");
+
 function canManage(member, guild, cfg) {
     if (!member) return false;
     if (guild.ownerId === member.id) return true;
     if (member.permissions?.has?.("Administrator")) return true;
+    if (hasAccessPerm(guild.id, member.id, "LINEUPS")) return true;
     return (cfg.allowedRoles || []).some((id) => member.roles.cache.has(id));
 }
 

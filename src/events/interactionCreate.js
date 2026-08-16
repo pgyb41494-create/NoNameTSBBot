@@ -32,6 +32,7 @@ const {
 } = require("../systems/tsb/tryout/setupStore");
 const { handleTryoutRuntime } = require("../systems/tsb/tryout/runtime");
 const { handleSetupInteraction } = require("../systems/setupHub");
+const { handleAccessInteraction } = require("../systems/tsb/access/panel");
 
 async function handleTsbInteraction(interaction) {
   const id = interaction.customId || "";
@@ -49,6 +50,7 @@ async function handleTsbInteraction(interaction) {
     || interaction.isUserSelectMenu?.()
   ) {
     if (id === HUB_CUSTOM_ID) return handleHubSelect(interaction);
+    if (id.startsWith("access_")) return handleAccessInteraction(interaction);
     if (id.startsWith("tsb:lb:")) return handleLeaderboardSelect(interaction);
     if (id.startsWith("tsb:rank:")) return handleRankingSelect(interaction);
     if (id.startsWith("tsb:score:")) return handleScoreSelect(interaction);
@@ -57,6 +59,7 @@ async function handleTsbInteraction(interaction) {
   }
 
   if (interaction.isButton?.()) {
+    if (id.startsWith("access_")) return handleAccessInteraction(interaction);
     if (id.startsWith("tsb:lubot:")) return handleLineupBotButton(interaction);
     if (id.startsWith("tsb:lb:")) return handleLeaderboardButton(interaction);
     if (id.startsWith("tsb:rank:")) return handleRankingButton(interaction);

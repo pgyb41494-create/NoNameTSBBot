@@ -325,12 +325,11 @@ async function applySetup(interaction) {
         .join(", ");
 
     const { buildLineupTips, sweepManagementChannel } = require("../shared/mgmtCleaner");
-    const { lineupBotComponents } = require("./botUI");
     const { resolveGuildPrefix } = require("../shared/guildPrefix");
 
     const tips = await managementChannel.send({
         content: buildLineupTips(guild.id),
-        components: lineupBotComponents()
+        components: []
     });
 
     updateLineupConfig(guild.id, { tipsMessageId: tips.id });

@@ -6,8 +6,12 @@ const {
   guildSessions,
   listPayload,
 } = require("../systems/tsb/tryout/runtime");
+const { isAdminOrOwner } = require("../utils/permissions");
+const { hasAccessPerm } = require("../systems/tsb/access/store");
 
-function canManage(member) {
+function canManage(member, guild) {
+  if (isAdminOrOwner(member, guild || member?.guild)) return true;
+  if (member && guild && hasAccessPerm(guild.id, member.id, "TRYOUTS")) return true;
   return member?.permissions?.has?.(PermissionFlagsBits.ManageMessages)
     || member?.permissions?.has?.(PermissionFlagsBits.Administrator);
 }
@@ -18,7 +22,6 @@ module.exports = {
     new SlashCommandBuilder()
       .setName("tryout")
       .setDescription("TSB tryout signups — create and manage sessions")
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
       .addSubcommand((sub) =>
         sub.setName("create").setDescription("Post a TSB tryout signup message")
           .addStringOption((o) => o.setName("link").setDescription("Roblox private server or join link").setRequired(true))
@@ -37,15 +40,15 @@ module.exports = {
       ),
 
   async executePrefix(message, args) {
-    if (!canManage(message.member)) {
-      return message.reply("You need **Manage Messages**.");
+    if (!canManage(message.member, message.guild)) {
+      return message.reply("You need **TRYOUTS** access, **Manage Messages**, or Administrator.");
     }
     return message.reply("Use `/tryout create|list|end` (or `'serversetup` → **Tryouts**).");
   },
 
   async executeSlash(interaction) {
-    if (!canManage(interaction.member)) {
-      return interaction.reply({ content: "You need **Manage Messages**.", ephemeral: true });
+    if (!canManage(interaction.member, interaction.guild)) {
+      return interaction.reply({ content: "You need **TRYOUTS** access, **Manage Messages**, or Administrator.", ephemeral: true });
     }
     const sub = interaction.options.getSubcommand();
     if (sub === "create") {

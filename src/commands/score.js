@@ -1,7 +1,7 @@
 const { SlashCommandBuilder } = require("discord.js");
-const { recordScore } = require("../systems/tsb/score/system");
+const { recordScore, canUseScore } = require("../systems/tsb/score/system");
+const { getScoreConfig } = require("../systems/tsb/score/config");
 const { danger } = require("../utils/embeds");
-const { isAdminOrOwner } = require("../utils/permissions");
 
 module.exports = {
   name: "score",
@@ -27,8 +27,8 @@ module.exports = {
       .addStringOption((o) => o.setName("notes").setDescription("Notes (include auto for autowin)").setRequired(false)),
 
   async executePrefix(message) {
-    if (!isAdminOrOwner(message.member, message.guild)) {
-      return message.reply({ embeds: [danger("Missing permissions", "Staff only.")] });
+    if (!canUseScore(message.member, message.guild, getScoreConfig(message.guild.id))) {
+      return message.reply({ embeds: [danger("Missing permissions", "You need **SCORE** access or an allowed score role.")] });
     }
     return message.reply({
       embeds: [danger("Use slash", "Use `/score` with match type, participants, score, and winner.")],

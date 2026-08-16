@@ -8,10 +8,12 @@ const {
 
 const { publishRegionLineup, publishAllLineups } = require("./renderer");
 const { isAdminOrOwner, memberHasAnyRole } = require("../shared/permissions");
+const { hasAccessPerm } = require("../access/store");
 
 function canManageLineup(member, guild, cfg) {
     if (!member) return false;
     if (isAdminOrOwner(member, guild)) return true;
+    if (hasAccessPerm(guild.id, member.id, "LINEUPS")) return true;
     return memberHasAnyRole(member, cfg.allowedRoles || []);
 }
 

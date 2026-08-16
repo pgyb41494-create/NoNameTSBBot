@@ -24,7 +24,7 @@ function buildLineupTips(guildId) {
         "\n```\n" +
         "Use `miami sub` on the first line for **Sub Line Up**.\n" +
         "`send` · `send miami` · `send all` → Confirm to publish.\n\n" +
-        "Or use buttons / commands:\n" +
+        "Or use commands:\n" +
         "```\n" +
         `${p}lineup add <region> <pos> @user\n` +
         `${p}lineup remove <region> <pos>\n` +
@@ -120,7 +120,6 @@ async function ensureTipsMessage(channel, guildId, kind) {
     let tips = null;
 
     if (kind === "lineup") {
-        const { lineupBotComponents } = require("../lineup/botUI");
         const cfg = getLineupConfig(guildId);
         if (cfg.tipsMessageId) {
             tips = await channel.messages.fetch(cfg.tipsMessageId).catch(() => null);
@@ -128,12 +127,11 @@ async function ensureTipsMessage(channel, guildId, kind) {
         if (!tips && recent?.size) {
             tips = [...recent.values()].find(isLineupTipsMessage) || null;
         }
-        const components = lineupBotComponents();
         const content = buildLineupTips(guildId);
         if (!tips) {
-            tips = await channel.send({ content, components });
+            tips = await channel.send({ content, components: [] });
         } else {
-            await tips.edit({ content, components }).catch(() => {});
+            await tips.edit({ content, components: [] }).catch(() => {});
         }
         updateLineupConfig(guildId, { tipsMessageId: tips.id });
         await tips.pin().catch(() => {});

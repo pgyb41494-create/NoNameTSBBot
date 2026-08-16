@@ -5,6 +5,8 @@ const {
   SeparatorSpacingSize,
 } = require("discord.js");
 
+const INFO_DIVIDER = "≼──≽・Information・≼──≽";
+
 const THEMES = {
   classic: {
     id: "classic",
@@ -15,7 +17,7 @@ const THEMES = {
   metallic: {
     id: "metallic",
     label: "Metallic v2",
-    description: "One Components V2 message + Type 14 separators",
+    description: "Banner + big-text player cards (no divider lines)",
     pageSize: 10,
   },
 };
@@ -54,30 +56,28 @@ function robloxLinkLabel(card) {
   return label;
 }
 
+function addGap(container) {
+  container.addSeparatorComponents((sep) =>
+    sep.setDivider(false).setSpacing(SeparatorSpacingSize.Large)
+  );
+}
+
+/** `#` must be first on the line so Discord renders big heading text. */
 function entryBody(card) {
-  const mention = card.discordTag || "`empty`";
-  if (card.empty) {
-    return [
-      `**#${card.position}. Vacant**`,
-      `╭ Rank: -`,
-      `┝ Host: -`,
-      `┝ State: Empty`,
-      `╰ Country: -`,
-    ].join("\n");
-  }
+  const mention = card.empty ? "" : (card.discordTag || "");
+  const namePart = card.empty ? "Vacant" : robloxLinkLabel(card);
   return [
-    `**#${card.position}. ${robloxLinkLabel(card)}** ${mention}`,
-    `╭ Rank: ${card.stage || "Unranked"}`,
-    `┝ Host: ${hostLabel(card)}`,
-    `┝ State: ${stateLabel(card)}`,
-    `╰ Country: ${countryLabel(card)}`,
+    `# \`${card.position}.\` ${namePart}${mention ? ` ${mention}` : ""}`,
+    INFO_DIVIDER,
+    `**Rank:** ${card.empty ? "-" : (card.stage || "Unranked")}`,
+    `**Host:** ${hostLabel(card)}`,
+    `**State:** ${stateLabel(card)}`,
+    `**Country:** ${countryLabel(card)}`,
   ].join("\n");
 }
 
 /**
- * Single Components V2 message:
- * banner → Type-14 Separator → title → Separator → each player → Separator
- * (those horizontal lines in Discord = Separator type 14)
+ * Banner + title + player cards. Spacing only — no Type 14 divider lines.
  */
 function metallicComponentsV2(guildName, start, end, cards, { sanitizeThumbnail, hasBanner }) {
   const container = new ContainerBuilder().setAccentColor(0x2b2d31);
@@ -86,18 +86,13 @@ function metallicComponentsV2(guildName, start, end, cards, { sanitizeThumbnail,
     container.addMediaGalleryComponents(
       new MediaGalleryBuilder().addItems((item) => item.setURL("attachment://leaderboard-banner.png"))
     );
-    container.addSeparatorComponents((sep) =>
-      sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large)
-    );
+    addGap(container);
   }
 
   container.addTextDisplayComponents((td) =>
-    td.setContent(`# ${guildName} Top ${start}-${end}`)
+    td.setContent(`# ${guildName} Leaderboard`)
   );
-
-  container.addSeparatorComponents((sep) =>
-    sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large)
-  );
+  addGap(container);
 
   cards.forEach((card, index) => {
     const body = entryBody(card);
@@ -113,11 +108,7 @@ function metallicComponentsV2(guildName, start, end, cards, { sanitizeThumbnail,
       container.addTextDisplayComponents((td) => td.setContent(body));
     }
 
-    if (index < cards.length - 1) {
-      container.addSeparatorComponents((sep) =>
-        sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small)
-      );
-    }
+    if (index < cards.length - 1) addGap(container);
   });
 
   return {
@@ -128,6 +119,7 @@ function metallicComponentsV2(guildName, start, end, cards, { sanitizeThumbnail,
 
 module.exports = {
   THEMES,
+  INFO_DIVIDER,
   listThemes,
   resolveTheme,
   metallicComponentsV2,

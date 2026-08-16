@@ -3,16 +3,29 @@ const api = require("../utils/loadApi");
 const { formatCardDescription, cardTitle, sanitizeThumbnail, CARD_COLOR, VACANT_COLOR } = api.cards;
 const { brand } = api;
 const { generateLeaderboardBanner } = require("./bannerGenerate");
-const { resolveTheme, metallicComponentsV2 } = require("./leaderboardThemes");
+const { resolveTheme, metallicComponentsV2, entryBody } = require("./leaderboardThemes");
 
 function cardEmbed(card, { mode = "leaderboard" } = {}) {
+  const thumb = sanitizeThumbnail(card.avatarUrl);
+
+  if (mode === "leaderboard") {
+    const embed = new EmbedBuilder()
+      .setColor(0x2b2d31)
+      .setDescription(entryBody(card))
+      .setImage(card.gifUrl || brand.defaultGif);
+    if (!card.empty && thumb) {
+      embed.setThumbnail(thumb);
+      embed.setAuthor({ name: card.name, iconURL: thumb });
+    }
+    return embed;
+  }
+
   const embed = new EmbedBuilder()
     .setColor(card.empty ? VACANT_COLOR : CARD_COLOR)
     .setTitle(cardTitle(card))
     .setDescription(formatCardDescription(card, { mode }))
     .setImage(card.gifUrl || brand.defaultGif);
 
-  const thumb = sanitizeThumbnail(card.avatarUrl);
   if (!card.empty && thumb) embed.setThumbnail(thumb);
   return embed;
 }
@@ -104,7 +117,7 @@ async function publishLeaderboard(guild) {
       payload = { ...v2, files };
     } else {
       payload = {
-        content: `# Top ${start}-${end}`,
+        content: `# ${guild.name} Leaderboard`,
         embeds: slice.map((card) => cardEmbed(card, { mode: "leaderboard" })),
       };
     }

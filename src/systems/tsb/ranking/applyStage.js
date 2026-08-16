@@ -3,8 +3,38 @@
  */
 
 const { EmbedBuilder } = require("discord.js");
+const { authorName } = require("../../../utils/loadApi");
 
 const RANKING_LOG_COLOR = 0x5DADE2;
+
+function pngAvatar(userOrMember, size = 256) {
+    const user = userOrMember?.user || userOrMember;
+    if (!user?.displayAvatarURL) return null;
+    try {
+        return user.displayAvatarURL({ size, extension: "png", forceStatic: true });
+    } catch {
+        return null;
+    }
+}
+
+function isHttpUrl(value) {
+    return typeof value === "string" && /^https?:\/\//i.test(value);
+}
+
+function formatRolePart(role, fallback) {
+    if (role?.id && role.color) return `<@&${role.id}>`;
+    if (role?.name) return `**${role.name}**`;
+    return fallback;
+}
+
+function displayTierLabel(tsbRanking, invokedName) {
+    const invoked = String(invokedName || "").toLowerCase();
+    if (invoked === "phase") return "Phase";
+    if (invoked === "tier") return "Tier";
+    if (invoked === "rank") return "Rank";
+    if (invoked === "stage") return "Stage";
+    return String(tsbRanking?.tierLabel || "Phase").trim() || "Phase";
+}
 
 function findPhaseRole(guild, phaseNum) {
     const patterns = [
@@ -127,7 +157,7 @@ async function applyStageRoles({
     if (asApplicant) {
         let applicantRole = resolveApplicantRole();
         if (!applicantRole && tsbRanking?.autoCreateRoles !== false) {
-            const label = tsbRanking?.tierLabel || "Stage";
+            const label = tsbRanking?.tierLabel || "Phase";
             applicantRole = await ensureNamedRole(guild, `${label} 1 Applicant`);
         }
         if (!applicantRole) {
@@ -203,11 +233,11 @@ async function applyStageRoles({
     }
     if (!phaseRole) phaseRole = findPhaseRole(guild, phaseNum);
     if (!phaseRole && tsbRanking?.autoCreateRoles !== false) {
-        const label = tsbRanking?.tierLabel || "Stage";
+        const label = tsbRanking?.tierLabel || "Phase";
         phaseRole = await ensureNamedRole(guild, `${label} ${phaseNum}`);
     }
 
-    const phaseLabel = `Stage ${phaseNum}`;
+    const phaseLabel = `${tsbRanking?.tierLabel || "Phase"} ${phaseNum}`;
     if (phaseRole) {
         if (me && phaseRole.position < me.roles.highest.position) {
             try {
@@ -310,17 +340,25 @@ async function buildStageRankingLogEmbed({
     tsbRanking = null,
     settings = {},
     phaseRole = null,
+    tierRole = null,
+    subtierRole = null,
     assigned = [],
     failed = [],
+    invokedName = null,
 }) {
     let profile = null;
     try {
         const { getProfileByDiscordId, REGIONS } = require("../shared/profileAdapter");
-        profile = await getProfileByDiscordId(guild.id, member.id).catch(() => null);
-        if (!profile) profile = await getProfileByDiscordId(null, member.id).catch(() => null);
+        profile = await Promise.resolve(getProfileByDiscordId(guild.id, member.id)).catch(() => null);
+        if (!profile) profile = await Promise.resolve(getProfileByDiscordId(null, member.id)).catch(() => null);
 
         if (!regionLabel && profile?.region) {
             regionLabel = REGIONS.find((r) => r.value === profile.region)?.label || profile.region;
+        }
+        if ((!profile?.roblox_avatar_url || !isHttpUrl(profile.roblox_avatar_url)) && (profile?.roblox_id || profile?.roblox_username)) {
+            const { resolveRobloxUser } = require("../shared/profileAdapter");
+            const live = await resolveRobloxUser(profile.roblox_id || profile.roblox_username).catch(() => null);
+            if (live?.avatarUrl) profile = { ...profile, roblox_avatar_url: live.avatarUrl };
         }
     } catch {}
 
@@ -331,9 +369,8 @@ async function buildStageRankingLogEmbed({
         || member.user?.username
         || "Unknown";
     const avatarUrl =
-        profile?.roblox_avatar_url
-        || member.user?.displayAvatarURL?.({ size: 256 })
-        || null;
+        (isHttpUrl(profile?.roblox_avatar_url) ? profile.roblox_avatar_url : null)
+        || pngAvatar(member, 256);
 
     if (!phaseRole && !asApplicant) {
         const phaseMap = settings.verifyPhaseRoleMap || {};
@@ -346,21 +383,25 @@ async function buildStageRankingLogEmbed({
         if (!phaseRole) phaseRole = findPhaseRole(guild, phaseNum);
     }
 
+    const label = displayTierLabel(tsbRanking, invokedName);
     const rankParts = asApplicant
-        ? [(phaseRole ? `<@&${phaseRole.id}>` : "Applicant")]
+        ? [formatRolePart(phaseRole, "Applicant")]
         : [
-            phaseRole ? `<@&${phaseRole.id}>` : `Stage ${phaseNum}`,
-            capitalizeWord(tier),
-            capitalizeWord(subtier),
+            `**${label} ${phaseNum}**`,
+            formatRolePart(tierRole, capitalizeWord(tier)),
+            formatRolePart(subtierRole, capitalizeWord(subtier)),
         ].filter(Boolean);
     const rankResult = rankParts.join(" ");
 
-    let notesValue = notes && String(notes).trim() ? String(notes).trim() : "-";
+    let notesValue = notes && String(notes).trim() && notes !== "-" ? String(notes).trim() : "—";
     if (failed?.length) {
-        notesValue = notesValue === "-"
+        notesValue = notesValue === "—"
             ? `Could not assign: ${failed.join(", ")}`
             : `${notesValue}\nCould not assign: ${failed.join(", ")}`;
     }
+
+    const evaluatorUser = evaluator?.user || evaluator;
+    const footerIcon = pngAvatar(evaluatorUser, 64);
 
     const embed = new EmbedBuilder()
         .setColor(failed?.length && !assigned?.length ? 0xED4245 : RANKING_LOG_COLOR)
@@ -375,10 +416,8 @@ async function buildStageRankingLogEmbed({
             { name: "Notes", value: notesValue.slice(0, 1024), inline: false },
         )
         .setFooter({
-            text: `Evaluated by ${evaluator?.username || evaluator?.tag || "Unknown"}`,
-            ...(evaluator?.displayAvatarURL
-                ? { iconURL: evaluator.displayAvatarURL({ size: 64 }) }
-                : {}),
+            text: `Evaluated by ${evaluatorUser?.username || evaluatorUser?.tag || "Unknown"} · ${authorName()}`,
+            ...(footerIcon ? { iconURL: footerIcon } : {}),
         })
         .setTimestamp();
 

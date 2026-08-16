@@ -278,8 +278,8 @@ async function autoDetectAndCreateRankingRoles(guild, data) {
 
 function defaultData() {
     return {
-        commandName: "stage",
-        tierLabel: "Stage",
+        commandName: "phase",
+        tierLabel: "Phase",
         tierCount: 5,
         applicantEnabled: true,
         leaderboardIntegration: true,
@@ -311,8 +311,8 @@ function getSession(guildId) {
             step: 1,
             data: {
                 ...defaultData(),
-                commandName: normalizeCommandName(saved.commandName || "stage"),
-                tierLabel: saved.tierLabel || "Stage",
+                commandName: normalizeCommandName(saved.commandName || "phase"),
+                tierLabel: saved.tierLabel || "Phase",
                 tierCount: saved.tierCount ?? 5,
                 applicantEnabled: saved.applicantEnabled !== false,
                 leaderboardIntegration: saved.leaderboardIntegration !== false,

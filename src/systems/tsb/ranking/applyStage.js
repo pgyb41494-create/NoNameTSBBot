@@ -184,6 +184,18 @@ async function applyStageRoles({
             failed.push(`${applicantRole.name} (above my role)`);
         }
 
+        let starterTier = null;
+        let starterSub = null;
+        // Applicant never strips 2 High Strong. If they have no rank yet, grant it with Applicant.
+        if (!memberHasRankRoles(member, isApplicantRole)) {
+            const starter = await resolveTwoHighStrong(guild, tsbRanking);
+            await addRoleToMember(member, starter.phaseRole, `${reason} (starter 2 High Strong)`, assigned, failed, me);
+            await addRoleToMember(member, starter.tierRole, `${reason} (starter 2 High Strong)`, assigned, failed, me);
+            await addRoleToMember(member, starter.subtierRole, `${reason} (starter 2 High Strong)`, assigned, failed, me);
+            starterTier = starter.tierRole;
+            starterSub = starter.subtierRole;
+        }
+
         try {
             const { removeTryoutCooldownRole } = require("./tryoutCooldown");
             const removed = await removeTryoutCooldownRole(member, tsbRanking, "Applicant assigned");
@@ -195,7 +207,7 @@ async function applyStageRoles({
             }
         } catch {}
 
-        return { assigned, failed, phaseRole: applicantRole, tierRole: null, subtierRole: null };
+        return { assigned, failed, phaseRole: applicantRole, tierRole: starterTier, subtierRole: starterSub };
     }
 
     const configuredIds = new Set([
@@ -317,6 +329,69 @@ async function applyStageRoles({
     return { assigned, failed, phaseRole, tierRole, subtierRole };
 }
 
+function isRankBandRole(role) {
+    if (!role || role.managed) return false;
+    if (/(?:stage|phase|tier)\s*[0-5]/i.test(role.name)) return true;
+    if (/\b(high|mid|low)\b/i.test(role.name)) return true;
+    if (/\b(strong|stable|weak)\b/i.test(role.name)) return true;
+    return false;
+}
+
+function memberHasRankRoles(member, isApplicantRole) {
+    return member.roles.cache.some((role) => isRankBandRole(role) && !isApplicantRole(role));
+}
+
+async function addRoleToMember(member, role, reason, assigned, failed, me) {
+    if (!role) return;
+    if (member.roles.cache.has(role.id)) {
+        if (!assigned.includes(role.name)) assigned.push(role.name);
+        return;
+    }
+    if (me && role.position < me.roles.highest.position) {
+        try {
+            await member.roles.add(role, reason);
+            assigned.push(role.name);
+        } catch {
+            failed.push(`${role.name} (error)`);
+        }
+        return;
+    }
+    failed.push(`${role.name} (above my role)`);
+}
+
+async function resolveTwoHighStrong(guild, tsbRanking) {
+    let phaseRole = tsbRanking?.tierRoleIds?.[2]
+        ? guild.roles.cache.get(tsbRanking.tierRoleIds[2]) || null
+        : null;
+    if (!phaseRole) phaseRole = findPhaseRole(guild, 2);
+    if (!phaseRole && tsbRanking?.autoCreateRoles !== false) {
+        const label = tsbRanking?.tierLabel || "Phase";
+        phaseRole = await ensureNamedRole(guild, `${label} 2`);
+    }
+
+    let tierRole = resolveConfiguredRole(
+        guild,
+        tsbRanking?.subrankRoleIds,
+        tsbRanking?.subranks || tsbRanking?.subtiers,
+        "High"
+    ) || findRoleByKeyword(guild, "High");
+    if (!tierRole && tsbRanking?.autoCreateRoles !== false) {
+        tierRole = await ensureNamedRole(guild, "High");
+    }
+
+    let subtierRole = resolveConfiguredRole(
+        guild,
+        tsbRanking?.powerRoleIds,
+        tsbRanking?.powerRanks,
+        "Strong"
+    ) || findRoleByKeyword(guild, "Strong");
+    if (!subtierRole && tsbRanking?.autoCreateRoles !== false) {
+        subtierRole = await ensureNamedRole(guild, "Strong");
+    }
+
+    return { phaseRole, tierRole, subtierRole };
+}
+
 function capitalizeWord(value) {
     const s = String(value || "").trim();
     if (!s) return "";
@@ -385,7 +460,12 @@ async function buildStageRankingLogEmbed({
 
     const label = displayTierLabel(tsbRanking, invokedName);
     const rankParts = asApplicant
-        ? [formatRolePart(phaseRole, "Applicant")]
+        ? [
+            formatRolePart(phaseRole, "Applicant"),
+            (tierRole || subtierRole) ? `**${label} 2**` : "",
+            formatRolePart(tierRole, ""),
+            formatRolePart(subtierRole, ""),
+        ].filter(Boolean)
         : [
             `**${label} ${phaseNum}**`,
             formatRolePart(tierRole, capitalizeWord(tier)),

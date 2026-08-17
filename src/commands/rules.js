@@ -25,7 +25,7 @@ function rulesPayload(sectionKey = "leaderboard", lang = "es") {
   return {
     embeds: [
       surface({
-        title: `TSBL · ${section.title}`,
+        title: `TSBCC · ${section.title}`,
         description: `${TSBL.name}\n\n${body}\n\n${pack.ui.askHint}`,
       }),
     ],
@@ -62,7 +62,7 @@ module.exports = {
   slash: () =>
     new SlashCommandBuilder()
       .setName("rules")
-      .setDescription("Reglas oficiales TSBL / LATAM")
+      .setDescription("Reglas oficiales TSBCC / LATAM")
       .addStringOption((o) =>
         o
           .setName("section")

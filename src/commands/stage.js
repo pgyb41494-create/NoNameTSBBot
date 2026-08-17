@@ -106,14 +106,14 @@ async function applyStageCommand(ctx, guild, user, stageInput, actor, actorMembe
   }
 
   const assignerStage = await Promise.resolve(api.ranking.getStage(guild.id, actor.id));
-  if (assignerStage && !parts.asApplicant) {
+  if (!isAdminOrOwner(actorMember, guild) && assignerStage && !parts.asApplicant) {
     const cap = tryoutAssignCap(assignerStage);
     if (!isStageAtMost(parts.text, cap)) {
       return reply(
         ctx,
         danger(
           "Above tryout cap",
-          `Your stage is **${assignerStage}**. Max you can assign is **${cap}** (TSBL: own phase, ceiling 2 High Strong).`
+          `Your stage is **${assignerStage}**. Max you can assign is **${cap}** (TSBCC: own phase, ceiling 2 High Strong).`
         )
       );
     }

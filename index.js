@@ -238,7 +238,7 @@ async function handle(req, res) {
     if (req.method === "GET" && userMatch) {
       const c = requireDiscord(res);
       if (!c) return;
-      const user = await c.users.fetch(userMatch[1]);
+      const user = await c.users.fetch(userMatch[1], { force: true });
       const { publicUser } = require("./api/lib/discordUser");
       return json(res, 200, publicUser(user, 256));
     }

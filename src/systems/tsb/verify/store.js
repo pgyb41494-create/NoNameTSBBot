@@ -62,6 +62,7 @@ function defaultGuild() {
     staffRoleId: "",
     verifiedRoleId: "",
     panelChannelId: "",
+    panelMessageId: "",
     setupCompleted: false,
     pending: {},
     tickets: {},

@@ -111,7 +111,18 @@ async function publishPanel(guild) {
   let message = null;
   if (tickets.panelMessageId) {
     message = await channel.messages.fetch(tickets.panelMessageId).catch(() => null);
-    if (message) await message.edit(payload).catch(() => {});
+    if (message) await message.edit(payload).catch(() => { message = null; });
+  }
+  if (!message) {
+    const recent = await channel.messages.fetch({ limit: 30 }).catch(() => null);
+    const existing = recent
+      ? [...recent.values()]
+          .filter((msg) => msg.author?.id === guild.client.user.id && msg.embeds?.[0]?.title === "Challenge tickets")
+          .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+      : [];
+    message = existing[0] || null;
+    if (message) await message.edit(payload).catch(() => { message = null; });
+    for (const extra of existing.slice(1)) await extra.delete().catch(() => {});
   }
   if (!message) message = await channel.send(payload);
 

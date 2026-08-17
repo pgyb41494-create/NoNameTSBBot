@@ -107,16 +107,20 @@ function resolveManagementKind(messageOrChannel, guildId) {
 }
 
 function shouldKeepMessage(msg, tipsMessageId, kind) {
-    if (msg.id === tipsMessageId) return true;
-    if (kind === "lineup" && isLineupTipsMessage(msg)) return true;
-    if (kind === "leaderboard" && isLeaderboardTipsMessage(msg)) return true;
+    if (tipsMessageId && msg.id === tipsMessageId) return true;
     if (kind === "leaderboard" && hasPendingLeaderboardConfirm(msg)) return true;
     if (kind === "lineup" && hasPendingLineupConfirm(msg)) return true;
     return false;
 }
 
+function oldestMatching(messages, test) {
+    return [...(messages?.values?.() || [])]
+        .filter((msg) => test(msg))
+        .sort((a, b) => a.createdTimestamp - b.createdTimestamp)[0] || null;
+}
+
 async function ensureTipsMessage(channel, guildId, kind) {
-    const recent = await channel.messages.fetch({ limit: 40 }).catch(() => null);
+    const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
     let tips = null;
 
     if (kind === "lineup") {
@@ -124,14 +128,14 @@ async function ensureTipsMessage(channel, guildId, kind) {
         if (cfg.tipsMessageId) {
             tips = await channel.messages.fetch(cfg.tipsMessageId).catch(() => null);
         }
-        if (!tips && recent?.size) {
-            tips = [...recent.values()].find(isLineupTipsMessage) || null;
-        }
+        if (!tips && recent?.size) tips = oldestMatching(recent, isLineupTipsMessage);
         const content = buildLineupTips(guildId);
         if (!tips) {
             tips = await channel.send({ content, components: [] });
         } else {
-            await tips.edit({ content, components: [] }).catch(() => {});
+            await tips.edit({ content, components: [] }).catch(async () => {
+                tips = await channel.send({ content, components: [] });
+            });
         }
         updateLineupConfig(guildId, { tipsMessageId: tips.id });
         await tips.pin().catch(() => {});
@@ -142,14 +146,14 @@ async function ensureTipsMessage(channel, guildId, kind) {
     if (cfg.tipsMessageId) {
         tips = await channel.messages.fetch(cfg.tipsMessageId).catch(() => null);
     }
-    if (!tips && recent?.size) {
-        tips = [...recent.values()].find(isLeaderboardTipsMessage) || null;
-    }
+    if (!tips && recent?.size) tips = oldestMatching(recent, isLeaderboardTipsMessage);
     const content = buildLeaderboardTips(cfg.topPerChannel || 10, guildId);
     if (!tips) {
         tips = await channel.send({ content });
     } else {
-        await tips.edit({ content }).catch(() => {});
+        await tips.edit({ content }).catch(async () => {
+            tips = await channel.send({ content });
+        });
     }
     updateLeaderboardConfig(guildId, { tipsMessageId: tips.id });
     await tips.pin().catch(() => {});

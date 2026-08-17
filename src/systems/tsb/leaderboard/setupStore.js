@@ -424,7 +424,7 @@ async function confirmAndPublish(interaction) {
 
     const { describeLeaderboardChannels } = require("./draft");
     const { upsertLeaderboard } = require("./renderer");
-    const { sweepManagementChannel, buildLeaderboardTips } = require("../shared/mgmtCleaner");
+    const { sweepManagementChannel } = require("../shared/mgmtCleaner");
 
     const published = await upsertLeaderboard(guild);
 
@@ -436,17 +436,13 @@ async function confirmAndPublish(interaction) {
         boardPages: published.boardPages
     });
 
-    const tips = await managementChannel.send({
-        content: buildLeaderboardTips(data.topPerChannel || 10, guild.id)
-    });
-
-    setLeaderboardConfig(guild.id, {
-        ...getLeaderboardConfig(guild.id),
-        tipsMessageId: tips.id
-    });
-
-    await tips.pin().catch(() => {});
-    await sweepManagementChannel(managementChannel, guild.id, "leaderboard");
+    const tips = await sweepManagementChannel(managementChannel, guild.id, "leaderboard");
+    if (tips?.id) {
+        setLeaderboardConfig(guild.id, {
+            ...getLeaderboardConfig(guild.id),
+            tipsMessageId: tips.id
+        });
+    }
 
     let challengeLine = "Challenge tickets: off";
     const chal = challengeTicketsOf({ challengeTickets: data.challengeTickets });

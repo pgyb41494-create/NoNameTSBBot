@@ -100,6 +100,39 @@ function panelPayload(guild) {
   };
 }
 
+async function upsertPanel(channel, guild) {
+  const cfg = getConfig(guild.id);
+  const payload = panelPayload(guild);
+  let message = null;
+  if (cfg.panelMessageId && (!cfg.panelChannelId || cfg.panelChannelId === channel.id)) {
+    message = await channel.messages.fetch(cfg.panelMessageId).catch(() => null);
+    if (message) await message.edit(payload).catch(() => { message = null; });
+  }
+  if (!message) {
+    const recent = await channel.messages.fetch({ limit: 30 }).catch(() => null);
+    const existing = recent
+      ? [...recent.values()]
+          .filter((msg) =>
+            msg.author?.id === guild.client.user.id &&
+            msg.components?.some((row) =>
+              (row.components || []).some((c) => c.customId === START_ID)
+            )
+          )
+          .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+      : [];
+    message = existing[0] || null;
+    if (message) await message.edit(payload).catch(() => { message = null; });
+    for (const extra of existing.slice(1)) await extra.delete().catch(() => {});
+  }
+  if (!message) message = await channel.send(payload);
+  updateConfig(guild.id, {
+    panelChannelId: channel.id,
+    panelMessageId: message.id,
+    setupCompleted: true,
+  });
+  return message;
+}
+
 function ticketButtons() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(APPROVE_ID).setLabel("Approve").setStyle(ButtonStyle.Success),
@@ -521,6 +554,7 @@ async function handleVerifyInteraction(interaction) {
 module.exports = {
   START_ID,
   panelPayload,
+  upsertPanel,
   canPostPanel,
   startVerification,
   onProfileCompleted,

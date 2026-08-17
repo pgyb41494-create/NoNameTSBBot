@@ -324,16 +324,9 @@ async function applySetup(interaction) {
         })
         .join(", ");
 
-    const { buildLineupTips, sweepManagementChannel } = require("../shared/mgmtCleaner");
+    const { sweepManagementChannel } = require("../shared/mgmtCleaner");
     const { resolveGuildPrefix } = require("../shared/guildPrefix");
 
-    const tips = await managementChannel.send({
-        content: buildLineupTips(guild.id),
-        components: []
-    });
-
-    updateLineupConfig(guild.id, { tipsMessageId: tips.id });
-    await tips.pin().catch(() => {});
     await sweepManagementChannel(managementChannel, guild.id, "lineup");
 
     sessions.delete(guild.id);

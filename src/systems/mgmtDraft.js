@@ -233,7 +233,6 @@ async function ensureTipsMessage(channel, guildId, kind) {
 function shouldKeepMessage(msg, tipsMessageId) {
   if (!msg) return false;
   if (tipsMessageId && msg.id === tipsMessageId) return true;
-  if (isLeaderboardTipsMessage(msg) || isLineupTipsMessage(msg)) return true;
   return false;
 }
 

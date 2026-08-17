@@ -2,7 +2,7 @@ const { ChannelType } = require("discord.js");
 const { tsbEmbed, COLOR_PRIMARY } = require("../shared/embeds");
 const { isAdminOrOwner } = require("../shared/permissions");
 const { getConfig, updateConfig } = require("./store");
-const { panelPayload } = require("./runtime");
+const { upsertPanel } = require("./runtime");
 
 function summary(guildId) {
   const cfg = getConfig(guildId);
@@ -88,9 +88,8 @@ async function handleVerifySetupButton(interaction) {
     return openHub(interaction);
   }
   if (id === "tsb:verify:cfg_panel") {
-    await interaction.channel.send(panelPayload(interaction.guild));
-    updateConfig(interaction.guild.id, { panelChannelId: interaction.channel.id, setupCompleted: true });
-    return interaction.reply({ content: "Verification panel posted in this channel.", ephemeral: true });
+    await upsertPanel(interaction.channel, interaction.guild);
+    return interaction.reply({ content: "Verification panel updated in this channel.", ephemeral: true });
   }
   return false;
 }

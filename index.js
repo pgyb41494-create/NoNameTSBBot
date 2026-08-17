@@ -196,6 +196,17 @@ async function handle(req, res) {
       }
     }
 
+    const panelsMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/panels$/);
+    if (panelsMatch) {
+      const store = require("./src/systems/tsb/panels/store");
+      const guildId = panelsMatch[1];
+      if (req.method === "GET") return json(res, 200, { panels: store.list(guildId) });
+      if (req.method === "PUT") {
+        const body = await readBody(req);
+        return json(res, 200, { panels: store.replaceAll(guildId, body || {}) });
+      }
+    }
+
     const memberMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/members$/);
     if (req.method === "GET" && memberMatch) {
       const c = requireDiscord(res);

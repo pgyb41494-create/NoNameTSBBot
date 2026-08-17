@@ -39,8 +39,10 @@ module.exports = {
   async autocomplete(interaction) {
     try {
       const focused = String(interaction.options.getFocused() || "").toLowerCase();
-      const listed = await listPanels(interaction.guild.id);
+      const guildId = interaction.guildId || interaction.guild?.id;
+      const listed = guildId ? await listPanels(guildId) : [];
       const choices = listed
+        .filter((p) => p?.key)
         .filter((p) => {
           const title = String(p.title || p.name || p.key || "").toLowerCase();
           const key = String(p.key || "").toLowerCase();
@@ -49,7 +51,7 @@ module.exports = {
         .slice(0, 25)
         .map((p) => ({
           name: `${p.title || p.name || p.key} — ${p.key}`.slice(0, 100),
-          value: String(p.key || "").slice(0, 100),
+          value: String(p.key).slice(0, 100),
         }));
       await interaction.respond(choices);
     } catch {

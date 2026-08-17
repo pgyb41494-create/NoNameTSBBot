@@ -14,24 +14,66 @@ function canSendPanel(member) {
   return hasMod(member, PermissionFlagsBits.ManageMessages);
 }
 
-async function listPanels(guildId) {
-  if (typeof api.panels?.list === "function") {
-    const listed = await api.panels.list(guildId);
-    if (Array.isArray(listed) && listed.length) return listed;
-  }
-  if (typeof api.panels?.map === "function") {
-    const mapped = await api.panels.map(guildId);
-    if (mapped && typeof mapped === "object" && !Array.isArray(mapped)) {
-      return Object.entries(mapped).map(([key, panel]) => ({ ...(panel || {}), key }));
-    }
+function normalizeList(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.panels)) return data.panels;
+  if (data && typeof data === "object") {
+    return Object.entries(data)
+      .filter(([, panel]) => panel && typeof panel === "object" && !Array.isArray(panel))
+      .map(([key, panel]) => ({ ...panel, key: panel.key || key }));
   }
   return [];
 }
 
+function localPanelStore() {
+  try {
+    return require("./store");
+  } catch {
+    return null;
+  }
+}
+
+async function fetchRemotePanels(guildId) {
+  const listed = [];
+  if (typeof api.panels?.list === "function") {
+    try {
+      listed.push(...normalizeList(await api.panels.list(guildId)));
+    } catch {}
+  }
+  if (!listed.length && typeof api.panels?.map === "function") {
+    try {
+      listed.push(...normalizeList(await api.panels.map(guildId)));
+    } catch {}
+  }
+  return listed.filter((p) => p && p.key);
+}
+
+async function listPanels(guildId) {
+  const local = localPanelStore();
+  const localList = local ? local.list(guildId) : [];
+  const remote = await fetchRemotePanels(guildId);
+  if (remote.length) {
+    if (local?.replaceAll) {
+      try {
+        local.replaceAll(guildId, { panels: remote });
+      } catch {}
+    }
+    return remote;
+  }
+  return localList;
+}
+
 async function fetchPanel(guildId, key) {
-  if (typeof api.panels?.get === "function") {
-    const panel = await api.panels.get(guildId, key);
+  const local = localPanelStore();
+  if (local?.get) {
+    const panel = local.get(guildId, key);
     if (panel) return panel;
+  }
+  if (typeof api.panels?.get === "function") {
+    try {
+      const panel = await api.panels.get(guildId, key);
+      if (panel) return panel;
+    } catch {}
   }
   const listed = await listPanels(guildId);
   const want = String(key || "").toLowerCase();

@@ -121,6 +121,24 @@ function createBotApi(client) {
     }
   });
 
+  app.get("/discord/guilds/:guildId/panels", (req, res) => {
+    try {
+      const store = require("./systems/tsb/panels/store");
+      res.json({ panels: store.list(req.params.guildId) });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.put("/discord/guilds/:guildId/panels", (req, res) => {
+    try {
+      const store = require("./systems/tsb/panels/store");
+      res.json({ panels: store.replaceAll(req.params.guildId, req.body || {}) });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
   app.post("/discord/guilds/:guildId/channels", async (req, res) => {
     try {
       res.json(await botBridge.createChannel(req.params.guildId, req.body || {}));

@@ -190,11 +190,13 @@ module.exports = {
   },
   panels: {
     list: async (guildId) => {
-      const data = await req(`/api/bot/panels/${guildId}`).catch(() => ({}));
+      const data = await req(`/api/bot/panels/${guildId}`).catch(() => ({ panels: [] }));
       if (Array.isArray(data)) return data;
       if (Array.isArray(data?.panels)) return data.panels;
       if (data && typeof data === "object") {
-        return Object.entries(data).map(([key, panel]) => ({ ...(panel || {}), key }));
+        return Object.entries(data)
+          .filter(([, panel]) => panel && typeof panel === "object" && !Array.isArray(panel) && panel.title !== undefined)
+          .map(([key, panel]) => ({ ...panel, key: panel.key || key }));
       }
       return [];
     },

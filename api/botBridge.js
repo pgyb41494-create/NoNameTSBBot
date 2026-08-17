@@ -300,6 +300,24 @@ async function setInvitesConfig(guildId, body) {
   return remoteDiscord(`/discord/guilds/${guildId}/invites`, { method: "PUT", body: body || {} });
 }
 
+async function listPanels(guildId) {
+  const c = requireClient();
+  if (c) {
+    const store = require("./systems/panels");
+    return { panels: store.list(guildId) };
+  }
+  return remoteDiscord(`/discord/guilds/${guildId}/panels`);
+}
+
+async function replacePanels(guildId, body) {
+  const c = requireClient();
+  if (c) {
+    const store = require("./systems/panels");
+    return { panels: store.replaceAll(guildId, body || {}) };
+  }
+  return remoteDiscord(`/discord/guilds/${guildId}/panels`, { method: "PUT", body: body || {} });
+}
+
 module.exports = {
   setClient,
   getClient,
@@ -317,5 +335,7 @@ module.exports = {
   setAuditConfig,
   getInvitesConfig,
   setInvitesConfig,
+  listPanels,
+  replacePanels,
   createChannel,
 };

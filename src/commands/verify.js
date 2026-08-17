@@ -22,7 +22,8 @@ module.exports = {
 
   async executeSlash(interaction) {
     if (canPostPanel(interaction.member, interaction.guild)) {
-      return interaction.reply(panelPayload());
+      await interaction.channel.send(panelPayload());
+      return interaction.reply({ content: "Verification panel posted.", ephemeral: true });
     }
     return startVerification(interaction);
   },

@@ -17,7 +17,7 @@ const {
 const SELECT_PREFIX = "tsbl_rules_sec:";
 const LANG_PREFIX = "tsbl_rules_lang:";
 
-function rulesPayload(sectionKey = "leaderboard", lang = "es") {
+function rulesPayload(sectionKey = "leaderboard", lang = "en") {
   const L = normalizeLang(lang);
   const pack = tsblPack(L);
   const section = tsblSection(sectionKey, L);
@@ -45,7 +45,7 @@ function rulesPayload(sectionKey = "leaderboard", lang = "es") {
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`${LANG_PREFIX}es:${sectionKey}`)
-          .setLabel("Español")
+          .setLabel("Spanish")
           .setStyle(L === "es" ? ButtonStyle.Primary : ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId(`${LANG_PREFIX}en:${sectionKey}`)
@@ -62,18 +62,18 @@ module.exports = {
   slash: () =>
     new SlashCommandBuilder()
       .setName("rules")
-      .setDescription("Reglas oficiales TSBCC / LATAM")
+      .setDescription("Official TSBCC / LATAM rules")
       .addStringOption((o) =>
         o
           .setName("section")
-          .setDescription("Sección")
+          .setDescription("Section")
           .addChoices(
             { name: "Leaderboard", value: "leaderboard" },
             { name: "Fair play", value: "fairplay" },
-            { name: "Conducta / 1v1", value: "conduct" },
+            { name: "Match conduct / 1v1", value: "conduct" },
             { name: "Tryouts", value: "tryouts" },
             { name: "Phases", value: "phases" },
-            { name: "Clanes", value: "clans" },
+            { name: "Clans", value: "clans" },
             { name: "Gladiators", value: "glads" },
             { name: "Autowin strikes", value: "autowin" }
           )
@@ -81,10 +81,10 @@ module.exports = {
       .addStringOption((o) =>
         o
           .setName("lang")
-          .setDescription("Idioma")
+          .setDescription("Language")
           .addChoices(
-            { name: "Español", value: "es" },
-            { name: "English", value: "en" }
+            { name: "English", value: "en" },
+            { name: "Spanish", value: "es" }
           )
       ),
 
@@ -95,14 +95,14 @@ module.exports = {
 
   async executeSlash(interaction) {
     const section = interaction.options.getString("section") || "leaderboard";
-    const lang = interaction.options.getString("lang") || "es";
+    const lang = interaction.options.getString("lang") || "en";
     return interaction.reply(rulesPayload(section, lang));
   },
 };
 
 function parseRulesArgs(args) {
   const raw = args.join(" ").trim().toLowerCase();
-  let lang = "es";
+  let lang = "en";
   let rest = raw;
   if (/^(en|english|inglés|ingles)\b/.test(raw)) {
     lang = "en";

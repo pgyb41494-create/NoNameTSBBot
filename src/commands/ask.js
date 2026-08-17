@@ -7,17 +7,17 @@ module.exports = {
   slash: () =>
     new SlashCommandBuilder()
       .setName("ask")
-      .setDescription("Pregunta de reglas TSBCC / LATAM")
+      .setDescription("Ask a TSBCC / LATAM rules question")
       .addStringOption((o) =>
-        o.setName("question").setDescription("Tu pregunta de TSBCC").setRequired(true).setMaxLength(800)
+        o.setName("question").setDescription("Your TSBCC question").setRequired(true).setMaxLength(800)
       )
       .addStringOption((o) =>
         o
           .setName("lang")
-          .setDescription("Idioma de la respuesta")
+          .setDescription("Reply language")
           .addChoices(
-            { name: "Español", value: "es" },
-            { name: "English", value: "en" }
+            { name: "English", value: "en" },
+            { name: "Spanish", value: "es" }
           )
       ),
 
@@ -25,7 +25,7 @@ module.exports = {
     const parsed = parseAskArgs(args);
     if (!parsed.question) {
       return message.reply({
-        content: "`'ask <pregunta TSBCC>` — ej. `'ask cooldown de retos`\nInglés: `'ask en challenge cooldown`",
+        content: "`'ask <TSBCC question>` — e.g. `'ask challenge cooldown`\nSpanish: `'ask es cooldown de retos`",
         allowedMentions: { repliedUser: false },
       });
     }
@@ -67,7 +67,7 @@ function parseAskArgs(args) {
 
 function formatAsk(result) {
   if (!result?.ok) {
-    return { content: result?.message || "No se pudo responder.", embeds: [] };
+    return { content: result?.message || "Could not answer that.", embeds: [] };
   }
   let body = String(result.answer || "").trim();
   body = body.replace(/^(on_topic|off_topic|refused|unknown)\s*[:\-]?\s*/i, "").trim() || body;

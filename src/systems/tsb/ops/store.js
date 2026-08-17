@@ -3,7 +3,7 @@ const { createJsonStore } = require("../../../../api/store/jsonStore");
 const store = createJsonStore("guild-ops.json", {});
 
 const DEFAULT_INVITE_MESSAGE =
-  "{userinvited} Ha sido invitado/a por {user} y ahora tiene {invites} Invitaciones.";
+  "{userinvited} was invited by {user} and now has {invites} invites.";
 
 function defaultGuild() {
   return {

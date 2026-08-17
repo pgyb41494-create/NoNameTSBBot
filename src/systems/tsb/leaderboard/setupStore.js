@@ -2,12 +2,16 @@ const {
     setLeaderboardConfig,
     getLeaderboardConfig,
     updateLeaderboardConfig,
-    ensureSlots
+    ensureSlots,
+    defaultChallengeTickets,
+    parseChallengeRanges,
+    challengeTicketsOf,
+    formatChallengeRules,
 } = require("./config");
 
 const { upsertLeaderboard } = require("./renderer");
 
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 9;
 const COLOR = 0x2B2D31;
 const sessions = new Map();
 
@@ -25,7 +29,8 @@ function defaultData() {
         rankLabel: "Phase",
         requireRobloxVerification: true,
         topPlayerRoleId: null,
-        rankRequirements: []
+        rankRequirements: [],
+        challengeTickets: defaultChallengeTickets()
     };
 }
 
@@ -44,7 +49,8 @@ function getSession(guildId) {
                 rankLabel: saved.rankLabel || "Phase",
                 requireRobloxVerification: saved.requireRobloxVerification !== false,
                 topPlayerRoleId: saved.topPlayerRoleId || null,
-                rankRequirements: saved.rankRequirements || []
+                rankRequirements: saved.rankRequirements || [],
+                challengeTickets: challengeTicketsOf(saved)
             }
         });
     }
@@ -257,7 +263,57 @@ function stepPayload(interaction) {
         };
     }
 
-    // step 8 confirm
+    if (step === 8) {
+        const chal = challengeTicketsOf({ challengeTickets: data.challengeTickets });
+        return {
+            embeds: [{
+                title,
+                description:
+                    "Challenge tickets: a public panel with a **Challenge** button. Clicking it opens a private ticket with a short leaderboard and a select menu (one player).\n\n" +
+                    "Players can only challenge people **ahead** of them, within the spots-ahead rule, and not anyone already challenged.\n\n" +
+                    `> **Enabled:** \`${chal.enabled ? "yes" : "no"}\`\n` +
+                    `> **Channel:** ${chal.channelId ? `<#${chal.channelId}>` : "not set"}\n` +
+                    `> **Rules:** ${formatChallengeRules(chal)}`,
+                color: COLOR
+            }],
+            components: [
+                {
+                    type: 1,
+                    components: [{
+                        type: 8,
+                        custom_id: "tsb:lb:chal_channel",
+                        placeholder: "Select a challenge tickets channel",
+                        min_values: 0,
+                        max_values: 1,
+                        channel_types: [0, 5]
+                    }]
+                },
+                ...navButtons([
+                    {
+                        type: 2,
+                        style: 1,
+                        label: "Create #challenge-tickets",
+                        custom_id: "tsb:lb:chal_create"
+                    },
+                    {
+                        type: 2,
+                        style: 1,
+                        label: "Set challenge rules",
+                        custom_id: "tsb:lb:chal_rules"
+                    },
+                    {
+                        type: 2,
+                        style: 2,
+                        label: "No challenge tickets",
+                        custom_id: "tsb:lb:chal_skip"
+                    }
+                ])
+            ]
+        };
+    }
+
+    // step 9 confirm
+    const chal = challengeTicketsOf({ challengeTickets: data.challengeTickets });
     return {
         embeds: [{
             title,
@@ -269,7 +325,8 @@ function stepPayload(interaction) {
                 `**Rank Label:** ${data.rankLabel}\n` +
                 `**Roblox verification:** ${data.requireRobloxVerification ? "required" : "optional"}\n` +
                 `**Top player role:** ${data.topPlayerRoleId ? `<@&${data.topPlayerRoleId}>` : "none"}\n` +
-                `**Verified-rank requirements:** ${data.rankRequirements?.length || 0} segment(s)\n\n` +
+                `**Verified-rank requirements:** ${data.rankRequirements?.length || 0} segment(s)\n` +
+                `**Challenge tickets:** ${chal.enabled ? (chal.channelId ? `<#${chal.channelId}>` : "create on confirm") : "off"} · ${formatChallengeRules(chal)}\n\n` +
                 "Confirm to create/update **top-1-10**, **top-11-20**, … channels and publish profile-linked boards.",
             color: COLOR
         }],
@@ -391,6 +448,18 @@ async function confirmAndPublish(interaction) {
     await tips.pin().catch(() => {});
     await sweepManagementChannel(managementChannel, guild.id, "leaderboard");
 
+    let challengeLine = "Challenge tickets: off";
+    const chal = challengeTicketsOf({ challengeTickets: data.challengeTickets });
+    if (chal.enabled) {
+        try {
+            const { publishPanel } = require("../challengeTickets/runtime");
+            const posted = await publishPanel(guild);
+            if (posted?.channel) challengeLine = `Challenge tickets: ${posted.channel}`;
+        } catch (err) {
+            challengeLine = `Challenge tickets failed: ${err.message}`;
+        }
+    }
+
     sessions.delete(guild.id);
 
     const channelList = (published.boardPages || [])
@@ -403,7 +472,8 @@ async function confirmAndPublish(interaction) {
             description:
                 `Management: <#${managementChannel.id}>\n` +
                 `${channelList || "No live boards"}\n` +
-                `Channels: ${describeLeaderboardChannels(data)}\n\n` +
+                `Channels: ${describeLeaderboardChannels(data)}\n` +
+                `${challengeLine}\n\n` +
                 "In the management channel, post drafts like:\n" +
                 "```\n1-20\n1. @user\n2. none\n...\n```\n" +
                 "Then type `send` and press **Confirm** to publish (1–10, 11–20, … each get their own channel).\n" +
@@ -480,6 +550,69 @@ async function handleLeaderboardAction(interaction, id) {
         return openHub(interaction);
     }
     if (id === "tsb:lb:confirm") return confirmAndPublish(interaction);
+
+    if (id === "tsb:lb:chal_create") {
+        const { getOrCreateNamedChannel } = require("../shared/channelReuse");
+        const channel = await getOrCreateNamedChannel(interaction.guild, {
+            names: ["challenge-tickets", "challenges"],
+            pattern: /^(?:challenge-tickets|challenges)$/,
+            createName: "challenge-tickets",
+            reason: "Ascendant challenge tickets panel",
+        });
+        if (!channel) {
+            return interaction.reply({ content: "Could not create a challenge tickets channel.", ephemeral: true });
+        }
+        session.data.challengeTickets = {
+            ...challengeTicketsOf({ challengeTickets: session.data.challengeTickets }),
+            enabled: true,
+            channelId: channel.id,
+        };
+        return renderStep(interaction);
+    }
+
+    if (id === "tsb:lb:chal_skip") {
+        session.data.challengeTickets = {
+            ...challengeTicketsOf({ challengeTickets: session.data.challengeTickets }),
+            enabled: false,
+        };
+        return renderStep(interaction);
+    }
+
+    if (id === "tsb:lb:chal_rules") {
+        const chal = challengeTicketsOf({ challengeTickets: session.data.challengeTickets });
+        const rangeText = (chal.ranges || []).map((r) => `${r.from}-${r.to}:${r.spots}`).join(", ");
+        return interaction.showModal({
+            title: "Challenge rules",
+            custom_id: "tsb:lb:modal:chal_rules",
+            components: [
+                {
+                    type: 1,
+                    components: [{
+                        type: 4,
+                        custom_id: "spots_ahead",
+                        label: "Spots ahead (1-15)",
+                        style: 1,
+                        required: true,
+                        value: String(chal.spotsAhead || 3),
+                        max_length: 2
+                    }]
+                },
+                {
+                    type: 1,
+                    components: [{
+                        type: 4,
+                        custom_id: "range_rules",
+                        label: "Optional ranges (e.g. 1-10:1, 11-20:2)",
+                        style: 2,
+                        required: false,
+                        value: rangeText,
+                        placeholder: "1-10:1, 11-20:2, 21-50:3",
+                        max_length: 200
+                    }]
+                }
+            ]
+        });
+    }
 
     if (id === "tsb:lb:cfg_naming") {
         return interaction.showModal({
@@ -593,6 +726,16 @@ async function handleLeaderboardSelect(interaction) {
         return renderStep(interaction);
     }
 
+    if (interaction.customId === "tsb:lb:chal_channel") {
+        const channelId = interaction.values[0] || "";
+        session.data.challengeTickets = {
+            ...challengeTicketsOf({ challengeTickets: session.data.challengeTickets }),
+            enabled: !!channelId,
+            channelId,
+        };
+        return renderStep(interaction);
+    }
+
     if (
         interaction.customId === "tsb:hub" ||
         interaction.customId === "tsb:hub"
@@ -631,6 +774,14 @@ async function handleLeaderboardModal(interaction) {
             .split(",")
             .map((v) => v.trim())
             .filter(Boolean);
+    } else if (id === "tsb:lb:modal:chal_rules") {
+        const spots = parseInt(interaction.fields.getTextInputValue("spots_ahead"), 10);
+        const ranges = parseChallengeRanges(interaction.fields.getTextInputValue("range_rules") || "");
+        data.challengeTickets = {
+            ...challengeTicketsOf({ challengeTickets: data.challengeTickets }),
+            spotsAhead: Math.max(1, Math.min(15, Number.isFinite(spots) ? spots : 3)),
+            ranges,
+        };
     } else {
         return false;
     }

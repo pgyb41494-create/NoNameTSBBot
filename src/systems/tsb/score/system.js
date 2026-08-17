@@ -450,6 +450,13 @@ async function recordScore(interaction) {
     });
 
     const swap = await bumpLeaderboard(guild, winner.discordId, loser.discordId);
+    try {
+      const api = require("../../../utils/loadApi");
+      if (api.challenges?.clearInvolving) {
+        await Promise.resolve(api.challenges.clearInvolving(guild.id, winner.discordId));
+        await Promise.resolve(api.challenges.clearInvolving(guild.id, loser.discordId));
+      }
+    } catch {}
     const leaderboardLine = formatLeaderboardBump(swap, winner, loser);
 
     // Keep pre-match ranks on the embed (Meteorite style)

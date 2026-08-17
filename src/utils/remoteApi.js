@@ -160,8 +160,17 @@ module.exports = {
     remove: (guildId, userId) => req(`/api/bot/trainers/${guildId}/${userId}`, { method: "DELETE" }),
   },
   challenges: {
+    getState: (guildId) => req(`/api/bot/challenges/${guildId}`),
+    busyIds: async (guildId) => {
+      const state = await req(`/api/bot/challenges/${guildId}`);
+      return state.busy || [];
+    },
     createChallenge: (guildId, fromId, targetId) =>
       req(`/api/bot/challenges/${guildId}`, { method: "POST", body: { fromId, targetId } }),
+    clearChallenge: (guildId, fromId) =>
+      req(`/api/bot/challenges/${guildId}/clear`, { method: "POST", body: { fromId } }),
+    clearInvolving: (guildId, userId) =>
+      req(`/api/bot/challenges/${guildId}/clear`, { method: "POST", body: { userId } }),
   },
   wars: {
     addWar: (guildId, body) => req(`/api/bot/wars/${guildId}`, { method: "POST", body }),

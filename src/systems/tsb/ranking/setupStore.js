@@ -3,7 +3,7 @@ const {
     getGuildConfig
 } = require("./config");
 const { resolveGuildPrefix } = require("../shared/guildPrefix");
-const { findPhaseRole, findRoleByKeyword } = require("./applyStage");
+const { findPhaseRole, findRoleByKeyword, placeApplicantBetweenStage1And2 } = require("./applyStage");
 
 const TOTAL_STEPS = 9;
 const COLOR = 0x2B2D31;
@@ -182,6 +182,7 @@ async function syncRankingRolesFromInputs(guild, data, inputs = {}) {
             );
             data.applicantRoleId = result?.role?.id || null;
             if (result?.created) created.push(result.role.name);
+            if (result?.role) await placeApplicantBetweenStage1And2(guild, result.role);
         } catch (error) {
             data.applicantRoleId = null;
             failures.push(`applicant: ${error.message}`);
@@ -191,6 +192,7 @@ async function syncRankingRolesFromInputs(guild, data, inputs = {}) {
             const result = await resolveRoleToken(guild, inputs.applicant, applicantRoleName(data), usedIds);
             data.applicantRoleId = result?.role?.id || null;
             if (result?.created) created.push(result.role.name);
+            if (result?.role) await placeApplicantBetweenStage1And2(guild, result.role);
         } catch {
             data.applicantRoleId = extractRoleIdToken(inputs.applicant);
         }
@@ -258,9 +260,13 @@ async function autoDetectAndCreateRankingRoles(guild, data) {
             const result = await ensureGuildRole(guild, applicantRoleName(data), usedIds);
             data.applicantRoleId = result?.role?.id || null;
             if (result?.created) created.push(result.role.name);
+            if (result?.role) await placeApplicantBetweenStage1And2(guild, result.role);
         } catch (error) {
             failures.push(`applicant: ${error.message}`);
         }
+    } else if (data.applicantRoleId) {
+        const existing = guild.roles.cache.get(data.applicantRoleId);
+        if (existing) await placeApplicantBetweenStage1And2(guild, existing);
     }
 
     data.autoCreateRoles = true;

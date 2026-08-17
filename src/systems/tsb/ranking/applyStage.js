@@ -89,19 +89,76 @@ async function ensureNamedRole(guild, name) {
     const roleName = String(name || "").trim().slice(0, 100);
     if (!roleName) return null;
     const existing = findExactRole(guild, roleName);
-    if (existing) return existing;
+    if (existing) {
+        if (isApplicantRoleName(existing.name)) {
+            await placeApplicantBetweenStage1And2(guild, existing);
+        }
+        return existing;
+    }
     const me = guild.members.me;
     if (!me?.permissions?.has?.("ManageRoles")) return null;
     try {
-        return await guild.roles.create({
+        const created = await guild.roles.create({
             name: roleName,
             reason: "TSB stage assign — create missing ranking role",
             mentionable: false,
             hoist: false,
         });
+        if (isApplicantRoleName(created.name)) {
+            await placeApplicantBetweenStage1And2(guild, created);
+        }
+        return created;
     } catch {
         return null;
     }
+}
+
+function isApplicantRoleName(name) {
+    return /(?:stage|phase|tier)\s*1\s*applicant/i.test(String(name || ""))
+        || (/\bapplicant\b/i.test(String(name || "")) && !/\b(high|mid|low|strong|stable|weak)\b/i.test(String(name || "")));
+}
+
+/**
+ * Discord has no slot between adjacent positions, so we insert just above Stage 2
+ * (Stage 1 shifts up). Result: Stage 0, Stage 1, Stage 1 Applicant, Stage 2, …
+ */
+async function placeApplicantBetweenStage1And2(guild, applicantRole) {
+    if (!guild || !applicantRole) return applicantRole;
+    const me = guild.members.me;
+    if (!me?.permissions?.has?.("ManageRoles")) return applicantRole;
+
+    const stage1 = findPhaseRole(guild, 1);
+    const stage2 = findPhaseRole(guild, 2);
+    if (!stage1 && !stage2) return applicantRole;
+
+    let target = null;
+    if (stage1 && stage2) {
+        const high = Math.max(stage1.position, stage2.position);
+        const low = Math.min(stage1.position, stage2.position);
+        if (applicantRole.id !== stage1.id && applicantRole.id !== stage2.id
+            && applicantRole.position > low && applicantRole.position < high) {
+            return applicantRole;
+        }
+        target = stage1.position > stage2.position ? stage2.position + 1 : stage1.position;
+    } else if (stage1) {
+        target = stage1.position;
+    } else {
+        target = stage2.position + 1;
+    }
+
+    if (!Number.isFinite(target) || applicantRole.position === target) return applicantRole;
+
+    const botPos = me.roles.highest.position;
+    if (applicantRole.position >= botPos) return applicantRole;
+    if (target >= botPos) {
+        target = botPos - 1;
+        if (target < 1 || applicantRole.position === target) return applicantRole;
+    }
+
+    try {
+        await applicantRole.setPosition(target, { reason: "Place Applicant between Stage 1 and Stage 2" });
+    } catch {}
+    return applicantRole;
 }
 
 /**
@@ -164,6 +221,8 @@ async function applyStageRoles({
             failed.push("applicant (no matching role)");
             return { assigned, failed, phaseRole: null, tierRole: null, subtierRole: null };
         }
+
+        await placeApplicantBetweenStage1And2(guild, applicantRole);
 
         for (const [, role] of member.roles.cache.filter((role) => isApplicantRole(role) && role.id !== applicantRole.id)) {
             try {
@@ -528,4 +587,5 @@ module.exports = {
     maybeRefreshBoards,
     findPhaseRole,
     findRoleByKeyword,
+    placeApplicantBetweenStage1And2,
 };

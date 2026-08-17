@@ -7,7 +7,7 @@ const {
   StringSelectMenuBuilder,
 } = require("discord.js");
 const api = require("../../../utils/loadApi");
-const { tsbEmbed, COLOR_PRIMARY, COLOR_SUCCESS, COLOR_DANGER } = require("../shared/embeds");
+const { tsbEmbed, COLOR_PRIMARY, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARN } = require("../shared/embeds");
 const { isAdminOrOwner, memberHasAnyRole } = require("../shared/permissions");
 const { getLeaderboardConfig, updateLeaderboardConfig, challengeTicketsOf, spotsAheadFor, formatChallengeRules } = require("../leaderboard/config");
 const { getOrCreateNamedChannel } = require("../shared/channelReuse");
@@ -16,6 +16,8 @@ const { setTicket, getTicket, setPending, findOpenTicket } = require("./store");
 const START_ID = "tsb:chaltix:start";
 const PICK_ID = "tsb:chaltix:pick";
 const CLOSE_ID = "tsb:chaltix:close";
+const YES_ID = "tsb:chaltix:yes";
+const NO_ID = "tsb:chaltix:no";
 
 function filledSlots(guildId) {
   const cfg = getLeaderboardConfig(guildId);
@@ -38,7 +40,7 @@ async function busySet(guildId) {
     const state = await Promise.resolve(api.challenges.getState(guildId));
     const ids = new Set();
     for (const [fromId, row] of Object.entries(state?.active || {})) {
-      if (row.status && row.status !== "open") continue;
+      if (row.status && row.status !== "open" && row.status !== "accepted") continue;
       ids.add(String(fromId));
       if (row.targetId) ids.add(String(row.targetId));
     }
@@ -81,6 +83,7 @@ function panelPayload(guild) {
         description:
           "Click **Challenge** to open a private ticket and pick **one** player ahead of you on the leaderboard.\n\n" +
           `**Rules:** ${formatChallengeRules(tickets)}\n` +
+          "The challenged player has **2 dodges**. After that they must accept.\n" +
           "You cannot challenge people behind you, yourself, or anyone already in a challenge.",
       }),
     ],
@@ -210,6 +213,35 @@ function closeRow() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(CLOSE_ID).setLabel("Close ticket").setStyle(ButtonStyle.Secondary)
   );
+}
+
+function acceptRow(remaining) {
+  const mustAccept = remaining <= 0;
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(YES_ID).setLabel("Yes").setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(NO_ID)
+      .setLabel(mustAccept ? "No dodges left" : "No")
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(mustAccept)
+  );
+}
+
+async function dodgeOf(guildId, userId) {
+  try {
+    if (api.challenges.getDodge) {
+      const info = await Promise.resolve(api.challenges.getDodge(guildId, userId));
+      if (info && typeof info.remaining === "number") return info;
+    }
+  } catch {}
+  return { used: 0, remaining: 2, max: 2 };
+}
+
+async function refreshBoard(guild) {
+  try {
+    const { refreshLeaderboard } = require("../leaderboard/renderer");
+    await refreshLeaderboard(guild);
+  } catch {}
 }
 
 async function ticketPayload(guild, userId) {
@@ -346,7 +378,7 @@ async function pickTarget(interaction) {
   if (String(interaction.user.id) !== String(userId) && !canStaff(interaction.member, interaction.guild, getLeaderboardConfig(interaction.guild.id))) {
     return interaction.reply({ content: "Only the challenger can pick.", ephemeral: true });
   }
-  if (ticket?.status === "picked") {
+  if (ticket?.status === "picked" || ticket?.status === "accepted") {
     return interaction.reply({ content: "This ticket already has a challenge.", ephemeral: true });
   }
 
@@ -380,13 +412,11 @@ async function pickTarget(interaction) {
     })
     .catch(() => {});
 
-  try {
-    const { refreshLeaderboard } = require("../leaderboard/renderer");
-    await refreshLeaderboard(interaction.guild);
-  } catch {}
+  await refreshBoard(interaction.guild);
 
   const myPos = positionOf(slots, userId);
   const theirPos = positionOf(slots, targetId);
+  const dodge = await dodgeOf(interaction.guild.id, targetId);
   await interaction.update({
     embeds: [
       tsbEmbed({
@@ -394,26 +424,146 @@ async function pickTarget(interaction) {
         color: COLOR_SUCCESS,
         description:
           `<@${userId}> (#${myPos}) challenged <@${targetId}> (#${theirPos}).\n\n` +
-          "Both players can use this ticket. Staff can close it when the match is done.",
+          "Waiting for them to accept.",
       }),
     ],
     components: [closeRow()],
   });
+
+  const must = dodge.remaining <= 0;
   await interaction.channel.send({
-    content: `<@${targetId}> you were challenged by <@${userId}>.`,
-    allowedMentions: { users: [targetId, userId] },
+    content: `<@${targetId}> do you accept this challenge?`,
+    allowedMentions: { users: [targetId] },
+    embeds: [
+      tsbEmbed({
+        title: must ? "You must accept" : "Accept challenge?",
+        color: must ? COLOR_WARN : COLOR_PRIMARY,
+        description: must
+          ? `<@${targetId}> you already used both dodges (**${dodge.used}/${dodge.max}**). You have to accept.`
+          : `<@${targetId}> <@${userId}> challenged you for **#${theirPos}**.\n\nDodges left: **${dodge.remaining}/${dodge.max}**`,
+      }),
+    ],
+    components: [acceptRow(dodge.remaining)],
   }).catch(() => {});
+}
+
+async function handleAccept(interaction) {
+  const ticket = getTicket(interaction.guild.id, interaction.channel.id);
+  const challengerId = ticket?.userId;
+  const targetId = ticket?.targetId;
+  if (!challengerId || !targetId) {
+    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
+  }
+  if (String(interaction.user.id) !== String(targetId)) {
+    return interaction.reply({ content: "Only the challenged player can accept.", ephemeral: true });
+  }
+  if (ticket.status !== "picked") {
+    return interaction.reply({ content: "This challenge is no longer waiting for a response.", ephemeral: true });
+  }
+
+  try {
+    if (api.challenges.acceptChallenge) {
+      await Promise.resolve(api.challenges.acceptChallenge(interaction.guild.id, challengerId));
+    }
+  } catch {}
+
+  setTicket(interaction.guild.id, interaction.channel.id, { status: "accepted" });
+  setPending(interaction.guild.id, challengerId, { status: "accepted" });
+
+  await interaction.update({
+    content: `<@${targetId}> accepted.`,
+    allowedMentions: { users: [targetId, challengerId] },
+    embeds: [
+      tsbEmbed({
+        title: "Challenge accepted",
+        color: COLOR_SUCCESS,
+        description:
+          `<@${targetId}> accepted <@${challengerId}>'s challenge.\n\n` +
+          "Set format and host here, then staff can record the result with `/score`.",
+      }),
+    ],
+    components: [closeRow()],
+  });
+}
+
+async function handleDecline(interaction) {
+  const ticket = getTicket(interaction.guild.id, interaction.channel.id);
+  const challengerId = ticket?.userId;
+  const targetId = ticket?.targetId;
+  if (!challengerId || !targetId) {
+    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
+  }
+  if (String(interaction.user.id) !== String(targetId)) {
+    return interaction.reply({ content: "Only the challenged player can decline.", ephemeral: true });
+  }
+  if (ticket.status !== "picked") {
+    return interaction.reply({ content: "This challenge is no longer waiting for a response.", ephemeral: true });
+  }
+
+  const before = await dodgeOf(interaction.guild.id, targetId);
+  if (before.remaining <= 0) {
+    return interaction.reply({
+      content: "You have no dodges left. You must accept.",
+      ephemeral: true,
+    });
+  }
+
+  let after = before;
+  try {
+    if (api.challenges.useDodge) {
+      after = await Promise.resolve(api.challenges.useDodge(interaction.guild.id, targetId));
+    } else {
+      after = { ...before, used: before.used + 1, remaining: before.remaining - 1 };
+    }
+  } catch (err) {
+    return interaction.reply({ content: err.message || "You must accept.", ephemeral: true });
+  }
+
+  try {
+    await Promise.resolve(api.challenges.clearInvolving(interaction.guild.id, challengerId));
+  } catch {}
+  setTicket(interaction.guild.id, interaction.channel.id, { status: "declined" });
+  setPending(interaction.guild.id, challengerId, null);
+  await refreshBoard(interaction.guild);
+
+  await interaction.update({
+    content: `<@${targetId}> declined.`,
+    allowedMentions: { users: [targetId, challengerId] },
+    embeds: [
+      tsbEmbed({
+        title: "Challenge declined",
+        color: COLOR_DANGER,
+        description:
+          `<@${targetId}> used a dodge (**${after.used}/${after.max}** used, **${after.remaining}** left).\n` +
+          (after.remaining <= 0
+            ? "That was their last dodge — they must accept the next challenge."
+            : "Both players are free again."),
+      }),
+    ],
+    components: [],
+  });
+  await interaction.channel.send({
+    content: "Closing this ticket in 5 seconds.",
+  }).catch(() => {});
+  setTimeout(() => interaction.channel.delete("Challenge declined").catch(() => {}), 5000);
 }
 
 async function closeTicket(interaction) {
   const cfg = getLeaderboardConfig(interaction.guild.id);
   const ticket = getTicket(interaction.guild.id, interaction.channel.id);
   const userId = ticket?.userId || interaction.channel.topic?.replace(/^challenge:/, "");
-  const allowed =
-    String(interaction.user.id) === String(userId) ||
-    String(interaction.user.id) === String(ticket?.targetId) ||
-    canStaff(interaction.member, interaction.guild, cfg);
-  if (!allowed) {
+  const isTarget = String(interaction.user.id) === String(ticket?.targetId);
+  const isChallenger = String(interaction.user.id) === String(userId);
+  const staff = canStaff(interaction.member, interaction.guild, cfg);
+
+  if (ticket?.status === "picked" && isTarget && !staff) {
+    return interaction.reply({
+      content: "Use **Yes** or **No** on the challenge. Declining uses a dodge.",
+      ephemeral: true,
+    });
+  }
+
+  if (!isChallenger && !isTarget && !staff) {
     return interaction.reply({ content: "You can't close this ticket.", ephemeral: true });
   }
 
@@ -428,11 +578,7 @@ async function closeTicket(interaction) {
     setPending(interaction.guild.id, userId, null);
   }
   setTicket(interaction.guild.id, interaction.channel.id, { status: "closed" });
-
-  try {
-    const { refreshLeaderboard } = require("../leaderboard/renderer");
-    await refreshLeaderboard(interaction.guild);
-  } catch {}
+  await refreshBoard(interaction.guild);
 
   await interaction.reply({
     embeds: [tsbEmbed({ title: "Ticket closed", color: COLOR_DANGER, description: "Closing this channel in 5 seconds." })],
@@ -442,13 +588,21 @@ async function closeTicket(interaction) {
 
 async function handleChallengeTickets(interaction) {
   const id = interaction.customId || "";
-  if (id !== START_ID && id !== PICK_ID && id !== CLOSE_ID) return false;
+  if (![START_ID, PICK_ID, CLOSE_ID, YES_ID, NO_ID].includes(id)) return false;
   if (id === START_ID && interaction.isButton?.()) {
     await openTicket(interaction);
     return true;
   }
   if (id === PICK_ID && interaction.isStringSelectMenu?.()) {
     await pickTarget(interaction);
+    return true;
+  }
+  if (id === YES_ID && interaction.isButton?.()) {
+    await handleAccept(interaction);
+    return true;
+  }
+  if (id === NO_ID && interaction.isButton?.()) {
+    await handleDecline(interaction);
     return true;
   }
   if (id === CLOSE_ID && interaction.isButton?.()) {

@@ -171,6 +171,11 @@ module.exports = {
       req(`/api/bot/challenges/${guildId}/clear`, { method: "POST", body: { fromId } }),
     clearInvolving: (guildId, userId) =>
       req(`/api/bot/challenges/${guildId}/clear`, { method: "POST", body: { userId } }),
+    getDodge: (guildId, userId) => req(`/api/bot/challenges/${guildId}/dodges/${userId}`),
+    useDodge: (guildId, userId) =>
+      req(`/api/bot/challenges/${guildId}/dodge`, { method: "POST", body: { userId } }),
+    acceptChallenge: (guildId, fromId) =>
+      req(`/api/bot/challenges/${guildId}/accept`, { method: "POST", body: { fromId } }),
   },
   wars: {
     addWar: (guildId, body) => req(`/api/bot/wars/${guildId}`, { method: "POST", body }),

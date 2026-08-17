@@ -338,7 +338,13 @@ async function applyMatchResult({
     region2Score = null,
     region2WinnerId = null,
 }) {
-    const cfg = getScoreConfig(guild.id);
+    let cfg = getScoreConfig(guild.id);
+    if (typeof cfg?.then === "function") cfg = await cfg;
+    if (!cfg || typeof cfg !== "object") {
+        return { error: "1v1 Score is not set up yet. Use `/tsbsetup` → **1v1 Score Setup**." };
+    }
+    if (cfg.winnerCooldownDays == null) cfg.winnerCooldownDays = 4;
+    if (cfg.loserCooldownDays == null) cfg.loserCooldownDays = 7;
     if (!cfg.setupCompleted) {
         return { error: "1v1 Score is not set up yet. Use `/tsbsetup` → **1v1 Score Setup**." };
     }
@@ -355,8 +361,8 @@ async function applyMatchResult({
         return { error: "Score must look like `10-0` or `5-3`." };
     }
 
-    const state1 = getPlayerState(guild.id, participant1Id);
-    const state2 = getPlayerState(guild.id, participant2Id);
+    const state1 = await Promise.resolve(getPlayerState(guild.id, participant1Id));
+    const state2 = await Promise.resolve(getPlayerState(guild.id, participant2Id));
     const blocked = [];
     if (isOnCooldown(state1)) {
         blocked.push(`<@${participant1Id}> until ${discordRelative(state1.cooldownUntil)}`);
@@ -373,8 +379,8 @@ async function applyMatchResult({
     const winner = String(winnerId) === p1.discordId ? p1 : p2;
     const loser = String(winnerId) === p1.discordId ? p2 : p1;
 
-    const prevLoser = getPlayerState(guild.id, loser.discordId);
-    const prevWinner = getPlayerState(guild.id, winner.discordId);
+    const prevLoser = await Promise.resolve(getPlayerState(guild.id, loser.discordId));
+    const prevWinner = await Promise.resolve(getPlayerState(guild.id, winner.discordId));
 
     const isAutowin = detectAutowin(score, notes);
     let autowinLabel = "N/A";
@@ -400,23 +406,23 @@ async function applyMatchResult({
     const cd1 = winner.discordId === p1.discordId ? winnerCdText : loserCdText;
     const cd2 = winner.discordId === p2.discordId ? winnerCdText : loserCdText;
 
-    setPlayerState(guild.id, winner.discordId, {
+    await Promise.resolve(setPlayerState(guild.id, winner.discordId, {
         lastMatchAt: now,
         lastResult: "win",
         cooldownUntil: winnerCdUntil ? winnerCdUntil.toISOString() : null,
         autowinStrikes: cfg.autowinSuccessBehavior === "reset" && !isAutowin
             ? 0
             : (prevWinner.autowinStrikes || 0)
-    });
+    }));
 
-    setPlayerState(guild.id, loser.discordId, {
+    await Promise.resolve(setPlayerState(guild.id, loser.discordId, {
         lastMatchAt: now,
         lastResult: isAutowin ? "autoloss" : "loss",
         cooldownUntil: loserCdUntil ? loserCdUntil.toISOString() : null,
         autowinStrikes: cfg.autowinEnabled && isAutowin
             ? loserStrikes
             : (cfg.autowinSuccessBehavior === "reset" ? 0 : (prevLoser.autowinStrikes || 0))
-    });
+    }));
 
     const swap = await bumpLeaderboard(guild, winner.discordId, loser.discordId);
     try {
@@ -460,7 +466,7 @@ async function applyMatchResult({
         leaderboardLine
     });
 
-    pushMatch(guild.id, {
+    await Promise.resolve(pushMatch(guild.id, {
         at: now,
         matchType,
         participant1: p1.discordId,
@@ -474,18 +480,18 @@ async function applyMatchResult({
         bumped: !!swap.bumped,
         bumpTo: swap.bumped ? swap.winnerPos : null,
         recordedBy: recorderId || null
-    });
+    }));
 
     try {
         const api = require("../../../utils/loadApi");
-        api.score.recordMatch(guild.id, {
+        await Promise.resolve(api.score.recordMatch(guild.id, {
             winnerId: winner.discordId,
             loserId: loser.discordId,
             score: score.display,
             region: region || null,
             matchType,
             notes: notes || null,
-        });
+        }));
     } catch {}
 
     const refIds = [...String(referees || "").matchAll(/<@!?(\d+)>/g)].map((m) => m[1]);

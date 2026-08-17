@@ -11,7 +11,7 @@ const {
   TextInputStyle,
 } = require("discord.js");
 const api = require("../../../utils/loadApi");
-const { tsbEmbed, COLOR_PRIMARY, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARN } = require("../shared/embeds");
+const { tsbEmbed, COLOR_PRIMARY, COLOR_SURFACE, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARN } = require("../shared/embeds");
 const { isAdminOrOwner, memberHasAnyRole } = require("../shared/permissions");
 const { getLeaderboardConfig, updateLeaderboardConfig, challengeTicketsOf, spotsAheadFor, formatChallengeRules } = require("../leaderboard/config");
 const { getOrCreateNamedChannel } = require("../shared/channelReuse");
@@ -95,14 +95,16 @@ function panelPayload(guild) {
   const tickets = challengeTicketsOf(getLeaderboardConfig(guild.id));
   return {
     embeds: [
-      tsbEmbed({
+      challengeCard({
         title: "Challenge tickets",
         color: COLOR_PRIMARY,
-        description:
-          "Click **Challenge** to open a private ticket and pick **one** player ahead of you on the leaderboard.\n\n" +
-          `**Rules:** ${formatChallengeRules(tickets)}\n` +
-          "The challenged player has **2 dodges**. After that they must accept.\n" +
-          "You cannot challenge people behind you, yourself, or anyone already in a challenge.",
+        description: "Open a private ticket and challenge **one** player ahead of you.",
+        fields: [
+          fv("Rules", formatChallengeRules(tickets), false),
+          fv("Dodges", "2 per player — after that they have to accept"),
+          fv("Blocked", "People behind you, yourself, or anyone already in a challenge"),
+        ],
+        footer: "Click Challenge to open a ticket",
       }),
     ],
     components: [
@@ -263,9 +265,31 @@ async function refreshBoard(guild) {
 }
 
 function formatLabel(format) {
-  if (format === "ft10") return "FT10 / Cross-region";
+  if (format === "ft10") return "FT10";
   if (format === "ft5") return "FT5";
-  return "not set";
+  return "Not set";
+}
+
+function isCrossRegion(ticket) {
+  return Boolean(ticket?.hostCrossRegion);
+}
+
+function parseRegionLine(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  const match = text.match(/^(.*?)(\d+)\s*[-–—:]\s*(\d+)\s*$/);
+  if (!match) return null;
+  const label = match[1].trim().replace(/[·|,/-]+$/, "").trim() || "Region";
+  const score = parseScore(`${match[2]}-${match[3]}`);
+  if (!score) return null;
+  return { label, score };
+}
+
+function combinedCrossScore(regionA, regionB) {
+  if (!regionA?.score || !regionB?.score) return null;
+  const left = regionA.score.left + regionB.score.left;
+  const right = regionA.score.right + regionB.score.right;
+  return { left, right, display: `${left}-${right}` };
 }
 
 function canFinishMatch(member, guild) {
@@ -279,17 +303,44 @@ async function matchNames(guild, ticket) {
   return {
     challenger: chal?.displayName || chal?.user?.username || "Challenger",
     defender: def?.displayName || def?.user?.username || "Defender",
+    challengerAvatar: chal?.displayAvatarURL?.({ size: 128 }) || null,
+    defenderAvatar: def?.displayAvatarURL?.({ size: 128 }) || null,
   };
 }
 
 function hostLabel(ticket) {
   if (ticket?.hostCrossRegion) return "Cross-region";
   if (ticket?.hostId) return `<@${ticket.hostId}>`;
-  return "not set";
+  return "Not set";
 }
 
 function hasHost(ticket) {
   return Boolean(ticket?.hostCrossRegion || ticket?.hostId);
+}
+
+function regionLine(ticket) {
+  if (!isCrossRegion(ticket)) return null;
+  const a = [ticket.region1, ticket.region1Score].filter(Boolean).join(" ");
+  const b = [ticket.region2, ticket.region2Score].filter(Boolean).join(" ");
+  if (!a && !b) return null;
+  return `${a || "—"}  ·  ${b || "—"}`;
+}
+
+function fv(name, value, inline = true) {
+  const text = value == null || value === "" ? "—" : String(value);
+  return { name, value: text.slice(0, 1024), inline };
+}
+
+function challengeCard({ title, color, description, fields, footer, thumbnail }) {
+  return tsbEmbed({
+    title,
+    color: color ?? COLOR_SURFACE,
+    description,
+    fields: (fields || []).filter((field) => field && field.value),
+    footer: footer ?? "Ascendant · challenge",
+    timestamp: true,
+    thumbnail,
+  });
 }
 
 function formatRow(ticket = {}) {
@@ -300,7 +351,7 @@ function formatRow(ticket = {}) {
       .setStyle(ticket.format === "ft5" ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(FMT_FT10_ID)
-      .setLabel("FT10 / Cross-region")
+      .setLabel("FT10")
       .setStyle(ticket.format === "ft10" ? ButtonStyle.Success : ButtonStyle.Secondary)
   );
 }
@@ -330,12 +381,15 @@ function setupPayload(ticket) {
     content: users.map((id) => `<@${id}>`).join(" "),
     allowedMentions: { users },
     embeds: [
-      tsbEmbed({
-        title: "Match accepted",
+      challengeCard({
+        title: "Ready to play",
         color: COLOR_PRIMARY,
-        description:
-          `<@${ticket.userId}> vs <@${ticket.targetId}>\n\n` +
-          "Play the set. Staff press **Done** to pick host, format, score, and where it posts.",
+        description: "Queue up and play. Staff will lock in host, format, and the result when you're done.",
+        fields: [
+          fv("Challenger", `<@${ticket.userId}>`),
+          fv("Defender", `<@${ticket.targetId}>`),
+        ],
+        footer: "Staff: press Done after the set",
       }),
     ],
     components: [
@@ -348,26 +402,45 @@ function setupPayload(ticket) {
 
 function scoringPayload(ticket, names) {
   const ready = ticket.format && hasHost(ticket) && ticket.winnerId && ticket.scoreDisplay && ticket.resultChannelId;
-  const regionLine =
-    (ticket.format === "ft10" || ticket.hostCrossRegion) && (ticket.region1Score || ticket.region2Score)
-      ? `\n**Regions:** ${ticket.region1 || "—"} ${ticket.region1Score || ""} / ${ticket.region2 || "—"} ${ticket.region2Score || ""}`
-      : "";
+  const winnerAvatar =
+    String(ticket.winnerId) === String(ticket.userId)
+      ? names.challengerAvatar
+      : String(ticket.winnerId) === String(ticket.targetId)
+        ? names.defenderAvatar
+        : null;
+  const channelSelect = new ChannelSelectMenuBuilder()
+    .setCustomId(CHANNEL_ID)
+    .setPlaceholder("Post result to…")
+    .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
+  if (ticket.resultChannelId) {
+    try { channelSelect.setDefaultChannels(ticket.resultChannelId); } catch {}
+  }
+
+  const fields = [
+    fv("Match", `<@${ticket.userId}> vs <@${ticket.targetId}>`, false),
+    fv("Format", formatLabel(ticket.format)),
+    fv("Host", hostLabel(ticket)),
+    fv("Winner", ticket.winnerId ? `<@${ticket.winnerId}>` : "Not set"),
+    fv("Score", ticket.scoreDisplay || "Not set"),
+  ];
+  if (isCrossRegion(ticket)) {
+    fields.push(fv("Regions", regionLine(ticket) || "Enter both region scores", false));
+  }
+  fields.push(fv("Post to", ticket.resultChannelId ? `<#${ticket.resultChannelId}>` : "Not set", false));
+
   return {
-    content: "Staff: finish the pre-filled score and choose a channel.",
+    content: "",
     allowedMentions: { users: [] },
     embeds: [
-      tsbEmbed({
-        title: "Record score",
+      challengeCard({
+        title: "Record result",
         color: COLOR_PRIMARY,
-        description:
-          `<@${ticket.userId}> vs <@${ticket.targetId}>\n` +
-          `**Format:** ${formatLabel(ticket.format)}\n` +
-          `**Host:** ${hostLabel(ticket)}\n` +
-          `**Winner:** ${ticket.winnerId ? `<@${ticket.winnerId}>` : "not set"}\n` +
-          `**Score:** ${ticket.scoreDisplay || "not set"}` +
-          regionLine +
-          `\n**Post to:** ${ticket.resultChannelId ? `<#${ticket.resultChannelId}>` : "not set"}\n\n` +
-          "Staff: pick format, host, winner, score, and the channel to post.",
+        description: isCrossRegion(ticket)
+          ? "Cross-region totals from the two region scores. Winner's games first, like `Chicago 5-3`."
+          : "Pick format, host, winner, score, and the channel to announce it.",
+        fields,
+        footer: "Same result /score posts — already filled from this ticket",
+        thumbnail: winnerAvatar,
       }),
     ],
     components: [
@@ -394,12 +467,7 @@ function scoringPayload(ticket, names) {
           .setStyle(ButtonStyle.Success)
           .setDisabled(!ready)
       ),
-      new ActionRowBuilder().addComponents(
-        new ChannelSelectMenuBuilder()
-          .setCustomId(CHANNEL_ID)
-          .setPlaceholder("Choose channel to post the score")
-          .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-      ),
+      new ActionRowBuilder().addComponents(channelSelect),
     ],
   };
 }
@@ -430,18 +498,24 @@ async function ticketPayload(guild, userId) {
   const ahead = myPos ? spotsAheadFor(myPos, tickets) : tickets.spotsAhead;
   const minPos = myPos ? Math.max(1, myPos - ahead) : null;
 
-  let note = `Your spot: **#${myPos}** · you can challenge **${ahead}** spot(s) ahead`;
-  if (minPos) note += ` (**#${minPos}–#${myPos - 1}**)`;
+  const range = minPos ? `#${minPos}–#${myPos - 1}` : "—";
+  let emptyNote = "Select one player ahead of you.";
   if (!targets.length) {
-    note += myPos === 1
-      ? "\n\nYou're **#1** — nobody is ahead of you."
-      : "\n\nNobody you can challenge right now (ahead of you, in range, and not already challenged).";
+    emptyNote = myPos === 1
+      ? "You're #1 — nobody is ahead of you."
+      : "Nobody you can challenge right now.";
   }
 
-  const embed = tsbEmbed({
+  const embed = challengeCard({
     title: "Pick a challenge",
     color: COLOR_PRIMARY,
-    description: `${shortBoardLines(slots, busy)}\n\n${note}`,
+    description: shortBoardLines(slots, busy),
+    fields: [
+      fv("Your spot", myPos ? `#${myPos}` : "—"),
+      fv("Range", `up to ${ahead} ahead (${range})`),
+      fv("Available", `${targets.length} player${targets.length === 1 ? "" : "s"}`),
+    ],
+    footer: emptyNote,
   });
 
   const components = [];
@@ -595,12 +669,15 @@ async function pickTarget(interaction) {
   const dodge = await dodgeOf(interaction.guild.id, targetId);
   await interaction.update({
     embeds: [
-      tsbEmbed({
+      challengeCard({
         title: "Challenge sent",
         color: COLOR_SUCCESS,
-        description:
-          `<@${userId}> (#${myPos}) challenged <@${targetId}> (#${theirPos}).\n\n` +
-          "Waiting for them to accept.",
+        description: "Waiting for them to accept.",
+        fields: [
+          fv("Challenger", `<@${userId}>  ·  #${myPos}`),
+          fv("Defender", `<@${targetId}>  ·  #${theirPos}`),
+        ],
+        footer: "They have Yes / No on the ping below",
       }),
     ],
     components: [closeRow()],
@@ -611,12 +688,17 @@ async function pickTarget(interaction) {
     content: `<@${targetId}> do you accept this challenge?`,
     allowedMentions: { users: [targetId] },
     embeds: [
-      tsbEmbed({
-        title: must ? "You must accept" : "Accept challenge?",
+      challengeCard({
+        title: must ? "You have to accept" : "Accept this challenge?",
         color: must ? COLOR_WARN : COLOR_PRIMARY,
         description: must
-          ? `<@${targetId}> you already used both dodges (**${dodge.used}/${dodge.max}**). You have to accept.`
-          : `<@${targetId}> <@${userId}> challenged you for **#${theirPos}**.\n\nDodges left: **${dodge.remaining}/${dodge.max}**`,
+          ? "Both dodges are already used. **No** is locked."
+          : `<@${userId}> challenged you for **#${theirPos}**.`,
+        fields: [
+          fv("Spot on the line", `#${theirPos}`),
+          fv("Dodges left", `${dodge.remaining}/${dodge.max}`),
+        ],
+        footer: must ? "Press Yes to continue" : "Yes accepts · No uses a dodge",
       }),
     ],
     components: [acceptRow(dodge.remaining)],
@@ -650,12 +732,14 @@ async function handleAccept(interaction) {
     content: `<@${targetId}> accepted.`,
     allowedMentions: { users: [targetId, challengerId] },
     embeds: [
-      tsbEmbed({
+      challengeCard({
         title: "Challenge accepted",
         color: COLOR_SUCCESS,
-        description:
-          `<@${targetId}> accepted <@${challengerId}>'s challenge.\n\n` +
-          "Next: play the set. Staff will pick host, format, and post the score.",
+        description: "Play the set. Staff will pick host, format, and post the result.",
+        fields: [
+          fv("Challenger", `<@${challengerId}>`),
+          fv("Defender", `<@${targetId}>`),
+        ],
       }),
     ],
     components: [closeRow()],
@@ -712,14 +796,17 @@ async function handleDecline(interaction) {
     content: `<@${targetId}> declined.`,
     allowedMentions: { users: [targetId, challengerId] },
     embeds: [
-      tsbEmbed({
+      challengeCard({
         title: "Challenge declined",
         color: COLOR_DANGER,
-        description:
-          `<@${targetId}> used a dodge (**${after.used}/${after.max}** used, **${after.remaining}** left).\n` +
-          (after.remaining <= 0
-            ? "That was their last dodge — they must accept the next challenge."
-            : "Both players are free again."),
+        description: after.remaining <= 0
+          ? "That was their last dodge — they must accept the next one."
+          : "Both players are free again.",
+        fields: [
+          fv("Dodge used", `<@${targetId}>`),
+          fv("Dodges", `${after.used}/${after.max} used · ${after.remaining} left`),
+        ],
+        footer: "Ticket closes in 5 seconds",
       }),
     ],
     components: [],
@@ -763,7 +850,12 @@ async function closeTicket(interaction) {
   await refreshBoard(interaction.guild);
 
   await interaction.reply({
-    embeds: [tsbEmbed({ title: "Ticket closed", color: COLOR_DANGER, description: "Closing this channel in 5 seconds." })],
+    embeds: [challengeCard({
+      title: "Ticket closed",
+      color: COLOR_DANGER,
+      description: "This channel will be deleted shortly.",
+      footer: "Closing in 5 seconds",
+    })],
   });
   setTimeout(() => interaction.channel.delete("Challenge ticket closed").catch(() => {}), 5000);
 }
@@ -803,6 +895,7 @@ async function handleHost(interaction, who) {
     ...ticket,
     hostId: who === "cross" ? null : who === "chal" ? ticket.userId : ticket.targetId,
     hostCrossRegion: who === "cross",
+    format: who === "cross" ? (ticket.format || "ft10") : ticket.format,
   };
   setTicket(interaction.guild.id, interaction.channel.id, next);
   return refreshMatchMessage(interaction, { ...ticket, ...next });
@@ -861,31 +954,33 @@ async function handleEnterScore(interaction) {
     return interaction.reply({ content: "Press Done first.", ephemeral: true });
   }
 
-  const scoreField = new TextInputBuilder()
-    .setCustomId("score")
-    .setLabel("Score (example 5-3)")
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true)
-    .setMaxLength(12);
-  if (ticket.scoreDisplay) scoreField.setValue(ticket.scoreDisplay);
+  const fields = [];
+  const cross = isCrossRegion(ticket);
 
-  const fields = [new ActionRowBuilder().addComponents(scoreField)];
-
-  if (ticket.format === "ft10" || ticket.hostCrossRegion) {
+  if (!cross) {
+    const scoreField = new TextInputBuilder()
+      .setCustomId("score")
+      .setLabel("Score (example 5-3)")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(12);
+    if (ticket.scoreDisplay) scoreField.setValue(ticket.scoreDisplay);
+    fields.push(new ActionRowBuilder().addComponents(scoreField));
+  } else {
     const r1 = new TextInputBuilder()
       .setCustomId("region1")
-      .setLabel("Region 1 (optional, e.g. NA 5-2)")
+      .setLabel("Region 1 (e.g. Chicago 5-3)")
       .setStyle(TextInputStyle.Short)
-      .setRequired(false)
+      .setRequired(true)
       .setMaxLength(80);
     const r1Val = [ticket.region1, ticket.region1Score].filter(Boolean).join(" ");
     if (r1Val) r1.setValue(r1Val);
 
     const r2 = new TextInputBuilder()
       .setCustomId("region2")
-      .setLabel("Region 2 (optional, e.g. EU 5-3)")
+      .setLabel("Region 2 (e.g. Virginia 5-1)")
       .setStyle(TextInputStyle.Short)
-      .setRequired(false)
+      .setRequired(true)
       .setMaxLength(80);
     const r2Val = [ticket.region2, ticket.region2Score].filter(Boolean).join(" ");
     if (r2Val) r2.setValue(r2Val);
@@ -905,7 +1000,7 @@ async function handleEnterScore(interaction) {
   return interaction.showModal(
     new ModalBuilder()
       .setCustomId(SCORE_MODAL_ID)
-      .setTitle("Match score")
+      .setTitle(cross ? "Cross-region scores" : "Match score")
       .addComponents(...fields)
   );
 }
@@ -919,49 +1014,48 @@ async function handleScoreModal(interaction) {
     return interaction.reply({ content: "Press Done first.", ephemeral: true });
   }
 
-  const scoreRaw = interaction.fields.getTextInputValue("score");
-  if (!parseScore(scoreRaw)) {
-    return interaction.reply({ content: "Score must look like `5-3` or `10-8`.", ephemeral: true });
-  }
-
-  let region1 = "";
-  let region1Score = "";
-  let region2 = "";
-  let region2Score = "";
-  if (ticket.format === "ft10" || ticket.hostCrossRegion) {
-    const r1 = String(interaction.fields.getTextInputValue("region1") || "").trim();
-    const r2 = String(interaction.fields.getTextInputValue("region2") || "").trim();
-    const split = (raw) => {
-      const m = raw.match(/^(.+?)\s+(\d+\s*[-–—:]\s*\d+)$/);
-      if (!m) return { label: raw, score: "" };
-      return { label: m[1].trim(), score: m[2].replace(/\s+/g, "") };
-    };
-    if (r1) {
-      const parsed = split(r1);
-      region1 = parsed.label;
-      region1Score = parsed.score || r1;
-    }
-    if (r2) {
-      const parsed = split(r2);
-      region2 = parsed.label;
-      region2Score = parsed.score || r2;
-    }
-  }
-
   let scoreNotes = "";
   try {
     scoreNotes = String(interaction.fields.getTextInputValue("notes") || "").trim();
   } catch {}
 
+  if (isCrossRegion(ticket)) {
+    const r1 = parseRegionLine(interaction.fields.getTextInputValue("region1"));
+    const r2 = parseRegionLine(interaction.fields.getTextInputValue("region2"));
+    if (!r1 || !r2) {
+      return interaction.reply({
+        content: "Each region needs a name and score like `Chicago 5-3` (winner's games first).",
+        ephemeral: true,
+      });
+    }
+    const total = combinedCrossScore(r1, r2);
+    const next = {
+      ...ticket,
+      scoreDisplay: total.display,
+      scoreNotes,
+      region1: r1.label,
+      region1Score: r1.score.display,
+      region2: r2.label,
+      region2Score: r2.score.display,
+    };
+    setTicket(interaction.guild.id, interaction.channel.id, next);
+    return refreshMatchMessage(interaction, { ...ticket, ...next });
+  }
+
+  const scoreRaw = interaction.fields.getTextInputValue("score");
   const parsed = parseScore(scoreRaw);
+  if (!parsed) {
+    return interaction.reply({ content: "Score must look like `5-3` or `10-8`.", ephemeral: true });
+  }
+
   const next = {
     ...ticket,
     scoreDisplay: parsed.display,
     scoreNotes,
-    region1,
-    region1Score,
-    region2,
-    region2Score,
+    region1: "",
+    region1Score: "",
+    region2: "",
+    region2Score: "",
   };
   setTicket(interaction.guild.id, interaction.channel.id, next);
   return refreshMatchMessage(interaction, { ...ticket, ...next });
@@ -986,59 +1080,72 @@ async function handlePost(interaction) {
 
   await interaction.deferUpdate();
 
-  const hostNote = ticket.hostCrossRegion ? "Host: Cross-region" : ticket.hostId ? `Host: <@${ticket.hostId}>` : "";
-  const notes = [formatLabel(ticket.format), hostNote, ticket.scoreNotes].filter(Boolean).join(" · ");
-  const crossregion = ticket.format === "ft10" || ticket.hostCrossRegion;
-
-  const result = await applyMatchResult({
-    guild: interaction.guild,
-    recorderId: interaction.user.id,
-    participant1Id: ticket.userId,
-    participant2Id: ticket.targetId,
-    winnerId: ticket.winnerId,
-    scoreRaw: ticket.scoreDisplay,
-    matchType: "1v1",
-    notes,
-    crossregion,
-    region1: crossregion ? ticket.region1 || null : null,
-    region1Score: crossregion ? ticket.region1Score || null : null,
-    region2: crossregion ? ticket.region2 || null : null,
-    region2Score: crossregion ? ticket.region2Score || null : null,
-  });
-
-  if (result.error) {
-    return interaction.followUp({ content: result.error, ephemeral: true });
-  }
-
   try {
-    await channel.send({
-      content: result.body,
-      allowedMentions: result.allowedMentions,
+    const hostNote = ticket.hostCrossRegion ? "Host: Cross-region" : ticket.hostId ? `Host: <@${ticket.hostId}>` : "";
+    const notes = [formatLabel(ticket.format), hostNote, ticket.scoreNotes].filter(Boolean).join(" · ");
+    const crossregion = isCrossRegion(ticket) || ticket.format === "ft10";
+
+    const result = await applyMatchResult({
+      guild: interaction.guild,
+      recorderId: interaction.user.id,
+      participant1Id: ticket.userId,
+      participant2Id: ticket.targetId,
+      winnerId: ticket.winnerId,
+      scoreRaw: ticket.scoreDisplay,
+      matchType: "1v1",
+      notes,
+      crossregion,
+      region1: crossregion ? ticket.region1 || null : null,
+      region1Score: crossregion ? ticket.region1Score || null : null,
+      region2: crossregion ? ticket.region2 || null : null,
+      region2Score: crossregion ? ticket.region2Score || null : null,
     });
+
+    if (result.error) {
+      return interaction.followUp({ content: result.error, ephemeral: true });
+    }
+
+    try {
+      await channel.send({
+        content: result.body,
+        allowedMentions: result.allowedMentions,
+      });
+    } catch (err) {
+      await interaction.followUp({
+        content: `Match was recorded, but posting to ${channel} failed: ${err.message}`,
+        ephemeral: true,
+      }).catch(() => {});
+    }
+
+    setTicket(interaction.guild.id, interaction.channel.id, { status: "posted" });
+    setPending(interaction.guild.id, ticket.userId, { status: "posted" });
+
+    await interaction.editReply({
+      content: `Result posted in ${channel}. This ticket closes in 8 seconds.`,
+      allowedMentions: { parse: [] },
+      embeds: [
+        challengeCard({
+          title: "Result posted",
+          color: COLOR_SUCCESS,
+          description: `Sent to ${channel}.`,
+          fields: [
+            fv("Winner", `<@${ticket.winnerId}>`),
+            fv("Score", ticket.scoreDisplay),
+            ...(isCrossRegion(ticket) ? [fv("Regions", regionLine(ticket), false)] : []),
+          ],
+          footer: "Ticket closes in 8 seconds",
+        }),
+      ],
+      components: [],
+    });
+    setTimeout(() => interaction.channel.delete("Challenge result posted").catch(() => {}), 8000);
   } catch (err) {
-    await interaction.followUp({
-      content: `Match was recorded, but posting to ${channel} failed: ${err.message}`,
+    console.error("challenge post failed:", err);
+    return interaction.followUp({
+      content: err.message || "Could not post that result.",
       ephemeral: true,
-    });
-    await interaction.followUp({ content: result.body, allowedMentions: result.allowedMentions });
+    }).catch(() => {});
   }
-
-  setTicket(interaction.guild.id, interaction.channel.id, { status: "posted" });
-  setPending(interaction.guild.id, ticket.userId, { status: "posted" });
-
-  await interaction.editReply({
-    content: `Result posted in ${channel}. Closing this ticket in 8 seconds.`,
-    allowedMentions: { users: [] },
-    embeds: [
-      tsbEmbed({
-        title: "Result posted",
-        color: COLOR_SUCCESS,
-        description: `Posted to ${channel}.\n**${ticket.scoreDisplay}** to <@${ticket.winnerId}>.`,
-      }),
-    ],
-    components: [],
-  });
-  setTimeout(() => interaction.channel.delete("Challenge result posted").catch(() => {}), 8000);
 }
 
 async function handleChallengeTickets(interaction) {

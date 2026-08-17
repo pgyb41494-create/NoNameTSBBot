@@ -26,6 +26,9 @@ function tsbEmbed(options = {}) {
     try { embed.setImage(options.image); } catch {}
   }
   if (Array.isArray(options.fields) && options.fields.length) embed.addFields(options.fields);
+  if (options.timestamp) {
+    embed.setTimestamp(options.timestamp === true ? new Date() : options.timestamp);
+  }
   return embed;
 }
 

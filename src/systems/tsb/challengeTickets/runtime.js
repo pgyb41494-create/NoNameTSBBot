@@ -3,14 +3,20 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
+  ChannelSelectMenuBuilder,
+  ModalBuilder,
   PermissionFlagsBits,
   StringSelectMenuBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require("discord.js");
 const api = require("../../../utils/loadApi");
 const { tsbEmbed, COLOR_PRIMARY, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARN } = require("../shared/embeds");
 const { isAdminOrOwner, memberHasAnyRole } = require("../shared/permissions");
 const { getLeaderboardConfig, updateLeaderboardConfig, challengeTicketsOf, spotsAheadFor, formatChallengeRules } = require("../leaderboard/config");
 const { getOrCreateNamedChannel } = require("../shared/channelReuse");
+const { applyMatchResult, canUseScore, parseScore } = require("../score/system");
+const { getScoreConfig } = require("../score/config");
 const { setTicket, getTicket, setPending, findOpenTicket } = require("./store");
 
 const START_ID = "tsb:chaltix:start";
@@ -18,6 +24,17 @@ const PICK_ID = "tsb:chaltix:pick";
 const CLOSE_ID = "tsb:chaltix:close";
 const YES_ID = "tsb:chaltix:yes";
 const NO_ID = "tsb:chaltix:no";
+const FMT_FT5_ID = "tsb:chaltix:fmt:ft5";
+const FMT_FT10_ID = "tsb:chaltix:fmt:ft10";
+const HOST_CHAL_ID = "tsb:chaltix:host:chal";
+const HOST_DEF_ID = "tsb:chaltix:host:def";
+const DONE_ID = "tsb:chaltix:done";
+const CHANNEL_ID = "tsb:chaltix:channel";
+const WIN_CHAL_ID = "tsb:chaltix:win:chal";
+const WIN_DEF_ID = "tsb:chaltix:win:def";
+const ENTER_SCORE_ID = "tsb:chaltix:enterscore";
+const POST_ID = "tsb:chaltix:post";
+const SCORE_MODAL_ID = "tsb:chaltix:scoremodal";
 
 function filledSlots(guildId) {
   const cfg = getLeaderboardConfig(guildId);
@@ -242,6 +259,155 @@ async function refreshBoard(guild) {
     const { refreshLeaderboard } = require("../leaderboard/renderer");
     await refreshLeaderboard(guild);
   } catch {}
+}
+
+function formatLabel(format) {
+  if (format === "ft10") return "FT10 / Cross-region";
+  if (format === "ft5") return "FT5";
+  return "not set";
+}
+
+function canFinishMatch(member, guild) {
+  if (canStaff(member, guild, getLeaderboardConfig(guild.id))) return true;
+  return canUseScore(member, guild, getScoreConfig(guild.id));
+}
+
+function isMatchPlayer(userId, ticket) {
+  const id = String(userId);
+  return id === String(ticket?.userId) || id === String(ticket?.targetId);
+}
+
+async function matchNames(guild, ticket) {
+  const chal = await guild.members.fetch(ticket.userId).catch(() => null);
+  const def = await guild.members.fetch(ticket.targetId).catch(() => null);
+  return {
+    challenger: chal?.displayName || chal?.user?.username || "Challenger",
+    defender: def?.displayName || def?.user?.username || "Defender",
+  };
+}
+
+function formatRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(FMT_FT5_ID).setLabel("FT5").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(FMT_FT10_ID).setLabel("FT10 / Cross-region").setStyle(ButtonStyle.Primary)
+  );
+}
+
+function hostRow(names) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(HOST_CHAL_ID).setLabel(`${names.challenger} hosts`.slice(0, 80)).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(HOST_DEF_ID).setLabel(`${names.defender} hosts`.slice(0, 80)).setStyle(ButtonStyle.Secondary)
+  );
+}
+
+function setupPayload(ticket, names) {
+  const users = [ticket.userId, ticket.targetId].filter(Boolean);
+  let title = "Pick a format";
+  let description =
+    `<@${ticket.userId}> vs <@${ticket.targetId}>\n\n` +
+    "Choose **FT5** or **FT10 / Cross-region**.";
+  const components = [formatRow()];
+
+  if (ticket.format && !ticket.hostId) {
+    title = "Who hosts?";
+    description =
+      `<@${ticket.userId}> vs <@${ticket.targetId}>\n` +
+      `**Format:** ${formatLabel(ticket.format)}\n\n` +
+      "Pick who hosts the private server.";
+    components.push(hostRow(names));
+  } else if (ticket.format && ticket.hostId) {
+    title = "Match ready";
+    description =
+      `<@${ticket.userId}> vs <@${ticket.targetId}>\n` +
+      `**Format:** ${formatLabel(ticket.format)}\n` +
+      `**Host:** <@${ticket.hostId}>\n\n` +
+      "Play the set. Staff press **Done** to fill in the score and pick where it posts.";
+    components.push(hostRow(names));
+    components.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(DONE_ID).setLabel("Done").setStyle(ButtonStyle.Success)
+      )
+    );
+  }
+
+  return {
+    content: users.map((id) => `<@${id}>`).join(" "),
+    allowedMentions: { users },
+    embeds: [tsbEmbed({ title, color: COLOR_PRIMARY, description })],
+    components,
+  };
+}
+
+function scoringPayload(ticket, names) {
+  const ready = ticket.winnerId && ticket.scoreDisplay && ticket.resultChannelId;
+  const regionLine =
+    ticket.format === "ft10" && (ticket.region1Score || ticket.region2Score)
+      ? `\n**Regions:** ${ticket.region1 || "—"} ${ticket.region1Score || ""} / ${ticket.region2 || "—"} ${ticket.region2Score || ""}`
+      : "";
+  return {
+    content: "Staff: finish the pre-filled score and choose a channel.",
+    allowedMentions: { users: [] },
+    embeds: [
+      tsbEmbed({
+        title: "Record score",
+        color: COLOR_PRIMARY,
+        description:
+          `<@${ticket.userId}> vs <@${ticket.targetId}>\n` +
+          `**Format:** ${formatLabel(ticket.format)}\n` +
+          `**Host:** ${ticket.hostId ? `<@${ticket.hostId}>` : "not set"}\n` +
+          `**Winner:** ${ticket.winnerId ? `<@${ticket.winnerId}>` : "not set"}\n` +
+          `**Score:** ${ticket.scoreDisplay || "not set"}` +
+          regionLine +
+          `\n**Post to:** ${ticket.resultChannelId ? `<#${ticket.resultChannelId}>` : "not set"}\n\n` +
+          "This is the same result `/score` posts — players and format are already filled.",
+      }),
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(WIN_CHAL_ID)
+          .setLabel(`${names.challenger} won`.slice(0, 80))
+          .setStyle(String(ticket.winnerId) === String(ticket.userId) ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(WIN_DEF_ID)
+          .setLabel(`${names.defender} won`.slice(0, 80))
+          .setStyle(String(ticket.winnerId) === String(ticket.targetId) ? ButtonStyle.Success : ButtonStyle.Secondary)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(ENTER_SCORE_ID)
+          .setLabel(ticket.scoreDisplay ? "Edit score" : "Enter score")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(POST_ID)
+          .setLabel("Post result")
+          .setStyle(ButtonStyle.Success)
+          .setDisabled(!ready)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId(CHANNEL_ID)
+          .setPlaceholder("Choose channel to post the score")
+          .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+      ),
+    ],
+  };
+}
+
+async function refreshMatchMessage(interaction, ticket) {
+  const names = await matchNames(interaction.guild, ticket);
+  const payload = ticket.status === "scoring" ? scoringPayload(ticket, names) : setupPayload(ticket, names);
+  if (interaction.isModalSubmit?.()) {
+    const msg = ticket.setupMessageId
+      ? await interaction.channel.messages.fetch(ticket.setupMessageId).catch(() => null)
+      : null;
+    if (msg) await msg.edit(payload).catch(() => {});
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: "Score saved.", ephemeral: true });
+    }
+    return;
+  }
+  return interaction.update(payload);
 }
 
 async function ticketPayload(guild, userId) {
@@ -479,11 +645,17 @@ async function handleAccept(interaction) {
         color: COLOR_SUCCESS,
         description:
           `<@${targetId}> accepted <@${challengerId}>'s challenge.\n\n` +
-          "Set format and host here, then staff can record the result with `/score`.",
+          "Next: pick format, then who hosts.",
       }),
     ],
     components: [closeRow()],
   });
+
+  const names = await matchNames(interaction.guild, { userId: challengerId, targetId });
+  const setup = await interaction.channel.send(setupPayload({ userId: challengerId, targetId }, names)).catch(() => null);
+  if (setup) {
+    setTicket(interaction.guild.id, interaction.channel.id, { setupMessageId: setup.id });
+  }
 }
 
 async function handleDecline(interaction) {
@@ -586,9 +758,282 @@ async function closeTicket(interaction) {
   setTimeout(() => interaction.channel.delete("Challenge ticket closed").catch(() => {}), 5000);
 }
 
+function loadLiveTicket(interaction) {
+  return getTicket(interaction.guild.id, interaction.channel.id);
+}
+
+function canEditSetup(interaction, ticket) {
+  if (!ticket?.targetId) return false;
+  if (ticket.status === "posted") return false;
+  if (ticket.status === "scoring") return false;
+  return isMatchPlayer(interaction.user.id, ticket) || canFinishMatch(interaction.member, interaction.guild);
+}
+
+async function handleFormat(interaction, format) {
+  const ticket = loadLiveTicket(interaction);
+  if (!ticket?.targetId || ticket.status === "picked") {
+    return interaction.reply({ content: "Accept the challenge first.", ephemeral: true });
+  }
+  if (!canEditSetup(interaction, ticket)) {
+    return interaction.reply({ content: "Only the two players or staff can pick the format.", ephemeral: true });
+  }
+  const next = { ...ticket, format, status: ticket.hostId ? "ready" : "accepted" };
+  setTicket(interaction.guild.id, interaction.channel.id, next);
+  return refreshMatchMessage(interaction, { ...ticket, ...next });
+}
+
+async function handleHost(interaction, who) {
+  const ticket = loadLiveTicket(interaction);
+  if (!ticket?.targetId) {
+    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
+  }
+  if (!ticket.format) {
+    return interaction.reply({ content: "Pick a format first.", ephemeral: true });
+  }
+  if (!canEditSetup(interaction, ticket)) {
+    return interaction.reply({ content: "Only the two players or staff can pick the host.", ephemeral: true });
+  }
+  const hostId = who === "chal" ? ticket.userId : ticket.targetId;
+  const next = { ...ticket, hostId, status: "ready" };
+  setTicket(interaction.guild.id, interaction.channel.id, next);
+  return refreshMatchMessage(interaction, { ...ticket, ...next });
+}
+
+async function handleDone(interaction) {
+  const ticket = loadLiveTicket(interaction);
+  if (!ticket?.targetId) {
+    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
+  }
+  if (!canFinishMatch(interaction.member, interaction.guild)) {
+    return interaction.reply({ content: "Only staff can press Done.", ephemeral: true });
+  }
+  if (!ticket.format || !ticket.hostId) {
+    return interaction.reply({ content: "Format and host must be set first.", ephemeral: true });
+  }
+  const next = { ...ticket, status: "scoring" };
+  setTicket(interaction.guild.id, interaction.channel.id, next);
+  return refreshMatchMessage(interaction, { ...ticket, ...next });
+}
+
+async function handleWinner(interaction, who) {
+  const ticket = loadLiveTicket(interaction);
+  if (!canFinishMatch(interaction.member, interaction.guild)) {
+    return interaction.reply({ content: "Only staff can pick the winner.", ephemeral: true });
+  }
+  if (ticket?.status !== "scoring") {
+    return interaction.reply({ content: "Press Done first.", ephemeral: true });
+  }
+  const winnerId = who === "chal" ? ticket.userId : ticket.targetId;
+  const next = { ...ticket, winnerId };
+  setTicket(interaction.guild.id, interaction.channel.id, next);
+  return refreshMatchMessage(interaction, { ...ticket, ...next });
+}
+
+async function handleChannelPick(interaction) {
+  const ticket = loadLiveTicket(interaction);
+  if (!canFinishMatch(interaction.member, interaction.guild)) {
+    return interaction.reply({ content: "Only staff can choose the channel.", ephemeral: true });
+  }
+  if (ticket?.status !== "scoring") {
+    return interaction.reply({ content: "Press Done first.", ephemeral: true });
+  }
+  const resultChannelId = interaction.values?.[0];
+  const next = { ...ticket, resultChannelId };
+  setTicket(interaction.guild.id, interaction.channel.id, next);
+  return refreshMatchMessage(interaction, { ...ticket, ...next });
+}
+
+async function handleEnterScore(interaction) {
+  const ticket = loadLiveTicket(interaction);
+  if (!canFinishMatch(interaction.member, interaction.guild)) {
+    return interaction.reply({ content: "Only staff can enter the score.", ephemeral: true });
+  }
+  if (ticket?.status !== "scoring") {
+    return interaction.reply({ content: "Press Done first.", ephemeral: true });
+  }
+
+  const scoreField = new TextInputBuilder()
+    .setCustomId("score")
+    .setLabel("Score (example 5-3)")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setMaxLength(12);
+  if (ticket.scoreDisplay) scoreField.setValue(ticket.scoreDisplay);
+
+  const fields = [new ActionRowBuilder().addComponents(scoreField)];
+
+  if (ticket.format === "ft10") {
+    const r1 = new TextInputBuilder()
+      .setCustomId("region1")
+      .setLabel("Region 1 (optional, e.g. NA 5-2)")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false)
+      .setMaxLength(80);
+    const r1Val = [ticket.region1, ticket.region1Score].filter(Boolean).join(" ");
+    if (r1Val) r1.setValue(r1Val);
+
+    const r2 = new TextInputBuilder()
+      .setCustomId("region2")
+      .setLabel("Region 2 (optional, e.g. EU 5-3)")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false)
+      .setMaxLength(80);
+    const r2Val = [ticket.region2, ticket.region2Score].filter(Boolean).join(" ");
+    if (r2Val) r2.setValue(r2Val);
+
+    fields.push(new ActionRowBuilder().addComponents(r1), new ActionRowBuilder().addComponents(r2));
+  }
+
+  const notes = new TextInputBuilder()
+    .setCustomId("notes")
+    .setLabel("Notes (optional)")
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(false)
+    .setMaxLength(200);
+  if (ticket.scoreNotes) notes.setValue(ticket.scoreNotes);
+  fields.push(new ActionRowBuilder().addComponents(notes));
+
+  return interaction.showModal(
+    new ModalBuilder()
+      .setCustomId(SCORE_MODAL_ID)
+      .setTitle("Match score")
+      .addComponents(...fields)
+  );
+}
+
+async function handleScoreModal(interaction) {
+  const ticket = loadLiveTicket(interaction);
+  if (!canFinishMatch(interaction.member, interaction.guild)) {
+    return interaction.reply({ content: "Only staff can enter the score.", ephemeral: true });
+  }
+  if (ticket?.status !== "scoring") {
+    return interaction.reply({ content: "Press Done first.", ephemeral: true });
+  }
+
+  const scoreRaw = interaction.fields.getTextInputValue("score");
+  if (!parseScore(scoreRaw)) {
+    return interaction.reply({ content: "Score must look like `5-3` or `10-8`.", ephemeral: true });
+  }
+
+  let region1 = "";
+  let region1Score = "";
+  let region2 = "";
+  let region2Score = "";
+  if (ticket.format === "ft10") {
+    const r1 = String(interaction.fields.getTextInputValue("region1") || "").trim();
+    const r2 = String(interaction.fields.getTextInputValue("region2") || "").trim();
+    const split = (raw) => {
+      const m = raw.match(/^(.+?)\s+(\d+\s*[-–—:]\s*\d+)$/);
+      if (!m) return { label: raw, score: "" };
+      return { label: m[1].trim(), score: m[2].replace(/\s+/g, "") };
+    };
+    if (r1) {
+      const parsed = split(r1);
+      region1 = parsed.label;
+      region1Score = parsed.score || r1;
+    }
+    if (r2) {
+      const parsed = split(r2);
+      region2 = parsed.label;
+      region2Score = parsed.score || r2;
+    }
+  }
+
+  let scoreNotes = "";
+  try {
+    scoreNotes = String(interaction.fields.getTextInputValue("notes") || "").trim();
+  } catch {}
+
+  const parsed = parseScore(scoreRaw);
+  const next = {
+    ...ticket,
+    scoreDisplay: parsed.display,
+    scoreNotes,
+    region1,
+    region1Score,
+    region2,
+    region2Score,
+  };
+  setTicket(interaction.guild.id, interaction.channel.id, next);
+  return refreshMatchMessage(interaction, { ...ticket, ...next });
+}
+
+async function handlePost(interaction) {
+  const ticket = loadLiveTicket(interaction);
+  if (!canFinishMatch(interaction.member, interaction.guild)) {
+    return interaction.reply({ content: "Only staff can post the result.", ephemeral: true });
+  }
+  if (ticket?.status !== "scoring") {
+    return interaction.reply({ content: "Press Done first.", ephemeral: true });
+  }
+  if (!ticket.winnerId || !ticket.scoreDisplay || !ticket.resultChannelId) {
+    return interaction.reply({ content: "Set winner, score, and channel first.", ephemeral: true });
+  }
+
+  const channel = await interaction.guild.channels.fetch(ticket.resultChannelId).catch(() => null);
+  if (!channel?.isTextBased?.()) {
+    return interaction.reply({ content: "That channel is not available.", ephemeral: true });
+  }
+
+  await interaction.deferUpdate();
+
+  const hostNote = ticket.hostId ? `Host: <@${ticket.hostId}>` : "";
+  const notes = [formatLabel(ticket.format), hostNote, ticket.scoreNotes].filter(Boolean).join(" · ");
+
+  const result = await applyMatchResult({
+    guild: interaction.guild,
+    recorderId: interaction.user.id,
+    participant1Id: ticket.userId,
+    participant2Id: ticket.targetId,
+    winnerId: ticket.winnerId,
+    scoreRaw: ticket.scoreDisplay,
+    matchType: "1v1",
+    notes,
+    crossregion: ticket.format === "ft10",
+    region1: ticket.region1 || null,
+    region1Score: ticket.region1Score || null,
+    region2: ticket.region2 || null,
+    region2Score: ticket.region2Score || null,
+  });
+
+  if (result.error) {
+    return interaction.followUp({ content: result.error, ephemeral: true });
+  }
+
+  try {
+    await channel.send({
+      content: result.body,
+      allowedMentions: result.allowedMentions,
+    });
+  } catch (err) {
+    await interaction.followUp({
+      content: `Match was recorded, but posting to ${channel} failed: ${err.message}`,
+      ephemeral: true,
+    });
+    await interaction.followUp({ content: result.body, allowedMentions: result.allowedMentions });
+  }
+
+  setTicket(interaction.guild.id, interaction.channel.id, { status: "posted" });
+  setPending(interaction.guild.id, ticket.userId, { status: "posted" });
+
+  await interaction.editReply({
+    content: `Result posted in ${channel}. Closing this ticket in 8 seconds.`,
+    allowedMentions: { users: [] },
+    embeds: [
+      tsbEmbed({
+        title: "Result posted",
+        color: COLOR_SUCCESS,
+        description: `Posted to ${channel}.\n**${ticket.scoreDisplay}** to <@${ticket.winnerId}>.`,
+      }),
+    ],
+    components: [],
+  });
+  setTimeout(() => interaction.channel.delete("Challenge result posted").catch(() => {}), 8000);
+}
+
 async function handleChallengeTickets(interaction) {
   const id = interaction.customId || "";
-  if (![START_ID, PICK_ID, CLOSE_ID, YES_ID, NO_ID].includes(id)) return false;
+  if (!id.startsWith("tsb:chaltix:")) return false;
   if (id === START_ID && interaction.isButton?.()) {
     await openTicket(interaction);
     return true;
@@ -607,6 +1052,50 @@ async function handleChallengeTickets(interaction) {
   }
   if (id === CLOSE_ID && interaction.isButton?.()) {
     await closeTicket(interaction);
+    return true;
+  }
+  if (id === FMT_FT5_ID && interaction.isButton?.()) {
+    await handleFormat(interaction, "ft5");
+    return true;
+  }
+  if (id === FMT_FT10_ID && interaction.isButton?.()) {
+    await handleFormat(interaction, "ft10");
+    return true;
+  }
+  if (id === HOST_CHAL_ID && interaction.isButton?.()) {
+    await handleHost(interaction, "chal");
+    return true;
+  }
+  if (id === HOST_DEF_ID && interaction.isButton?.()) {
+    await handleHost(interaction, "def");
+    return true;
+  }
+  if (id === DONE_ID && interaction.isButton?.()) {
+    await handleDone(interaction);
+    return true;
+  }
+  if (id === WIN_CHAL_ID && interaction.isButton?.()) {
+    await handleWinner(interaction, "chal");
+    return true;
+  }
+  if (id === WIN_DEF_ID && interaction.isButton?.()) {
+    await handleWinner(interaction, "def");
+    return true;
+  }
+  if (id === CHANNEL_ID && interaction.isChannelSelectMenu?.()) {
+    await handleChannelPick(interaction);
+    return true;
+  }
+  if (id === ENTER_SCORE_ID && interaction.isButton?.()) {
+    await handleEnterScore(interaction);
+    return true;
+  }
+  if (id === POST_ID && interaction.isButton?.()) {
+    await handlePost(interaction);
+    return true;
+  }
+  if (id === SCORE_MODAL_ID && interaction.isModalSubmit?.()) {
+    await handleScoreModal(interaction);
     return true;
   }
   return false;

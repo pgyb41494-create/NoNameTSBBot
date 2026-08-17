@@ -86,6 +86,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:score:")) return handleScoreModal(interaction);
     if (id.startsWith("tsb:lu:")) return handleLineupModal(interaction);
     if (id.startsWith("tsb:tryout:")) return handleTryoutModal(interaction);
+    if (id.startsWith("tsb:chaltix:")) return handleChallengeTickets(interaction);
   }
 
   return false;

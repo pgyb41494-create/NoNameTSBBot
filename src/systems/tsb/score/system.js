@@ -319,88 +319,59 @@ function formatLeaderboardBump(bump, winner, loser) {
     return "no change";
 }
 
-async function recordScore(interaction) {
-    const guild = interaction.guild;
+async function applyMatchResult({
+    guild,
+    recorderId,
+    participant1Id,
+    participant2Id,
+    winnerId,
+    scoreRaw,
+    matchType = "1v1",
+    region = null,
+    notes = null,
+    referees = null,
+    crossregion = false,
+    region1 = null,
+    region1Score = null,
+    region1WinnerId = null,
+    region2 = null,
+    region2Score = null,
+    region2WinnerId = null,
+}) {
     const cfg = getScoreConfig(guild.id);
-
     if (!cfg.setupCompleted) {
-        return interaction.reply({
-            content: "1v1 Score is not set up yet. Use `/tsbsetup` → **1v1 Score Setup**.",
-            ephemeral: true
-        });
+        return { error: "1v1 Score is not set up yet. Use `/tsbsetup` → **1v1 Score Setup**." };
     }
 
-    if (!canUseScore(interaction.member, guild, cfg)) {
-        const needsRoles = !(cfg.allowedRoleIds || []).length;
-        return interaction.reply({
-            content: needsRoles
-                ? "No score staff roles are configured yet. An admin must finish `/tsbsetup` → **1v1 Score Setup** (allowed roles)."
-                : "You are not allowed to use `/score`.",
-            ephemeral: true
-        });
+    if (String(participant1Id) === String(participant2Id)) {
+        return { error: "Participants must be two different users." };
     }
-
-    const matchType = interaction.options.getString("match_type", true);
-    const participant1 = interaction.options.getUser("participant_1", true);
-    const participant2 = interaction.options.getUser("participant_2", true);
-    const scoreRaw = interaction.options.getString("score", true);
-    const winnerUser = interaction.options.getUser("winner", true);
-
-    const region = interaction.options.getString("region");
-    const crossregion = interaction.options.getBoolean("crossregion") || false;
-    const region1 = interaction.options.getString("region_1");
-    const region1Score = interaction.options.getString("region_1_score");
-    const region1Winner = interaction.options.getUser("region_1_winner");
-    const region2 = interaction.options.getString("region_2");
-    const region2Score = interaction.options.getString("region_2_score");
-    const region2Winner = interaction.options.getUser("region_2_winner");
-    const referees = interaction.options.getString("referees");
-    const notes = interaction.options.getString("notes");
-
-    if (participant1.id === participant2.id) {
-        return interaction.reply({
-            content: "Participants must be two different users.",
-            ephemeral: true
-        });
-    }
-
-    if (winnerUser.id !== participant1.id && winnerUser.id !== participant2.id) {
-        return interaction.reply({
-            content: "Winner must be one of the two participants.",
-            ephemeral: true
-        });
+    if (String(winnerId) !== String(participant1Id) && String(winnerId) !== String(participant2Id)) {
+        return { error: "Winner must be one of the two participants." };
     }
 
     const score = parseScore(scoreRaw);
     if (!score) {
-        return interaction.reply({
-            content: "Score must look like `10-0` or `5-3`.",
-            ephemeral: true
-        });
+        return { error: "Score must look like `10-0` or `5-3`." };
     }
 
-    const state1 = getPlayerState(guild.id, participant1.id);
-    const state2 = getPlayerState(guild.id, participant2.id);
+    const state1 = getPlayerState(guild.id, participant1Id);
+    const state2 = getPlayerState(guild.id, participant2Id);
     const blocked = [];
     if (isOnCooldown(state1)) {
-        blocked.push(`<@${participant1.id}> until ${discordRelative(state1.cooldownUntil)}`);
+        blocked.push(`<@${participant1Id}> until ${discordRelative(state1.cooldownUntil)}`);
     }
     if (isOnCooldown(state2)) {
-        blocked.push(`<@${participant2.id}> until ${discordRelative(state2.cooldownUntil)}`);
+        blocked.push(`<@${participant2Id}> until ${discordRelative(state2.cooldownUntil)}`);
     }
     if (blocked.length) {
-        return interaction.reply({
-            content: `Cooldown active — cannot record this match yet:\n• ${blocked.join("\n• ")}`,
-            ephemeral: true
-        });
+        return { error: `Cooldown active — cannot record this match yet:\n• ${blocked.join("\n• ")}` };
     }
 
-    await interaction.deferReply();
-
-    const p1 = await loadDisplay(guild, participant1.id);
-    const p2 = await loadDisplay(guild, participant2.id);
-    const winner = winnerUser.id === p1.discordId ? p1 : p2;
-    const loser = winnerUser.id === p1.discordId ? p2 : p1;
+    const p1 = await loadDisplay(guild, participant1Id);
+    const p2 = await loadDisplay(guild, participant2Id);
+    const winner = String(winnerId) === p1.discordId ? p1 : p2;
+    const loser = String(winnerId) === p1.discordId ? p2 : p1;
 
     const prevLoser = getPlayerState(guild.id, loser.discordId);
     const prevWinner = getPlayerState(guild.id, winner.discordId);
@@ -424,8 +395,6 @@ async function recordScore(interaction) {
     const now = new Date().toISOString();
     const winnerCdUntil = cooldownUntilFromDays(cfg.winnerCooldownDays);
     const loserCdUntil = cooldownUntilFromDays(cfg.loserCooldownDays);
-
-    // Cooldown line uses Winner CD / Loser CD from 1v1 Score Config
     const winnerCdText = winnerCdUntil ? discordRelative(winnerCdUntil) : "none";
     const loserCdText = loserCdUntil ? discordRelative(loserCdUntil) : "none";
     const cd1 = winner.discordId === p1.discordId ? winnerCdText : loserCdText;
@@ -459,32 +428,27 @@ async function recordScore(interaction) {
     } catch {}
     const leaderboardLine = formatLeaderboardBump(swap, winner, loser);
 
-    // Keep pre-match ranks on the embed (Meteorite style)
-    const embedPlayers = {
-        p1: { ...p1 },
-        p2: { ...p2 },
-        winner: { ...winner }
-    };
-
+    const region1Winner = region1WinnerId ? `<@${region1WinnerId}>` : null;
+    const region2Winner = region2WinnerId ? `<@${region2WinnerId}>` : null;
     const crossRegionLines = [];
     if (crossregion || region1 || region2) {
         if (region1 || region1Score || region1Winner) {
             crossRegionLines.push(
-                `- *Region 1*: ${region1 || "—"} · ${region1Score || "—"} · ${region1Winner ? `<@${region1Winner.id}>` : "—"}`
+                `- *Region 1*: ${region1 || "—"} · ${region1Score || "—"} · ${region1Winner || "—"}`
             );
         }
         if (region2 || region2Score || region2Winner) {
             crossRegionLines.push(
-                `- *Region 2*: ${region2 || "—"} · ${region2Score || "—"} · ${region2Winner ? `<@${region2Winner.id}>` : "—"}`
+                `- *Region 2*: ${region2 || "—"} · ${region2Score || "—"} · ${region2Winner || "—"}`
             );
         }
     }
 
     const body = buildMatchMessage({
         region,
-        p1: embedPlayers.p1,
-        p2: embedPlayers.p2,
-        winner: embedPlayers.winner,
+        p1: { ...p1 },
+        p2: { ...p2 },
+        winner: { ...winner },
         scoreDisplay: score.display,
         referees: referees || "None",
         notes: notes || "None",
@@ -509,7 +473,7 @@ async function recordScore(interaction) {
         swapped: !!swap.bumped,
         bumped: !!swap.bumped,
         bumpTo: swap.bumped ? swap.winnerPos : null,
-        recordedBy: interaction.user.id
+        recordedBy: recorderId || null
     });
 
     try {
@@ -525,19 +489,69 @@ async function recordScore(interaction) {
     } catch {}
 
     const refIds = [...String(referees || "").matchAll(/<@!?(\d+)>/g)].map((m) => m[1]);
-
-    return interaction.editReply({
-        content: body,
-        embeds: [],
+    return {
+        body,
         allowedMentions: {
             roles: cfg.pvpUpdatesRoleId ? [cfg.pvpUpdatesRoleId] : [],
             users: [p1.discordId, p2.discordId, ...refIds]
-        }
+        },
+        p1,
+        p2,
+        winner,
+        loser,
+        swap,
+        score
+    };
+}
+
+async function recordScore(interaction) {
+    const guild = interaction.guild;
+    const cfg = getScoreConfig(guild.id);
+
+    if (!canUseScore(interaction.member, guild, cfg)) {
+        const needsRoles = !(cfg.allowedRoleIds || []).length;
+        return interaction.reply({
+            content: needsRoles
+                ? "No score staff roles are configured yet. An admin must finish `/tsbsetup` → **1v1 Score Setup** (allowed roles)."
+                : "You are not allowed to use `/score`.",
+            ephemeral: true
+        });
+    }
+
+    const result = await applyMatchResult({
+        guild,
+        recorderId: interaction.user.id,
+        participant1Id: interaction.options.getUser("participant_1", true).id,
+        participant2Id: interaction.options.getUser("participant_2", true).id,
+        winnerId: interaction.options.getUser("winner", true).id,
+        scoreRaw: interaction.options.getString("score", true),
+        matchType: interaction.options.getString("match_type", true),
+        region: interaction.options.getString("region"),
+        notes: interaction.options.getString("notes"),
+        referees: interaction.options.getString("referees"),
+        crossregion: interaction.options.getBoolean("crossregion") || false,
+        region1: interaction.options.getString("region_1"),
+        region1Score: interaction.options.getString("region_1_score"),
+        region1WinnerId: interaction.options.getUser("region_1_winner")?.id || null,
+        region2: interaction.options.getString("region_2"),
+        region2Score: interaction.options.getString("region_2_score"),
+        region2WinnerId: interaction.options.getUser("region_2_winner")?.id || null,
+    });
+
+    if (result.error) {
+        return interaction.reply({ content: result.error, ephemeral: true });
+    }
+
+    return interaction.reply({
+        content: result.body,
+        embeds: [],
+        allowedMentions: result.allowedMentions
     });
 }
 
 module.exports = {
     recordScore,
+    applyMatchResult,
     canUseScore,
     parseScore,
     boardPosition,

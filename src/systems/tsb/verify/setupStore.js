@@ -88,7 +88,7 @@ async function handleVerifySetupButton(interaction) {
     return openHub(interaction);
   }
   if (id === "tsb:verify:cfg_panel") {
-    await interaction.channel.send(panelPayload());
+    await interaction.channel.send(panelPayload(interaction.guild));
     updateConfig(interaction.guild.id, { panelChannelId: interaction.channel.id, setupCompleted: true });
     return interaction.reply({ content: "Verification panel posted in this channel.", ephemeral: true });
   }

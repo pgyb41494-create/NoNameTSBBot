@@ -2,6 +2,60 @@ const { createJsonStore } = require("../../../../api/store/jsonStore");
 
 const store = createJsonStore("verify.json", {});
 
+function safeUrl(value) {
+  const raw = String(value || "").trim();
+  if (!/^https?:\/\//i.test(raw)) return "";
+  return raw.slice(0, 500);
+}
+
+function safeText(value, max) {
+  return String(value || "").slice(0, max);
+}
+
+function defaultPanel() {
+  const p = "'";
+  return {
+    title: "Verification",
+    description:
+      "Click **Start verification** and I’ll DM you `/profile`.\n\n" +
+      "Finish it in DMs and a private ticket opens for staff.\n\n" +
+      `You can also run \`${p}profile\` / \`/profile\` in the server.`,
+    footer: "",
+    footerIcon: "",
+    thumbnail: "",
+    image: "",
+    color: "",
+    button: "Start verification",
+  };
+}
+
+function defaultTicket() {
+  return {
+    title: "Verification ticket",
+    description: "{mention} finished `/profile`.\n\nStaff: check the profile, then **Approve** or **Deny**.",
+    footer: "",
+    footerIcon: "",
+    thumbnail: "",
+    image: "",
+    color: "",
+  };
+}
+
+function normalizeEmbed(value, fallback, { button } = {}) {
+  const src = value && typeof value === "object" ? value : {};
+  const next = {
+    title: safeText(src.title != null ? src.title : fallback.title, 256),
+    description: safeText(src.description != null ? src.description : fallback.description, 4000),
+    footer: safeText(src.footer, 2048),
+    footerIcon: safeUrl(src.footerIcon),
+    thumbnail: safeUrl(src.thumbnail),
+    image: safeUrl(src.image || src.gif),
+    color: String(src.color || "").replace(/^#/, "").slice(0, 6),
+  };
+  if (button) next.button = safeText(src.button || fallback.button, 80) || fallback.button;
+  return next;
+}
+
 function defaultGuild() {
   return {
     categoryId: "",
@@ -11,6 +65,8 @@ function defaultGuild() {
     setupCompleted: false,
     pending: {},
     tickets: {},
+    panel: defaultPanel(),
+    ticket: defaultTicket(),
     approve: {
       addRoleIds: [],
       removeRoleIds: [],
@@ -39,6 +95,8 @@ function getConfig(guildId) {
     ...current,
     pending: current.pending || {},
     tickets: current.tickets || {},
+    panel: normalizeEmbed(current.panel, defaults.panel, { button: true }),
+    ticket: normalizeEmbed(current.ticket, defaults.ticket),
     approve: { ...defaults.approve, ...(current.approve || {}) },
     deny: { ...defaults.deny, ...(current.deny || {}) },
   };
@@ -54,6 +112,8 @@ function publicConfig(guildId) {
     categoryId: cfg.categoryId || "",
     staffRoleId: cfg.staffRoleId || "",
     verifiedRoleId: cfg.verifiedRoleId || addRoleIds[0] || "",
+    panel: cfg.panel,
+    ticket: cfg.ticket,
     approve: {
       addRoleIds,
       removeRoleIds: normalizeIdList(cfg.approve?.removeRoleIds),
@@ -81,6 +141,8 @@ function applyPublicPatch(guildId, body = {}) {
   deny.dmMessage = String(deny.dmMessage || "").slice(0, 1000);
   return updateConfig(guildId, {
     verifiedRoleId: approve.addRoleIds[0] || "",
+    panel: normalizeEmbed(body.panel != null ? { ...current.panel, ...body.panel } : current.panel, defaultPanel(), { button: true }),
+    ticket: normalizeEmbed(body.ticket != null ? { ...current.ticket, ...body.ticket } : current.ticket, defaultTicket()),
     approve,
     deny,
     setupCompleted: true,

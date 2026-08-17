@@ -11,12 +11,20 @@ function tsbEmbed(options = {}) {
   const embed = new EmbedBuilder().setColor(options.color ?? COLOR_SURFACE);
   if (options.title) embed.setTitle(options.title);
   if (options.description) embed.setDescription(options.description);
-  if (options.footer) embed.setFooter({ text: options.footer });
+  if (options.footer) {
+    const footer = { text: String(options.footer).slice(0, 2048) };
+    if (options.footerIcon) footer.iconURL = options.footerIcon;
+    embed.setFooter(footer);
+  }
   if (options.author !== false) {
     embed.setAuthor({ name: options.authorName || authorName() });
   }
-  if (options.thumbnail) embed.setThumbnail(options.thumbnail);
-  if (options.image) embed.setImage(options.image);
+  if (options.thumbnail) {
+    try { embed.setThumbnail(options.thumbnail); } catch {}
+  }
+  if (options.image) {
+    try { embed.setImage(options.image); } catch {}
+  }
   if (Array.isArray(options.fields) && options.fields.length) embed.addFields(options.fields);
   return embed;
 }

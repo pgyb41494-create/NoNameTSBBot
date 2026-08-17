@@ -38,22 +38,62 @@ function canStaffTicket(member, guild, cfg) {
   return false;
 }
 
-function panelPayload() {
+function fillVars(text, vars) {
+  return String(text || "").replace(/\{(\w+)\}/g, (full, key) => {
+    const value = vars[String(key).toLowerCase()];
+    return value == null || value === "" ? full : String(value);
+  });
+}
+
+function parseColor(value, fallback) {
+  const raw = String(value || "").replace(/^#/, "");
+  if (/^[0-9a-fA-F]{6}$/.test(raw)) return parseInt(raw, 16);
+  return fallback;
+}
+
+function panelVars(guild) {
   const p = brand.prefix || "'";
   return {
-    embeds: [
-      tsbEmbed({
-        title: "Verification",
-        color: COLOR_PRIMARY,
-        description:
-          "Click **Start verification** and I’ll DM you `/profile`.\n\n" +
-          "Finish it in DMs and a private ticket opens for staff.\n\n" +
-          `You can also run \`${p}profile\` / \`/profile\` in the server.`,
-      }),
-    ],
+    server: guild?.name || "",
+    guild: guild?.name || "",
+    prefix: p,
+    bot: brand.name || "Ascendant",
+    botname: brand.name || "Ascendant",
+    membercount: guild?.memberCount != null ? String(guild.memberCount) : "",
+    members: guild?.memberCount != null ? String(guild.memberCount) : "",
+  };
+}
+
+function panelPayload(guild) {
+  const cfg = guild?.id ? publicConfig(guild.id) : { panel: {} };
+  const panel = cfg.panel || {};
+  const vars = panelVars(guild);
+  const p = brand.prefix || "'";
+  const title = fillVars(panel.title || "Verification", vars).slice(0, 256);
+  const description = fillVars(
+    panel.description ||
+      "Click **Start verification** and I’ll DM you `/profile`.\n\n" +
+        "Finish it in DMs and a private ticket opens for staff.\n\n" +
+        `You can also run \`${p}profile\` / \`/profile\` in the server.`,
+    vars
+  ).slice(0, 4000);
+  const embed = tsbEmbed({
+    title,
+    color: parseColor(panel.color, COLOR_PRIMARY),
+    description,
+    footer: panel.footer ? fillVars(panel.footer, vars) : undefined,
+    footerIcon: panel.footerIcon || undefined,
+    thumbnail: panel.thumbnail || undefined,
+    image: panel.image || undefined,
+  });
+  return {
+    embeds: [embed],
     components: [
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(START_ID).setLabel("Start verification").setStyle(ButtonStyle.Primary)
+        new ButtonBuilder()
+          .setCustomId(START_ID)
+          .setLabel(String(panel.button || "Start verification").slice(0, 80))
+          .setStyle(ButtonStyle.Primary)
       ),
     ],
   };
@@ -189,15 +229,35 @@ async function openTicket(guild, user) {
   } catch {}
 
   const staffPing = cfg.staffRoleId ? `<@&${cfg.staffRoleId}>` : "";
+  let profile = null;
+  try {
+    profile = await Promise.resolve(api.profiles.getProfile(guild.id, user.id));
+  } catch {}
+  const member = await guild.members.fetch(user.id).catch(() => null);
+  const vars = {
+    ...panelVars(guild),
+    user: user.username || "",
+    username: user.username || "",
+    mention: `<@${user.id}>`,
+    display: member?.displayName || user.globalName || user.username || "",
+    roblox: profile?.roblox_username || "",
+    id: user.id,
+  };
+  const ticket = publicConfig(guild.id).ticket || {};
   await channel.send({
     content: `${user} ${staffPing}`.trim(),
     embeds: [
       tsbEmbed({
-        title: "Verification ticket",
-        color: COLOR_PRIMARY,
-        description:
-          `${user} finished \`/profile\`.\n\n` +
-          "Staff: check the profile, then **Approve** or **Deny**.",
+        title: fillVars(ticket.title || "Verification ticket", vars).slice(0, 256),
+        color: parseColor(ticket.color, COLOR_PRIMARY),
+        description: fillVars(
+          ticket.description || "{mention} finished `/profile`.\n\nStaff: check the profile, then **Approve** or **Deny**.",
+          vars
+        ).slice(0, 4000),
+        footer: ticket.footer ? fillVars(ticket.footer, vars) : undefined,
+        footerIcon: ticket.footerIcon || undefined,
+        thumbnail: ticket.thumbnail || undefined,
+        image: ticket.image || undefined,
       }),
       ...(profilePayload.embeds || []),
     ],

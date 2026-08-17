@@ -114,6 +114,25 @@ async function handle(req, res) {
           }))
       );
     }
+    if (req.method === "POST" && channelMatch) {
+      const c = requireDiscord(res);
+      if (!c) return;
+      const body = await readBody(req);
+      const guild = await c.guilds.fetch(channelMatch[1]);
+      const name =
+        String(body.name || "logs")
+          .toLowerCase()
+          .replace(/[^a-z0-9-]/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "")
+          .slice(0, 90) || "logs";
+      const created = await guild.channels.create({
+        name,
+        type: 0,
+        reason: "Created from Ascendant dashboard",
+      });
+      return json(res, 200, { id: created.id, name: created.name, type: "text" });
+    }
 
     const roleMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/roles$/);
     if (req.method === "GET" && roleMatch) {
@@ -145,6 +164,35 @@ async function handle(req, res) {
         const body = await readBody(req);
         applyPublicPatch(guildId, body || {});
         return json(res, 200, publicConfig(guildId));
+      }
+    }
+
+    const auditMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/audit$/);
+    if (auditMatch) {
+      const { publicAudit, applyAuditPatch } = require("./src/systems/tsb/ops/store");
+      const guildId = auditMatch[1];
+      if (req.method === "GET") return json(res, 200, publicAudit(guildId));
+      if (req.method === "PUT") {
+        const body = await readBody(req);
+        applyAuditPatch(guildId, body || {});
+        return json(res, 200, publicAudit(guildId));
+      }
+    }
+
+    const invitesMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/invites$/);
+    if (invitesMatch) {
+      const { publicInvites, applyInvitesPatch } = require("./src/systems/tsb/ops/store");
+      const guildId = invitesMatch[1];
+      if (req.method === "GET") return json(res, 200, publicInvites(guildId));
+      if (req.method === "PUT") {
+        const body = await readBody(req);
+        applyInvitesPatch(guildId, body || {});
+        const next = publicInvites(guildId);
+        if (next.enabled && discordClient) {
+          const guild = await discordClient.guilds.fetch(guildId).catch(() => null);
+          if (guild) await require("./src/systems/tsb/ops/invites").refreshGuild(guild);
+        }
+        return json(res, 200, next);
       }
     }
 

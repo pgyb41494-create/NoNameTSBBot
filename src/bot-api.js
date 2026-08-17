@@ -77,6 +77,58 @@ function createBotApi(client) {
     }
   });
 
+  app.get("/discord/guilds/:guildId/audit", (req, res) => {
+    try {
+      const { publicAudit } = require("./systems/tsb/ops/store");
+      res.json(publicAudit(req.params.guildId));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.put("/discord/guilds/:guildId/audit", (req, res) => {
+    try {
+      const { applyAuditPatch, publicAudit } = require("./systems/tsb/ops/store");
+      applyAuditPatch(req.params.guildId, req.body || {});
+      res.json(publicAudit(req.params.guildId));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.get("/discord/guilds/:guildId/invites", (req, res) => {
+    try {
+      const { publicInvites } = require("./systems/tsb/ops/store");
+      res.json(publicInvites(req.params.guildId));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.put("/discord/guilds/:guildId/invites", async (req, res) => {
+    try {
+      const { applyInvitesPatch, publicInvites } = require("./systems/tsb/ops/store");
+      applyInvitesPatch(req.params.guildId, req.body || {});
+      const next = publicInvites(req.params.guildId);
+      if (next.enabled) {
+        const c = botBridge.getClient();
+        const guild = await c?.guilds?.fetch(req.params.guildId).catch(() => null);
+        if (guild) await require("./systems/tsb/ops/invites").refreshGuild(guild);
+      }
+      res.json(next);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.post("/discord/guilds/:guildId/channels", async (req, res) => {
+    try {
+      res.json(await botBridge.createChannel(req.params.guildId, req.body || {}));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
   app.get("/discord/guilds/:guildId/members", async (req, res) => {
     try {
       res.json(await botBridge.searchMembers(req.params.guildId, req.query.q || ""));

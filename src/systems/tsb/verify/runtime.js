@@ -19,7 +19,9 @@ const {
   getTicket,
   findOpenTicket,
   publicConfig,
+  pingRoleIdsOf,
 } = require("./store");
+const { postAudit } = require("../ops/audit");
 
 const START_ID = "tsb:verify:start";
 const APPROVE_ID = "tsb:verify:approve";
@@ -34,8 +36,7 @@ function canPostPanel(member, guild) {
 function canStaffTicket(member, guild, cfg) {
   if (isAdminOrOwner(member, guild)) return true;
   if (hasAccessPerm(guild.id, member.id, "VERIFY")) return true;
-  if (cfg.staffRoleId && member.roles?.cache?.has(cfg.staffRoleId)) return true;
-  return false;
+  return pingRoleIdsOf(cfg).some((id) => member.roles?.cache?.has(id));
 }
 
 function fillVars(text, vars) {
@@ -188,9 +189,10 @@ async function openTicket(guild, user) {
       ],
     });
   }
-  if (cfg.staffRoleId) {
+  const pingRoles = pingRoleIdsOf(cfg);
+  for (const roleId of pingRoles) {
     overwrites.push({
-      id: cfg.staffRoleId,
+      id: roleId,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
@@ -228,7 +230,7 @@ async function openTicket(guild, user) {
     profilePayload = (await payloadFor(guild, user.id)) || { embeds: [] };
   } catch {}
 
-  const staffPing = cfg.staffRoleId ? `<@&${cfg.staffRoleId}>` : "";
+  const staffPing = pingRoles.map((id) => `<@&${id}>`).join(" ");
   let profile = null;
   try {
     profile = await Promise.resolve(api.profiles.getProfile(guild.id, user.id));
@@ -246,6 +248,7 @@ async function openTicket(guild, user) {
   const ticket = publicConfig(guild.id).ticket || {};
   await channel.send({
     content: `${user} ${staffPing}`.trim(),
+    allowedMentions: { users: [user.id], roles: pingRoles },
     embeds: [
       tsbEmbed({
         title: fillVars(ticket.title || "Verification ticket", vars).slice(0, 256),
@@ -403,6 +406,12 @@ async function handleApprove(interaction) {
     await interaction.channel.send({ content: "Closing this ticket in 5 seconds." }).catch(() => {});
     scheduleClose(interaction.channel);
   }
+  await postAudit(interaction.guild, {
+    title: "Verification approved",
+    color: COLOR_SUCCESS,
+    description: `${member || `<@${userId}>`} was verified by ${interaction.user}.`,
+    user: interaction.user,
+  });
 }
 
 async function handleDeny(interaction) {
@@ -459,6 +468,12 @@ async function handleDeny(interaction) {
   await user?.send({
     embeds: [tsbEmbed({ title: "Verification", color: COLOR_DANGER, description: dmText })],
   }).catch(() => {});
+  await postAudit(interaction.guild, {
+    title: "Verification denied",
+    color: COLOR_DANGER,
+    description: `<@${userId}> was denied by ${interaction.user}.`,
+    user: interaction.user,
+  });
 }
 
 async function handleClose(interaction) {
@@ -471,6 +486,12 @@ async function handleClose(interaction) {
   setTicket(interaction.guild.id, interaction.channel.id, { status: "closed" });
   if (userId) setPending(interaction.guild.id, userId, { status: "closed", ticketChannelId: null });
   await interaction.reply({ content: "Closing this ticket in 5 seconds." });
+  await postAudit(interaction.guild, {
+    title: "Verification ticket closed",
+    color: COLOR_PRIMARY,
+    description: userId ? `<@${userId}> · closed by ${interaction.user}` : `Closed by ${interaction.user}.`,
+    user: interaction.user,
+  });
   setTimeout(() => interaction.channel.delete("Verification ticket closed").catch(() => {}), 5000);
 }
 

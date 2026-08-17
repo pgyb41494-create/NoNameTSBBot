@@ -27,8 +27,9 @@ module.exports = function bootDiscord(setClient) {
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.GuildMembers,
       GatewayIntentBits.GuildModeration,
+      GatewayIntentBits.GuildInvites,
     ],
-    partials: [Partials.GuildMember],
+    partials: [Partials.GuildMember, Partials.Message, Partials.Channel],
   });
 
   client.commands = new Collection();
@@ -59,6 +60,79 @@ module.exports = function bootDiscord(setClient) {
         await interaction.reply(payload).catch(() => {});
       }
     }
+  });
+
+  client.on("guildMemberAdd", async (member) => {
+    try {
+      await require("./systems/tsb/ops/invites").onMemberAdd(member);
+    } catch (err) {
+      console.warn("invite tracker join failed:", err.message);
+    }
+    if (!member.user?.bot) {
+      try {
+        const { postAudit } = require("./systems/tsb/ops/audit");
+        await postAudit(member.guild, {
+          title: "Member joined",
+          color: 0x57f287,
+          description: `${member.user} (${member.user.tag})`,
+          user: member.user,
+        });
+      } catch {}
+    }
+  });
+
+  client.on("guildMemberRemove", async (member) => {
+    if (member.user?.bot) return;
+    try {
+      const { postAudit } = require("./systems/tsb/ops/audit");
+      await postAudit(member.guild, {
+        title: "Member left",
+        color: 0xed4245,
+        description: `${member.user || member.id} left.`,
+        user: member.user,
+      });
+    } catch {}
+  });
+
+  client.on("guildBanAdd", async (ban) => {
+    try {
+      const { postAudit } = require("./systems/tsb/ops/audit");
+      await postAudit(ban.guild, {
+        title: "Member banned",
+        color: 0xdc2626,
+        description: `${ban.user} (${ban.user.tag})\n${ban.reason || "No reason"}`,
+        user: ban.user,
+      });
+    } catch {}
+  });
+
+  client.on("messageDelete", async (message) => {
+    try {
+      if (!message.guild || message.author?.bot) return;
+      const { postAudit } = require("./systems/tsb/ops/audit");
+      await postAudit(message.guild, {
+        title: "Message deleted",
+        color: 0xef4444,
+        description: `${message.author || "Unknown"} in ${message.channel}\n${String(message.content || "").slice(0, 800) || "*no text*"}`,
+        user: message.author,
+      });
+    } catch {}
+  });
+
+  client.on("inviteCreate", (invite) => {
+    try {
+      require("./systems/tsb/ops/invites").onInviteChange(invite);
+    } catch {}
+  });
+
+  client.on("inviteDelete", (invite) => {
+    try {
+      require("./systems/tsb/ops/invites").onInviteChange({
+        guild: invite.guild,
+        code: invite.code,
+        uses: null,
+      });
+    } catch {}
   });
 
   client.on("guildCreate", async (guild) => {
@@ -93,6 +167,11 @@ module.exports = function bootDiscord(setClient) {
       );
     } catch (err) {
       console.warn("Slash deploy skipped:", err.message);
+    }
+    try {
+      await require("./systems/tsb/ops/invites").refreshEnabled(client);
+    } catch (err) {
+      console.warn("Invite cache skipped:", err.message);
     }
   };
 

@@ -67,6 +67,7 @@ function defaultGuild() {
     tickets: {},
     panel: defaultPanel(),
     ticket: defaultTicket(),
+    pingRoleIds: [],
     approve: {
       addRoleIds: [],
       removeRoleIds: [],
@@ -97,9 +98,16 @@ function getConfig(guildId) {
     tickets: current.tickets || {},
     panel: normalizeEmbed(current.panel, defaults.panel, { button: true }),
     ticket: normalizeEmbed(current.ticket, defaults.ticket),
+    pingRoleIds: normalizeIdList(current.pingRoleIds),
     approve: { ...defaults.approve, ...(current.approve || {}) },
     deny: { ...defaults.deny, ...(current.deny || {}) },
   };
+}
+
+function pingRoleIdsOf(cfg) {
+  const ids = normalizeIdList(cfg.pingRoleIds);
+  if (cfg.staffRoleId && !ids.includes(String(cfg.staffRoleId))) ids.push(String(cfg.staffRoleId));
+  return ids;
 }
 
 function publicConfig(guildId) {
@@ -108,9 +116,11 @@ function publicConfig(guildId) {
   if (cfg.verifiedRoleId && !addRoleIds.includes(String(cfg.verifiedRoleId))) {
     addRoleIds.unshift(String(cfg.verifiedRoleId));
   }
+  const pingRoleIds = pingRoleIdsOf(cfg);
   return {
     categoryId: cfg.categoryId || "",
-    staffRoleId: cfg.staffRoleId || "",
+    staffRoleId: cfg.staffRoleId || pingRoleIds[0] || "",
+    pingRoleIds,
     verifiedRoleId: cfg.verifiedRoleId || addRoleIds[0] || "",
     panel: cfg.panel,
     ticket: cfg.ticket,
@@ -139,10 +149,13 @@ function applyPublicPatch(guildId, body = {}) {
   approve.closeTicket = !!approve.closeTicket;
   deny.mode = deny.mode === "private" ? "private" : "close";
   deny.dmMessage = String(deny.dmMessage || "").slice(0, 1000);
+  const pingRoleIds = body.pingRoleIds != null ? normalizeIdList(body.pingRoleIds) : current.pingRoleIds;
   return updateConfig(guildId, {
     verifiedRoleId: approve.addRoleIds[0] || "",
     panel: normalizeEmbed(body.panel != null ? { ...current.panel, ...body.panel } : current.panel, defaultPanel(), { button: true }),
     ticket: normalizeEmbed(body.ticket != null ? { ...current.ticket, ...body.ticket } : current.ticket, defaultTicket()),
+    pingRoleIds,
+    staffRoleId: pingRoleIds[0] || "",
     approve,
     deny,
     setupCompleted: true,
@@ -209,4 +222,5 @@ module.exports = {
   findOpenTicket,
   publicConfig,
   applyPublicPatch,
+  pingRoleIdsOf,
 };

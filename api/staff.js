@@ -207,6 +207,47 @@ function mountStaff(app) {
     }
   });
 
+  r.post("/:guildId/channels", async (req, res) => {
+    try {
+      const created = await bridge.createChannel(req.params.guildId, req.body || {});
+      res.json(created);
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  r.get("/:guildId/audit", async (req, res) => {
+    try {
+      res.json(await bridge.getAuditConfig(req.params.guildId));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  r.put("/:guildId/audit", async (req, res) => {
+    try {
+      res.json(await bridge.setAuditConfig(req.params.guildId, req.body || {}));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  r.get("/:guildId/invites", async (req, res) => {
+    try {
+      res.json(await bridge.getInvitesConfig(req.params.guildId));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  r.put("/:guildId/invites", async (req, res) => {
+    try {
+      res.json(await bridge.setInvitesConfig(req.params.guildId, req.body || {}));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
   r.get("/:guildId/members", async (req, res) => {
     try {
       res.json({ members: await bridge.searchMembers(req.params.guildId, req.query.q || "") });

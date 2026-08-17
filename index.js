@@ -131,7 +131,7 @@ async function handle(req, res) {
             id: role.id,
             name: role.name,
             color: role.hexColor || null,
-            position: role.position,
+            hoisted: !!role.hoist,
           }))
       );
     }

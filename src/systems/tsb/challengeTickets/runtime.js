@@ -286,10 +286,16 @@ async function matchNames(guild, ticket) {
   };
 }
 
-function formatRow() {
+function formatRow(ticket = {}) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(FMT_FT5_ID).setLabel("FT5").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(FMT_FT10_ID).setLabel("FT10 / Cross-region").setStyle(ButtonStyle.Primary)
+    new ButtonBuilder()
+      .setCustomId(FMT_FT5_ID)
+      .setLabel("FT5")
+      .setStyle(ticket.format === "ft5" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(FMT_FT10_ID)
+      .setLabel("FT10 / Cross-region")
+      .setStyle(ticket.format === "ft10" ? ButtonStyle.Success : ButtonStyle.Secondary)
   );
 }
 
@@ -302,27 +308,18 @@ function hostRow(names) {
 
 function setupPayload(ticket, names) {
   const users = [ticket.userId, ticket.targetId].filter(Boolean);
-  let title = "Pick a format";
+  const components = [hostRow(names)];
+  let title = "Who hosts?";
   let description =
     `<@${ticket.userId}> vs <@${ticket.targetId}>\n\n` +
-    "Choose **FT5** or **FT10 / Cross-region**.";
-  const components = [formatRow()];
+    "Players: pick who hosts the private server.\nStaff will set **FT5** or **FT10 / Cross-region** after the match.";
 
-  if (ticket.format && !ticket.hostId) {
-    title = "Who hosts?";
-    description =
-      `<@${ticket.userId}> vs <@${ticket.targetId}>\n` +
-      `**Format:** ${formatLabel(ticket.format)}\n\n` +
-      "Pick who hosts the private server.";
-    components.push(hostRow(names));
-  } else if (ticket.format && ticket.hostId) {
+  if (ticket.hostId) {
     title = "Match ready";
     description =
       `<@${ticket.userId}> vs <@${ticket.targetId}>\n` +
-      `**Format:** ${formatLabel(ticket.format)}\n` +
       `**Host:** <@${ticket.hostId}>\n\n` +
-      "Play the set. Staff press **Done** to fill in the score and pick where it posts.";
-    components.push(hostRow(names));
+      "Play the set. Staff press **Done** to pick format, fill the score, and choose where it posts.";
     components.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(DONE_ID).setLabel("Done").setStyle(ButtonStyle.Success)
@@ -339,7 +336,7 @@ function setupPayload(ticket, names) {
 }
 
 function scoringPayload(ticket, names) {
-  const ready = ticket.winnerId && ticket.scoreDisplay && ticket.resultChannelId;
+  const ready = ticket.format && ticket.winnerId && ticket.scoreDisplay && ticket.resultChannelId;
   const regionLine =
     ticket.format === "ft10" && (ticket.region1Score || ticket.region2Score)
       ? `\n**Regions:** ${ticket.region1 || "—"} ${ticket.region1Score || ""} / ${ticket.region2 || "—"} ${ticket.region2Score || ""}`
@@ -359,10 +356,11 @@ function scoringPayload(ticket, names) {
           `**Score:** ${ticket.scoreDisplay || "not set"}` +
           regionLine +
           `\n**Post to:** ${ticket.resultChannelId ? `<#${ticket.resultChannelId}>` : "not set"}\n\n` +
-          "This is the same result `/score` posts — players and format are already filled.",
+          "Staff: pick format, winner, score, and the channel to post.",
       }),
     ],
     components: [
+      formatRow(ticket),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(WIN_CHAL_ID)
@@ -645,7 +643,7 @@ async function handleAccept(interaction) {
         color: COLOR_SUCCESS,
         description:
           `<@${targetId}> accepted <@${challengerId}>'s challenge.\n\n` +
-          "Next: pick format, then who hosts.",
+          "Next: pick who hosts. Staff will set the format after the match.",
       }),
     ],
     components: [closeRow()],
@@ -771,13 +769,16 @@ function canEditSetup(interaction, ticket) {
 
 async function handleFormat(interaction, format) {
   const ticket = loadLiveTicket(interaction);
-  if (!ticket?.targetId || ticket.status === "picked") {
-    return interaction.reply({ content: "Accept the challenge first.", ephemeral: true });
+  if (!ticket?.targetId) {
+    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
   }
-  if (!canEditSetup(interaction, ticket)) {
-    return interaction.reply({ content: "Only the two players or staff can pick the format.", ephemeral: true });
+  if (!canFinishMatch(interaction.member, interaction.guild)) {
+    return interaction.reply({ content: "Only staff picks the format.", ephemeral: true });
   }
-  const next = { ...ticket, format, status: ticket.hostId ? "ready" : "accepted" };
+  if (ticket.status !== "scoring") {
+    return interaction.reply({ content: "Press Done first, then pick FT5 or FT10.", ephemeral: true });
+  }
+  const next = { ...ticket, format };
   setTicket(interaction.guild.id, interaction.channel.id, next);
   return refreshMatchMessage(interaction, { ...ticket, ...next });
 }
@@ -786,9 +787,6 @@ async function handleHost(interaction, who) {
   const ticket = loadLiveTicket(interaction);
   if (!ticket?.targetId) {
     return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
-  }
-  if (!ticket.format) {
-    return interaction.reply({ content: "Pick a format first.", ephemeral: true });
   }
   if (!canEditSetup(interaction, ticket)) {
     return interaction.reply({ content: "Only the two players or staff can pick the host.", ephemeral: true });
@@ -807,8 +805,8 @@ async function handleDone(interaction) {
   if (!canFinishMatch(interaction.member, interaction.guild)) {
     return interaction.reply({ content: "Only staff can press Done.", ephemeral: true });
   }
-  if (!ticket.format || !ticket.hostId) {
-    return interaction.reply({ content: "Format and host must be set first.", ephemeral: true });
+  if (!ticket.hostId) {
+    return interaction.reply({ content: "Players need to pick a host first.", ephemeral: true });
   }
   const next = { ...ticket, status: "scoring" };
   setTicket(interaction.guild.id, interaction.channel.id, next);
@@ -966,8 +964,8 @@ async function handlePost(interaction) {
   if (ticket?.status !== "scoring") {
     return interaction.reply({ content: "Press Done first.", ephemeral: true });
   }
-  if (!ticket.winnerId || !ticket.scoreDisplay || !ticket.resultChannelId) {
-    return interaction.reply({ content: "Set winner, score, and channel first.", ephemeral: true });
+  if (!ticket.winnerId || !ticket.scoreDisplay || !ticket.resultChannelId || !ticket.format) {
+    return interaction.reply({ content: "Set format, winner, score, and channel first.", ephemeral: true });
   }
 
   const channel = await interaction.guild.channels.fetch(ticket.resultChannelId).catch(() => null);

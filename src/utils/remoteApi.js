@@ -188,4 +188,18 @@ module.exports = {
     publicSnapshot: (guildId) => req(`/api/bot/snapshot/${guildId}`),
     playerBundle: (guildId, userId) => req(`/api/bot/player/${guildId}/${userId}`),
   },
+  panels: {
+    list: async (guildId) => {
+      const data = await req(`/api/bot/panels/${guildId}`).catch(() => ({}));
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data?.panels)) return data.panels;
+      if (data && typeof data === "object") {
+        return Object.entries(data).map(([key, panel]) => ({ ...(panel || {}), key }));
+      }
+      return [];
+    },
+    map: (guildId) => req(`/api/bot/panels/${guildId}`).catch(() => ({})),
+    get: (guildId, key) =>
+      req(`/api/bot/panels/${guildId}/${encodeURIComponent(key)}`, { allowNull: true }),
+  },
 };

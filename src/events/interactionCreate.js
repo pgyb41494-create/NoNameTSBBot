@@ -35,6 +35,7 @@ const { handleSetupInteraction } = require("../systems/setupHub");
 const { handleAccessInteraction } = require("../systems/tsb/access/panel");
 const { handleVerifyInteraction } = require("../systems/tsb/verify/runtime");
 const { handleChallengeTickets } = require("../systems/tsb/challengeTickets/runtime");
+const { handlePanelButton } = require("../systems/tsb/panels/runtime");
 const {
   handleVerifySetupButton,
   handleVerifySetupSelect,
@@ -77,6 +78,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:verify:")) return handleVerifyInteraction(interaction);
     if (id.startsWith("tsb:tryout:")) return handleTryoutButton(interaction);
     if (id.startsWith("tsb:chaltix:")) return handleChallengeTickets(interaction);
+    if (id.startsWith("panel_btn_") || id.startsWith("pannel_btn_")) return handlePanelButton(interaction);
   }
 
   if (interaction.isModalSubmit?.()) {

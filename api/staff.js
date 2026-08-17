@@ -6,6 +6,7 @@ const reports = require("./systems/reports");
 const snapshot = require("./systems/snapshot");
 const bridge = require("./botBridge");
 const guilds = require("./systems/guilds");
+const panels = require("./systems/panels");
 
 function loginAuth(req, res, next) {
   const user = readSession(req);
@@ -243,6 +244,49 @@ function mountStaff(app) {
   r.put("/:guildId/invites", async (req, res) => {
     try {
       res.json(await bridge.setInvitesConfig(req.params.guildId, req.body || {}));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  r.get("/:guildId/panels", (req, res) => {
+    res.json({ panels: panels.list(req.params.guildId) });
+  });
+  r.get("/:guildId/panels/:panelKey", (req, res) => {
+    const panel = panels.get(req.params.guildId, req.params.panelKey);
+    if (!panel) return res.status(404).json({ error: "Panel not found" });
+    res.json({ panel });
+  });
+  r.post("/:guildId/panels", (req, res) => {
+    try {
+      res.json({ panel: panels.create(req.params.guildId, req.body || {}) });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+  r.put("/:guildId/panels/:panelKey", (req, res) => {
+    try {
+      res.json({ panel: panels.update(req.params.guildId, req.params.panelKey, req.body || {}) });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+  r.delete("/:guildId/panels/:panelKey", (req, res) => {
+    try {
+      res.json(panels.remove(req.params.guildId, req.params.panelKey));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+  r.post("/:guildId/panels/:panelKey/send", async (req, res) => {
+    try {
+      const channelId = String(req.body?.channelId || req.body?.channel || "").trim();
+      if (!channelId) return res.status(400).json({ error: "channelId is required" });
+      const panel = panels.get(req.params.guildId, req.params.panelKey);
+      if (!panel) return res.status(404).json({ error: "Panel not found" });
+      const payload = panels.buildDiscordPayload(req.params.guildId, panel, panel.key);
+      const sent = await bridge.sendChannelMessage(req.params.guildId, channelId, payload);
+      res.json({ ok: true, sent });
     } catch (err) {
       fail(res, err);
     }

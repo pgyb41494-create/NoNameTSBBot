@@ -30,7 +30,6 @@ function moduleStatus(guildId) {
     { label: "1v1 Score", value: "score", description: api.score.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
     { label: "Line Up", value: "lineup", description: api.lineup.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
     { label: "Blacklist", value: "blacklist", description: `${api.blacklist.getList(guildId).entries.length} listed` },
-    { label: "Trainers", value: "trainers", description: `${api.trainers.getList(guildId).trainers.length} listed` },
   ];
 }
 
@@ -45,7 +44,7 @@ function hubPayload(guildId) {
           "> **Ranking** — `'stage @user 0 Low Weak`\n" +
           "> **Score** — `/score` records W/L on cards\n" +
           "> **Line Up** — regional boards\n" +
-          "> **Blacklist / Trainers** — shown on the website",
+          "> **Blacklist** — shown on the website",
       }),
     ],
     components: [
@@ -101,8 +100,6 @@ async function openModule(interaction, key) {
       "Paste the **draft text block** (region + slots), then type `send` — no buttons.",
     blacklist:
       "Blacklist is managed on the website (Report + staff Dashboard). No Discord command.",
-    trainers:
-      "Trainers are configured on the website dashboard (staff login only).",
   };
 
   const components = [moduleButtons(key)];
@@ -218,7 +215,7 @@ async function createChannels(interaction, key) {
     });
   }
 
-  if (key === "blacklist" || key === "trainers") {
+  if (key === "blacklist") {
     return interaction.update({
       embeds: [
         surface({

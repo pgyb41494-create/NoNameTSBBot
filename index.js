@@ -21,7 +21,7 @@ function json(res, status, body) {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type, x-bot-token, Authorization",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,PUT,POST,OPTIONS",
   });
   res.end(payload);
 }
@@ -113,6 +113,39 @@ async function handle(req, res) {
             type: ch.type === 5 ? "announcement" : "text",
           }))
       );
+    }
+
+    const roleMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/roles$/);
+    if (req.method === "GET" && roleMatch) {
+      const c = requireDiscord(res);
+      if (!c) return;
+      const guild = await c.guilds.fetch(roleMatch[1]);
+      const roles = await guild.roles.fetch();
+      return json(
+        res,
+        200,
+        [...roles.values()]
+          .filter((role) => role && role.id !== guild.id && !role.managed)
+          .sort((a, b) => b.position - a.position)
+          .map((role) => ({
+            id: role.id,
+            name: role.name,
+            color: role.hexColor || null,
+            position: role.position,
+          }))
+      );
+    }
+
+    const verifyMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/verify$/);
+    if (verifyMatch) {
+      const { publicConfig, applyPublicPatch } = require("./src/systems/tsb/verify/store");
+      const guildId = verifyMatch[1];
+      if (req.method === "GET") return json(res, 200, publicConfig(guildId));
+      if (req.method === "PUT") {
+        const body = await readBody(req);
+        applyPublicPatch(guildId, body || {});
+        return json(res, 200, publicConfig(guildId));
+      }
     }
 
     const memberMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/members$/);

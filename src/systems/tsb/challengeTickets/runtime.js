@@ -28,6 +28,7 @@ const FMT_FT5_ID = "tsb:chaltix:fmt:ft5";
 const FMT_FT10_ID = "tsb:chaltix:fmt:ft10";
 const HOST_CHAL_ID = "tsb:chaltix:host:chal";
 const HOST_DEF_ID = "tsb:chaltix:host:def";
+const HOST_CROSS_ID = "tsb:chaltix:host:cross";
 const DONE_ID = "tsb:chaltix:done";
 const CHANNEL_ID = "tsb:chaltix:channel";
 const WIN_CHAL_ID = "tsb:chaltix:win:chal";
@@ -272,11 +273,6 @@ function canFinishMatch(member, guild) {
   return canUseScore(member, guild, getScoreConfig(guild.id));
 }
 
-function isMatchPlayer(userId, ticket) {
-  const id = String(userId);
-  return id === String(ticket?.userId) || id === String(ticket?.targetId);
-}
-
 async function matchNames(guild, ticket) {
   const chal = await guild.members.fetch(ticket.userId).catch(() => null);
   const def = await guild.members.fetch(ticket.targetId).catch(() => null);
@@ -284,6 +280,16 @@ async function matchNames(guild, ticket) {
     challenger: chal?.displayName || chal?.user?.username || "Challenger",
     defender: def?.displayName || def?.user?.username || "Defender",
   };
+}
+
+function hostLabel(ticket) {
+  if (ticket?.hostCrossRegion) return "Cross-region";
+  if (ticket?.hostId) return `<@${ticket.hostId}>`;
+  return "not set";
+}
+
+function hasHost(ticket) {
+  return Boolean(ticket?.hostCrossRegion || ticket?.hostId);
 }
 
 function formatRow(ticket = {}) {
@@ -299,46 +305,51 @@ function formatRow(ticket = {}) {
   );
 }
 
-function hostRow(names) {
+function hostRow(ticket, names) {
+  const chalSelected = !ticket.hostCrossRegion && String(ticket.hostId) === String(ticket.userId);
+  const defSelected = !ticket.hostCrossRegion && String(ticket.hostId) === String(ticket.targetId);
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(HOST_CHAL_ID).setLabel(`${names.challenger} hosts`.slice(0, 80)).setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(HOST_DEF_ID).setLabel(`${names.defender} hosts`.slice(0, 80)).setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder()
+      .setCustomId(HOST_CHAL_ID)
+      .setLabel(`${names.challenger} hosts`.slice(0, 80))
+      .setStyle(chalSelected ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(HOST_DEF_ID)
+      .setLabel(`${names.defender} hosts`.slice(0, 80))
+      .setStyle(defSelected ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(HOST_CROSS_ID)
+      .setLabel("Cross-region")
+      .setStyle(ticket.hostCrossRegion ? ButtonStyle.Success : ButtonStyle.Secondary)
   );
 }
 
-function setupPayload(ticket, names) {
+function setupPayload(ticket) {
   const users = [ticket.userId, ticket.targetId].filter(Boolean);
-  const components = [hostRow(names)];
-  let title = "Who hosts?";
-  let description =
-    `<@${ticket.userId}> vs <@${ticket.targetId}>\n\n` +
-    "Players: pick who hosts the private server.\nStaff will set **FT5** or **FT10 / Cross-region** after the match.";
-
-  if (ticket.hostId) {
-    title = "Match ready";
-    description =
-      `<@${ticket.userId}> vs <@${ticket.targetId}>\n` +
-      `**Host:** <@${ticket.hostId}>\n\n` +
-      "Play the set. Staff press **Done** to pick format, fill the score, and choose where it posts.";
-    components.push(
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(DONE_ID).setLabel("Done").setStyle(ButtonStyle.Success)
-      )
-    );
-  }
-
   return {
     content: users.map((id) => `<@${id}>`).join(" "),
     allowedMentions: { users },
-    embeds: [tsbEmbed({ title, color: COLOR_PRIMARY, description })],
-    components,
+    embeds: [
+      tsbEmbed({
+        title: "Match accepted",
+        color: COLOR_PRIMARY,
+        description:
+          `<@${ticket.userId}> vs <@${ticket.targetId}>\n\n` +
+          "Play the set. Staff press **Done** to pick host, format, score, and where it posts.",
+      }),
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(DONE_ID).setLabel("Done").setStyle(ButtonStyle.Success)
+      ),
+    ],
   };
 }
 
 function scoringPayload(ticket, names) {
-  const ready = ticket.format && ticket.winnerId && ticket.scoreDisplay && ticket.resultChannelId;
+  const ready = ticket.format && hasHost(ticket) && ticket.winnerId && ticket.scoreDisplay && ticket.resultChannelId;
   const regionLine =
-    ticket.format === "ft10" && (ticket.region1Score || ticket.region2Score)
+    (ticket.format === "ft10" || ticket.hostCrossRegion) && (ticket.region1Score || ticket.region2Score)
       ? `\n**Regions:** ${ticket.region1 || "—"} ${ticket.region1Score || ""} / ${ticket.region2 || "—"} ${ticket.region2Score || ""}`
       : "";
   return {
@@ -351,16 +362,17 @@ function scoringPayload(ticket, names) {
         description:
           `<@${ticket.userId}> vs <@${ticket.targetId}>\n` +
           `**Format:** ${formatLabel(ticket.format)}\n` +
-          `**Host:** ${ticket.hostId ? `<@${ticket.hostId}>` : "not set"}\n` +
+          `**Host:** ${hostLabel(ticket)}\n` +
           `**Winner:** ${ticket.winnerId ? `<@${ticket.winnerId}>` : "not set"}\n` +
           `**Score:** ${ticket.scoreDisplay || "not set"}` +
           regionLine +
           `\n**Post to:** ${ticket.resultChannelId ? `<#${ticket.resultChannelId}>` : "not set"}\n\n` +
-          "Staff: pick format, winner, score, and the channel to post.",
+          "Staff: pick format, host, winner, score, and the channel to post.",
       }),
     ],
     components: [
       formatRow(ticket),
+      hostRow(ticket, names),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(WIN_CHAL_ID)
@@ -643,7 +655,7 @@ async function handleAccept(interaction) {
         color: COLOR_SUCCESS,
         description:
           `<@${targetId}> accepted <@${challengerId}>'s challenge.\n\n` +
-          "Next: pick who hosts. Staff will set the format after the match.",
+          "Next: play the set. Staff will pick host, format, and post the score.",
       }),
     ],
     components: [closeRow()],
@@ -760,13 +772,6 @@ function loadLiveTicket(interaction) {
   return getTicket(interaction.guild.id, interaction.channel.id);
 }
 
-function canEditSetup(interaction, ticket) {
-  if (!ticket?.targetId) return false;
-  if (ticket.status === "posted") return false;
-  if (ticket.status === "scoring") return false;
-  return isMatchPlayer(interaction.user.id, ticket) || canFinishMatch(interaction.member, interaction.guild);
-}
-
 async function handleFormat(interaction, format) {
   const ticket = loadLiveTicket(interaction);
   if (!ticket?.targetId) {
@@ -788,11 +793,17 @@ async function handleHost(interaction, who) {
   if (!ticket?.targetId) {
     return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
   }
-  if (!canEditSetup(interaction, ticket)) {
-    return interaction.reply({ content: "Only the two players or staff can pick the host.", ephemeral: true });
+  if (!canFinishMatch(interaction.member, interaction.guild)) {
+    return interaction.reply({ content: "Only staff picks the host.", ephemeral: true });
   }
-  const hostId = who === "chal" ? ticket.userId : ticket.targetId;
-  const next = { ...ticket, hostId, status: "ready" };
+  if (ticket.status !== "scoring") {
+    return interaction.reply({ content: "Press Done first, then pick the host.", ephemeral: true });
+  }
+  const next = {
+    ...ticket,
+    hostId: who === "cross" ? null : who === "chal" ? ticket.userId : ticket.targetId,
+    hostCrossRegion: who === "cross",
+  };
   setTicket(interaction.guild.id, interaction.channel.id, next);
   return refreshMatchMessage(interaction, { ...ticket, ...next });
 }
@@ -805,8 +816,8 @@ async function handleDone(interaction) {
   if (!canFinishMatch(interaction.member, interaction.guild)) {
     return interaction.reply({ content: "Only staff can press Done.", ephemeral: true });
   }
-  if (!ticket.hostId) {
-    return interaction.reply({ content: "Players need to pick a host first.", ephemeral: true });
+  if (ticket.status === "picked") {
+    return interaction.reply({ content: "The challenge has to be accepted first.", ephemeral: true });
   }
   const next = { ...ticket, status: "scoring" };
   setTicket(interaction.guild.id, interaction.channel.id, next);
@@ -860,7 +871,7 @@ async function handleEnterScore(interaction) {
 
   const fields = [new ActionRowBuilder().addComponents(scoreField)];
 
-  if (ticket.format === "ft10") {
+  if (ticket.format === "ft10" || ticket.hostCrossRegion) {
     const r1 = new TextInputBuilder()
       .setCustomId("region1")
       .setLabel("Region 1 (optional, e.g. NA 5-2)")
@@ -917,7 +928,7 @@ async function handleScoreModal(interaction) {
   let region1Score = "";
   let region2 = "";
   let region2Score = "";
-  if (ticket.format === "ft10") {
+  if (ticket.format === "ft10" || ticket.hostCrossRegion) {
     const r1 = String(interaction.fields.getTextInputValue("region1") || "").trim();
     const r2 = String(interaction.fields.getTextInputValue("region2") || "").trim();
     const split = (raw) => {
@@ -964,8 +975,8 @@ async function handlePost(interaction) {
   if (ticket?.status !== "scoring") {
     return interaction.reply({ content: "Press Done first.", ephemeral: true });
   }
-  if (!ticket.winnerId || !ticket.scoreDisplay || !ticket.resultChannelId || !ticket.format) {
-    return interaction.reply({ content: "Set format, winner, score, and channel first.", ephemeral: true });
+  if (!ticket.winnerId || !ticket.scoreDisplay || !ticket.resultChannelId || !ticket.format || !hasHost(ticket)) {
+    return interaction.reply({ content: "Set format, host, winner, score, and channel first.", ephemeral: true });
   }
 
   const channel = await interaction.guild.channels.fetch(ticket.resultChannelId).catch(() => null);
@@ -975,8 +986,9 @@ async function handlePost(interaction) {
 
   await interaction.deferUpdate();
 
-  const hostNote = ticket.hostId ? `Host: <@${ticket.hostId}>` : "";
+  const hostNote = ticket.hostCrossRegion ? "Host: Cross-region" : ticket.hostId ? `Host: <@${ticket.hostId}>` : "";
   const notes = [formatLabel(ticket.format), hostNote, ticket.scoreNotes].filter(Boolean).join(" · ");
+  const crossregion = ticket.format === "ft10" || ticket.hostCrossRegion;
 
   const result = await applyMatchResult({
     guild: interaction.guild,
@@ -987,11 +999,11 @@ async function handlePost(interaction) {
     scoreRaw: ticket.scoreDisplay,
     matchType: "1v1",
     notes,
-    crossregion: ticket.format === "ft10",
-    region1: ticket.region1 || null,
-    region1Score: ticket.region1Score || null,
-    region2: ticket.region2 || null,
-    region2Score: ticket.region2Score || null,
+    crossregion,
+    region1: crossregion ? ticket.region1 || null : null,
+    region1Score: crossregion ? ticket.region1Score || null : null,
+    region2: crossregion ? ticket.region2 || null : null,
+    region2Score: crossregion ? ticket.region2Score || null : null,
   });
 
   if (result.error) {
@@ -1066,6 +1078,10 @@ async function handleChallengeTickets(interaction) {
   }
   if (id === HOST_DEF_ID && interaction.isButton?.()) {
     await handleHost(interaction, "def");
+    return true;
+  }
+  if (id === HOST_CROSS_ID && interaction.isButton?.()) {
+    await handleHost(interaction, "cross");
     return true;
   }
   if (id === DONE_ID && interaction.isButton?.()) {

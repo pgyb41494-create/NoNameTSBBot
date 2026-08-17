@@ -12,6 +12,7 @@ function buildModuleOptions(guildId) {
   let score = false;
   let lineup = false;
   let tryout = false;
+  let verify = false;
   try {
     const { getLeaderboardConfig } = require("./leaderboard/config");
     lb = !!getLeaderboardConfig(guildId).setupCompleted;
@@ -32,6 +33,10 @@ function buildModuleOptions(guildId) {
     const { getTryoutSettings } = require("./tryout/settings");
     tryout = !!getTryoutSettings(guildId).configured;
   } catch {}
+  try {
+    const { getConfig } = require("./verify/store");
+    verify = !!getConfig(guildId).setupCompleted;
+  } catch {}
 
   return [
     { label: "Top Leaderboard", value: "leaderboard_setup", description: statusLabel(lb).slice(0, 100) },
@@ -39,6 +44,7 @@ function buildModuleOptions(guildId) {
     { label: "1v1 Score Setup", value: "score_setup", description: statusLabel(score).slice(0, 100) },
     { label: "Line Up Management", value: "lineup_setup", description: statusLabel(lineup).slice(0, 100) },
     { label: "Tryouts", value: "tryout_setup", description: statusLabel(tryout).slice(0, 100) },
+    { label: "Verification", value: "verify_setup", description: statusLabel(verify).slice(0, 100) },
   ];
 }
 
@@ -52,6 +58,7 @@ function hubPayload(guildId = null) {
         { label: "1v1 Score Setup", value: "score_setup", description: "Match scoring" },
         { label: "Line Up Management", value: "lineup_setup", description: "Regional lineups" },
         { label: "Tryouts", value: "tryout_setup", description: "Signup sessions" },
+        { label: "Verification", value: "verify_setup", description: "Profile tickets" },
       ];
 
   return {
@@ -66,7 +73,8 @@ function hubPayload(guildId = null) {
           "> **Ranking:** tier roles shown on boards and lineups (`'phase` / `/phase`)\n" +
           "> **Score:** `/score` records matches and auto-bumps the board\n" +
           "> **Lineups:** `#tsb-lineups` management + `#lineup-{region}` boards\n" +
-          "> **Tryouts:** signup channel + ping role · runtime `/tryout`",
+          "> **Tryouts:** signup channel + ping role · runtime `/tryout`\n" +
+          "> **Verification:** `/verify` panel · DM profile steps · staff ticket",
       }),
     ],
     components: [{
@@ -118,6 +126,10 @@ async function handleHubSelect(interaction) {
   if (selected === "tryout_setup") {
     const { openTryoutModule } = require("./tryout/setupStore");
     return openTryoutModule(interaction);
+  }
+  if (selected === "verify_setup") {
+    const { openVerifyModule } = require("./verify/setupStore");
+    return openVerifyModule(interaction);
   }
 
   return false;

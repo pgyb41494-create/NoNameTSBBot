@@ -8,6 +8,7 @@ const PERM_CATEGORIES = [
   { id: "LINEUPS", emoji: "📋", desc: "Edit lineups and drafts", hint: "`'lineup` · lineup drafts" },
   { id: "SCORE", emoji: "📊", desc: "Record 1v1 / clan scores", hint: "`/score`" },
   { id: "TRYOUTS", emoji: "⚔️", desc: "Create and end tryouts", hint: "`'tryout` `/tryout`" },
+  { id: "VERIFY", emoji: "✅", desc: "Post verification panel and review tickets", hint: "`/verify` tickets" },
 ];
 
 const PERM_IDS = PERM_CATEGORIES.map((p) => p.id);

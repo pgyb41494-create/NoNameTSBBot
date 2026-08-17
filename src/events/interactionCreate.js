@@ -33,6 +33,11 @@ const {
 const { handleTryoutRuntime } = require("../systems/tsb/tryout/runtime");
 const { handleSetupInteraction } = require("../systems/setupHub");
 const { handleAccessInteraction } = require("../systems/tsb/access/panel");
+const { handleVerifyInteraction } = require("../systems/tsb/verify/runtime");
+const {
+  handleVerifySetupButton,
+  handleVerifySetupSelect,
+} = require("../systems/tsb/verify/setupStore");
 
 async function handleTsbInteraction(interaction) {
   const id = interaction.customId || "";
@@ -55,6 +60,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:rank:")) return handleRankingSelect(interaction);
     if (id.startsWith("tsb:score:")) return handleScoreSelect(interaction);
     if (id.startsWith("tsb:lu:")) return handleLineupSelect(interaction);
+    if (id.startsWith("tsb:verify:cfg_")) return handleVerifySetupSelect(interaction);
     if (id.startsWith("tsb:tryout:")) return handleTryoutSelect(interaction);
   }
 
@@ -65,6 +71,8 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:rank:")) return handleRankingButton(interaction);
     if (id.startsWith("tsb:score:")) return handleScoreButton(interaction);
     if (id.startsWith("tsb:lu:")) return handleLineupButton(interaction);
+    if (id.startsWith("tsb:verify:cfg_")) return handleVerifySetupButton(interaction);
+    if (id.startsWith("tsb:verify:")) return handleVerifyInteraction(interaction);
     if (id.startsWith("tsb:tryout:")) return handleTryoutButton(interaction);
   }
 

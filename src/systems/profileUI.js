@@ -229,6 +229,10 @@ async function persistSession(guild, userId, session) {
   );
   sessions.delete(userId);
   refreshBoards(guild, userId);
+  try {
+    const { onProfileCompleted } = require("./tsb/verify/runtime");
+    onProfileCompleted(guild, userId).catch(() => {});
+  } catch {}
   return payloadFor(guild, userId);
 }
 
@@ -590,4 +594,4 @@ async function handleProfileInteraction(interaction) {
   return false;
 }
 
-module.exports = { handleProfileCommand, handleProfileInteraction, profileEmbed };
+module.exports = { handleProfileCommand, handleProfileInteraction, profileEmbed, payloadFor };

@@ -11,7 +11,8 @@ function summary(guildId) {
     `> **Ticket category:** ${cfg.categoryId ? `<#${cfg.categoryId}>` : "`auto-create`"}\n` +
     `> **Staff role:** ${cfg.staffRoleId ? `<@&${cfg.staffRoleId}>` : "`admins`"}\n` +
     `> **Verified role:** ${cfg.verifiedRoleId ? `<@&${cfg.verifiedRoleId}>` : "`none`"}\n\n` +
-    "Members press **Start verification** → DM `/profile` steps → ticket opens when the profile is done."
+    "Members press **Start verification** → DM `/profile` → ticket opens when the profile is done.\n" +
+    "Approve / Deny actions are customized on the website dashboard."
   );
 }
 

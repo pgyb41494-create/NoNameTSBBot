@@ -23,7 +23,7 @@ function helpEmbed() {
       "**Setup**",
       `\`${p}tsbsetup\` / \`/tsbsetup\` (alias \`${p}serversetup\` / \`/serversetup\`) — leaderboard, ranking, score, lineups, tryouts, verification`,
       `\`${p}access @user\` / \`/access\` — grant TSB staff access (phase, boards, lineups, score, tryouts, verify)`,
-      `\`${p}verify\` / \`/verify\` — verification panel (staff) · members click Start`,
+      `\`${p}verify\` / \`/verify\` — staff posts the panel · members get \`/profile\` in DMs`,
       "",
       "**Profile & coach**",
       `\`/profile\` · \`${p}profile\``,

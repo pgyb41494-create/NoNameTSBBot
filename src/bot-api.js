@@ -50,6 +50,33 @@ function createBotApi(client) {
     }
   });
 
+  app.get("/discord/guilds/:guildId/roles", async (req, res) => {
+    try {
+      res.json(await botBridge.listRoles(req.params.guildId));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.get("/discord/guilds/:guildId/verify", (req, res) => {
+    try {
+      const { publicConfig } = require("./systems/tsb/verify/store");
+      res.json(publicConfig(req.params.guildId));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.put("/discord/guilds/:guildId/verify", (req, res) => {
+    try {
+      const { applyPublicPatch, publicConfig } = require("./systems/tsb/verify/store");
+      applyPublicPatch(req.params.guildId, req.body || {});
+      res.json(publicConfig(req.params.guildId));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
   app.get("/discord/guilds/:guildId/members", async (req, res) => {
     try {
       res.json(await botBridge.searchMembers(req.params.guildId, req.query.q || ""));

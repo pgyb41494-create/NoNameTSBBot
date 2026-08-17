@@ -18,9 +18,50 @@ const { profileDividerAttachment } = require("./profileDivider");
 const { resolveCountry } = require("./profileCountries");
 
 const sessions = new Map();
+const lastGuildByUser = new Map();
 
 function maybe(value) {
   return Promise.resolve(value);
+}
+
+function rememberGuild(userId, guildId) {
+  if (userId && guildId) lastGuildByUser.set(String(userId), String(guildId));
+}
+
+function resolveGuildId(interaction, session) {
+  return (
+    interaction.guildId ||
+    session?.guildId ||
+    lastGuildByUser.get(String(interaction.user?.id)) ||
+    null
+  );
+}
+
+async function resolveGuild(interaction, session) {
+  if (interaction.guild) {
+    rememberGuild(interaction.user.id, interaction.guild.id);
+    return interaction.guild;
+  }
+  const guildId = resolveGuildId(interaction, session);
+  if (!guildId) return null;
+  const guild = await interaction.client.guilds.fetch(guildId).catch(() => null);
+  if (guild) rememberGuild(interaction.user.id, guild.id);
+  return guild;
+}
+
+function withEphemeral(interaction, payload) {
+  if (interaction.inGuild?.()) return payload;
+  const next = { ...payload };
+  delete next.ephemeral;
+  return next;
+}
+
+async function sendProfileToUser(user, guild) {
+  rememberGuild(user.id, guild.id);
+  const profile = await maybe(api.profiles.getProfile(guild.id, user.id));
+  const payload = profile ? await payloadFor(guild, user.id) : registerPrompt(user.id);
+  await user.send(payload);
+  return { hasProfile: !!(profile && profile.roblox_username) };
 }
 
 function profileEmbed(profile, extras = {}) {
@@ -213,6 +254,7 @@ function refreshBoards(guild, userId) {
 }
 
 async function persistSession(guild, userId, session) {
+  rememberGuild(userId, guild.id);
   await maybe(
     api.profiles.saveProfile(guild.id, userId, {
       display_name: session.displayName,
@@ -228,6 +270,7 @@ async function persistSession(guild, userId, session) {
     })
   );
   sessions.delete(userId);
+  sessions.set(userId, { guildId: guild.id, completedAt: Date.now() });
   refreshBoards(guild, userId);
   try {
     const { onProfileCompleted } = require("./tsb/verify/runtime");
@@ -262,6 +305,7 @@ function verifyPayload(session) {
 }
 
 async function handleProfileCommand({ guild, actor, targetUser, query, member }) {
+  if (guild?.id) rememberGuild(actor.id, guild.id);
   let userId = actor.id;
   let profile = null;
 
@@ -302,10 +346,10 @@ function getSession(interaction) {
 }
 
 function expiredSession(interaction) {
-  const payload = {
+  const payload = withEphemeral(interaction, {
     embeds: [danger("Session expired", "Use `/profile` or `'profile` again.")],
     ephemeral: true,
-  };
+  });
   if (interaction.replied || interaction.deferred) {
     return interaction.followUp(payload);
   }
@@ -322,7 +366,7 @@ async function handleProfileInteraction(interaction) {
   if (id.startsWith("asc:profile:yes:")) {
     const ownerId = id.slice("asc:profile:yes:".length);
     if (ownerId !== interaction.user.id) {
-      return interaction.reply({ content: "This is not your profile.", ephemeral: true });
+      return interaction.reply(withEphemeral(interaction, { content: "This is not your profile.", ephemeral: true }));
     }
     return interaction.showModal(createModal());
   }
@@ -334,7 +378,7 @@ async function handleProfileInteraction(interaction) {
   if (id.startsWith("asc:profile:no:")) {
     const ownerId = id.slice("asc:profile:no:".length);
     if (ownerId !== interaction.user.id) {
-      return interaction.reply({ content: "This is not your profile.", ephemeral: true });
+      return interaction.reply(withEphemeral(interaction, { content: "This is not your profile.", ephemeral: true }));
     }
     return interaction.update({
       content: "No problem. Use `/profile` or `'profile` to register anytime.",
@@ -350,20 +394,23 @@ async function handleProfileInteraction(interaction) {
     try {
       roblox = await api.roblox.resolveRobloxUser(robloxUsername);
     } catch (err) {
-      return interaction.reply({ embeds: [danger("Roblox lookup failed", err.message)], ephemeral: true });
+      return interaction.reply(withEphemeral(interaction, { embeds: [danger("Roblox lookup failed", err.message)], ephemeral: true }));
     }
+    const prev = sessions.get(interaction.user.id) || {};
+    const guildId = resolveGuildId(interaction, prev);
+    if (guildId) rememberGuild(interaction.user.id, guildId);
     sessions.set(interaction.user.id, {
       displayName,
       robloxUsername,
       roblox,
-      guildId: interaction.guildId,
+      guildId,
       step: "region",
     });
-    return interaction.reply({
+    return interaction.reply(withEphemeral(interaction, {
       ephemeral: true,
       embeds: [surface({ title: "Profile setup", description: "Select your primary region." })],
       components: [regionRow()],
-    });
+    }));
   }
 
   if (id === "asc:profile:region" && interaction.isStringSelectMenu()) {
@@ -381,7 +428,7 @@ async function handleProfileInteraction(interaction) {
     const input = interaction.fields.getTextInputValue("country_name").trim();
     const resolved = resolveCountry(input);
     if (!resolved) {
-      return interaction.reply({
+      return interaction.reply(withEphemeral(interaction, {
         ephemeral: true,
         embeds: [
           danger(
@@ -397,12 +444,12 @@ async function handleProfileInteraction(interaction) {
               .setStyle(ButtonStyle.Primary)
           ),
         ],
-      });
+      }));
     }
     session.country = resolved;
     session.step = "confirm_country";
     sessions.set(interaction.user.id, session);
-    return interaction.reply({
+    return interaction.reply(withEphemeral(interaction, {
       ephemeral: true,
       embeds: [
         surface({
@@ -416,12 +463,12 @@ async function handleProfileInteraction(interaction) {
           new ButtonBuilder().setCustomId("asc:profile:country:no").setLabel("No").setStyle(ButtonStyle.Secondary)
         ),
       ],
-    });
+    }));
   }
 
   if (id === "asc:profile:country:retry" || id === "asc:profile:country:no") {
     if (!sessions.has(interaction.user.id)) {
-      return interaction.reply({ embeds: [danger("Session expired", "Use `/profile` again.")], ephemeral: true });
+      return interaction.reply(withEphemeral(interaction, { embeds: [danger("Session expired", "Use `/profile` again.")], ephemeral: true }));
     }
     return interaction.showModal(countryModal());
   }
@@ -446,8 +493,16 @@ async function handleProfileInteraction(interaction) {
     session.code = genVerifyCode();
     sessions.set(interaction.user.id, session);
 
-    if (!verificationRequired(interaction.guildId)) {
-      const payload = await persistSession(interaction.guild, interaction.user.id, session);
+    const guild = await resolveGuild(interaction, session);
+    if (!guild) {
+      return interaction.update({
+        content: "Could not find the server for this profile. Start verification from the server again.",
+        embeds: [],
+        components: [],
+      });
+    }
+    if (!verificationRequired(guild.id)) {
+      const payload = await persistSession(guild, interaction.user.id, session);
       return interaction.update({ ...payload, content: null });
     }
     return interaction.update(verifyPayload(session));
@@ -476,7 +531,15 @@ async function handleProfileInteraction(interaction) {
         components: verifyPayload(session).components,
       });
     }
-    const payload = await persistSession(interaction.guild, interaction.user.id, session);
+    const guild = await resolveGuild(interaction, session);
+    if (!guild) {
+      return interaction.update({
+        content: "Could not find the server for this profile. Start verification from the server again.",
+        embeds: [],
+        components: [],
+      });
+    }
+    const payload = await persistSession(guild, interaction.user.id, session);
     return interaction.update({ ...payload, content: null });
   }
 
@@ -493,7 +556,7 @@ async function handleProfileInteraction(interaction) {
     const targetId = id.split(":")[3];
     const action = interaction.values[0];
     if (action === "region") {
-      return interaction.reply({
+      return interaction.reply(withEphemeral(interaction, {
         ephemeral: true,
         components: [
           new ActionRowBuilder().addComponents(
@@ -503,10 +566,10 @@ async function handleProfileInteraction(interaction) {
               .addOptions(REGIONS.slice(0, 25).map((r) => ({ label: r.label, value: r.value })))
           ),
         ],
-      });
+      }));
     }
     if (action === "character") {
-      return interaction.reply({
+      return interaction.reply(withEphemeral(interaction, {
         ephemeral: true,
         components: [
           new ActionRowBuilder().addComponents(
@@ -516,10 +579,11 @@ async function handleProfileInteraction(interaction) {
               .addOptions(CHARACTERS.map((c) => ({ label: c, value: c })))
           ),
         ],
-      });
+      }));
     }
     if (action === "delete") {
-      await maybe(api.profiles.deleteProfile(interaction.guildId, targetId));
+      const guild = await resolveGuild(interaction);
+      await maybe(api.profiles.deleteProfile(guild?.id || resolveGuildId(interaction), targetId));
       return interaction.update({
         embeds: [ok("Profile deleted", "You can create a new one with `/profile`.")],
         components: [],
@@ -543,26 +607,29 @@ async function handleProfileInteraction(interaction) {
 
   if (id.startsWith("asc:profile:setregion:") && interaction.isStringSelectMenu()) {
     const targetId = id.split(":")[3];
-    await maybe(api.profiles.saveProfile(interaction.guildId, targetId, { region: interaction.values[0] }));
-    refreshBoards(interaction.guild, targetId);
-    const payload = await payloadFor(interaction.guild, targetId);
+    const guild = await resolveGuild(interaction);
+    await maybe(api.profiles.saveProfile(guild.id, targetId, { region: interaction.values[0] }));
+    refreshBoards(guild, targetId);
+    const payload = await payloadFor(guild, targetId);
     return interaction.update(payload);
   }
 
   if (id.startsWith("asc:profile:setcharacter:") && interaction.isStringSelectMenu()) {
     const targetId = id.split(":")[3];
-    await maybe(api.profiles.saveProfile(interaction.guildId, targetId, { main_character: interaction.values[0] }));
-    const payload = await payloadFor(interaction.guild, targetId);
+    const guild = await resolveGuild(interaction);
+    await maybe(api.profiles.saveProfile(guild.id, targetId, { main_character: interaction.values[0] }));
+    const payload = await payloadFor(guild, targetId);
     return interaction.update(payload);
   }
 
   if (id.startsWith("asc:profile:edit:") && interaction.isModalSubmit()) {
     const [, , , action, targetId] = id.split(":");
     const value = interaction.fields.getTextInputValue("value").trim();
+    const guild = await resolveGuild(interaction);
     if (action === "roblox") {
       const roblox = await api.roblox.resolveRobloxUser(value);
       await maybe(
-        api.profiles.saveProfile(interaction.guildId, targetId, {
+        api.profiles.saveProfile(guild.id, targetId, {
           roblox_username: roblox.name,
           roblox_display_name: roblox.displayName,
           roblox_id: roblox.id,
@@ -572,26 +639,34 @@ async function handleProfileInteraction(interaction) {
     } else if (action === "country") {
       const resolved = resolveCountry(value);
       if (!resolved) {
-        return interaction.reply({
+        return interaction.reply(withEphemeral(interaction, {
           embeds: [danger("Unknown country", `Could not recognize "${value}". Use the full country name.`)],
           ephemeral: true,
-        });
+        }));
       }
       await maybe(
-        api.profiles.saveProfile(interaction.guildId, targetId, {
+        api.profiles.saveProfile(guild.id, targetId, {
           country: resolved.name,
           country_flag: resolved.flag,
         })
       );
     } else {
-      await maybe(api.profiles.saveProfile(interaction.guildId, targetId, { display_name: value }));
+      await maybe(api.profiles.saveProfile(guild.id, targetId, { display_name: value }));
     }
-    refreshBoards(interaction.guild, targetId);
-    const payload = await payloadFor(interaction.guild, targetId);
-    return interaction.reply({ ...payload, ephemeral: true });
+    refreshBoards(guild, targetId);
+    const payload = await payloadFor(guild, targetId);
+    return interaction.reply(withEphemeral(interaction, { ...payload, ephemeral: true }));
   }
 
   return false;
 }
 
-module.exports = { handleProfileCommand, handleProfileInteraction, profileEmbed, payloadFor };
+module.exports = {
+  handleProfileCommand,
+  handleProfileInteraction,
+  profileEmbed,
+  payloadFor,
+  registerPrompt,
+  rememberGuild,
+  sendProfileToUser,
+};

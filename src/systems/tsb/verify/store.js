@@ -11,13 +11,80 @@ function defaultGuild() {
     setupCompleted: false,
     pending: {},
     tickets: {},
+    approve: {
+      addRoleIds: [],
+      removeRoleIds: [],
+      nickname: "",
+      dmMessage: "",
+      closeTicket: false,
+    },
+    deny: {
+      mode: "close",
+      dmMessage: "",
+    },
   };
+}
+
+function normalizeIdList(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((id) => String(id || "").trim()).filter((id) => /^\d{10,22}$/.test(id)))];
 }
 
 function getConfig(guildId) {
   const db = store.load();
   const current = db[String(guildId)] || {};
-  return { ...defaultGuild(), ...current, pending: current.pending || {}, tickets: current.tickets || {} };
+  const defaults = defaultGuild();
+  return {
+    ...defaults,
+    ...current,
+    pending: current.pending || {},
+    tickets: current.tickets || {},
+    approve: { ...defaults.approve, ...(current.approve || {}) },
+    deny: { ...defaults.deny, ...(current.deny || {}) },
+  };
+}
+
+function publicConfig(guildId) {
+  const cfg = getConfig(guildId);
+  const addRoleIds = normalizeIdList(cfg.approve?.addRoleIds);
+  if (cfg.verifiedRoleId && !addRoleIds.includes(String(cfg.verifiedRoleId))) {
+    addRoleIds.unshift(String(cfg.verifiedRoleId));
+  }
+  return {
+    categoryId: cfg.categoryId || "",
+    staffRoleId: cfg.staffRoleId || "",
+    verifiedRoleId: cfg.verifiedRoleId || addRoleIds[0] || "",
+    approve: {
+      addRoleIds,
+      removeRoleIds: normalizeIdList(cfg.approve?.removeRoleIds),
+      nickname: String(cfg.approve?.nickname || "").slice(0, 32),
+      dmMessage: String(cfg.approve?.dmMessage || "").slice(0, 1000),
+      closeTicket: !!cfg.approve?.closeTicket,
+    },
+    deny: {
+      mode: cfg.deny?.mode === "private" ? "private" : "close",
+      dmMessage: String(cfg.deny?.dmMessage || "").slice(0, 1000),
+    },
+  };
+}
+
+function applyPublicPatch(guildId, body = {}) {
+  const current = publicConfig(guildId);
+  const approve = { ...current.approve, ...(body.approve && typeof body.approve === "object" ? body.approve : {}) };
+  const deny = { ...current.deny, ...(body.deny && typeof body.deny === "object" ? body.deny : {}) };
+  approve.addRoleIds = normalizeIdList(approve.addRoleIds);
+  approve.removeRoleIds = normalizeIdList(approve.removeRoleIds);
+  approve.nickname = String(approve.nickname || "").slice(0, 32);
+  approve.dmMessage = String(approve.dmMessage || "").slice(0, 1000);
+  approve.closeTicket = !!approve.closeTicket;
+  deny.mode = deny.mode === "private" ? "private" : "close";
+  deny.dmMessage = String(deny.dmMessage || "").slice(0, 1000);
+  return updateConfig(guildId, {
+    verifiedRoleId: approve.addRoleIds[0] || "",
+    approve,
+    deny,
+    setupCompleted: true,
+  });
 }
 
 function updateConfig(guildId, patch) {
@@ -78,4 +145,6 @@ module.exports = {
   setTicket,
   getTicket,
   findOpenTicket,
+  publicConfig,
+  applyPublicPatch,
 };

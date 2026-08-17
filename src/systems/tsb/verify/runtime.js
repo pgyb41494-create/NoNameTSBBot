@@ -18,6 +18,7 @@ const {
   setTicket,
   getTicket,
   findOpenTicket,
+  publicConfig,
 } = require("./store");
 
 const START_ID = "tsb:verify:start";
@@ -45,9 +46,9 @@ function panelPayload() {
         title: "Verification",
         color: COLOR_PRIMARY,
         description:
-          "Click **Start verification** and I’ll DM you the `/profile` steps.\n\n" +
-          "When your profile is finished, a private ticket opens so staff can verify you.\n\n" +
-          `You can also run \`${p}profile\` / \`/profile\` anytime.`,
+          "Click **Start verification** and I’ll DM you `/profile`.\n\n" +
+          "Finish it in DMs and a private ticket opens for staff.\n\n" +
+          `You can also run \`${p}profile\` / \`/profile\` in the server.`,
       }),
     ],
     components: [
@@ -58,20 +59,27 @@ function panelPayload() {
   };
 }
 
-function stepsText() {
-  const p = brand.prefix || "'";
-  return [
-    "**Profile steps**",
-    "",
-    `1. Go back to the server and run \`/profile\` or \`${p}profile\`.`,
-    "2. Press **Yes** / create profile.",
-    "3. Enter your **display name** and **Roblox username**.",
-    "4. Pick your **region**, then type your **country**.",
-    "5. Pick your **main character**.",
-    "6. If asked, paste the code into your Roblox **About / bio** and press **I added it**.",
-    "",
-    "When that’s done, I’ll open a verification ticket automatically.",
-  ].join("\n");
+function ticketButtons() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(APPROVE_ID).setLabel("Approve").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(DENY_ID).setLabel("Deny").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(CLOSE_ID).setLabel("Close ticket").setStyle(ButtonStyle.Secondary)
+  );
+}
+
+function renderNickname(template, { member, profile, user }) {
+  const display = profile?.display_name || member?.displayName || user?.globalName || user?.username || "";
+  const roblox = profile?.roblox_username || "";
+  return String(template || "")
+    .replace(/\{display\}/gi, display)
+    .replace(/\{name\}/gi, display)
+    .replace(/\{roblox\}/gi, roblox)
+    .replace(/\{username\}/gi, user?.username || "")
+    .slice(0, 32);
+}
+
+function scheduleClose(channel, reason = "Verification ticket closed") {
+  setTimeout(() => channel.delete(reason).catch(() => {}), 5000);
 }
 
 function sanitizeName(user) {
@@ -102,23 +110,6 @@ async function ensureCategory(guild, cfg) {
   });
   updateConfig(guild.id, { categoryId: created.id, setupCompleted: true });
   return created;
-}
-
-async function dmSteps(user) {
-  try {
-    await user.send({
-      embeds: [
-        tsbEmbed({
-          title: "Verification",
-          color: COLOR_PRIMARY,
-          description: stepsText(),
-        }),
-      ],
-    });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function openTicket(guild, user) {
@@ -211,13 +202,7 @@ async function openTicket(guild, user) {
       ...(profilePayload.embeds || []),
     ],
     files: profilePayload.files || [],
-    components: [
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(APPROVE_ID).setLabel("Approve").setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(DENY_ID).setLabel("Deny").setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId(CLOSE_ID).setLabel("Close").setStyle(ButtonStyle.Secondary)
-      ),
-    ],
+    components: [ticketButtons()],
   });
 
   return channel;
@@ -226,9 +211,10 @@ async function openTicket(guild, user) {
 async function startVerification(interaction) {
   const guild = interaction.guild;
   const user = interaction.user;
-  const cfg = getConfig(guild.id);
+  const actions = publicConfig(guild.id);
   const member = interaction.member;
-  if (cfg.verifiedRoleId && member?.roles?.cache?.has(cfg.verifiedRoleId)) {
+  const addIds = actions.approve.addRoleIds;
+  if (addIds.length && addIds.every((id) => member?.roles?.cache?.has(id))) {
     return interaction.reply({ content: "You're already verified.", ephemeral: true });
   }
   const open = findOpenTicket(guild.id, user.id);
@@ -242,33 +228,48 @@ async function startVerification(interaction) {
     }
   }
 
-  const profile = await Promise.resolve(api.profiles.getProfile(guild.id, user.id)).catch(() => null);
-  const dmOk = await dmSteps(user);
+  const { rememberGuild, sendProfileToUser, registerPrompt } = require("../../profileUI");
+  rememberGuild(user.id, guild.id);
+
+  let dmOk = false;
+  let hasProfile = false;
+  try {
+    const sent = await sendProfileToUser(user, guild);
+    dmOk = true;
+    hasProfile = !!sent.hasProfile;
+  } catch {
+    dmOk = false;
+    const profile = await Promise.resolve(api.profiles.getProfile(guild.id, user.id)).catch(() => null);
+    hasProfile = !!(profile && profile.roblox_username);
+  }
+
   setPending(guild.id, user.id, {
-    status: profile?.roblox_username ? "ticket_open" : "pending_profile",
+    status: hasProfile ? "ticket_open" : "pending_profile",
     startedAt: Date.now(),
     ticketChannelId: null,
   });
 
-  if (profile?.roblox_username) {
+  if (hasProfile) {
     const channel = await openTicket(guild, user);
-    const extra = dmOk
-      ? `Ticket opened: ${channel}`
-      : `I couldn't DM you (enable DMs). Ticket opened: ${channel}`;
-    return interaction.reply({ content: extra, ephemeral: true });
+    if (!dmOk) {
+      return interaction.reply({
+        content: `I couldn't DM you (enable DMs from server members). Ticket opened: ${channel}`,
+        ephemeral: true,
+      });
+    }
+    return interaction.reply({ content: `Check your DMs. Ticket opened: ${channel}`, ephemeral: true });
   }
 
   if (!dmOk) {
     return interaction.reply({
       ephemeral: true,
-      content:
-        "I couldn't DM you — enable DMs from server members, then press **Start verification** again.\n\n" +
-        stepsText(),
+      content: "I couldn't DM you — enable DMs from server members, then press **Start verification** again.",
+      ...registerPrompt(user.id),
     });
   }
 
   return interaction.reply({
-    content: "Check your DMs for the `/profile` steps. A ticket will open when you finish.",
+    content: "Check your DMs and finish `/profile` there. A ticket opens when you're done.",
     ephemeral: true,
   });
 }
@@ -293,6 +294,7 @@ async function onProfileCompleted(guild, userId) {
 
 async function handleApprove(interaction) {
   const cfg = getConfig(interaction.guild.id);
+  const actions = publicConfig(interaction.guild.id);
   if (!canStaffTicket(interaction.member, interaction.guild, cfg)) {
     return interaction.reply({ content: "Staff only.", ephemeral: true });
   }
@@ -302,38 +304,50 @@ async function handleApprove(interaction) {
     return interaction.reply({ content: "This is not a verification ticket.", ephemeral: true });
   }
   const member = await interaction.guild.members.fetch(userId).catch(() => null);
-  if (cfg.verifiedRoleId && member) {
-    await member.roles.add(cfg.verifiedRoleId, `Verified by ${interaction.user.tag}`).catch(() => {});
+  const profile = await Promise.resolve(api.profiles.getProfile(interaction.guild.id, userId)).catch(() => null);
+  const reason = `Verified by ${interaction.user.tag}`;
+  if (member) {
+    const addIds = actions.approve.addRoleIds;
+    const removeIds = actions.approve.removeRoleIds;
+    if (addIds.length) await member.roles.add(addIds, reason).catch(() => {});
+    if (removeIds.length) await member.roles.remove(removeIds, reason).catch(() => {});
+    if (actions.approve.nickname) {
+      const nick = renderNickname(actions.approve.nickname, { member, profile, user: member.user });
+      if (nick) await member.setNickname(nick, reason).catch(() => {});
+    }
   }
   setTicket(interaction.guild.id, interaction.channel.id, { status: "approved" });
   setPending(interaction.guild.id, userId, { status: "approved" });
-  await interaction.update({
-    components: [],
-  }).catch(() => {});
+  await interaction.update({ components: [] }).catch(() => {});
+  const added = actions.approve.addRoleIds.map((id) => `<@&${id}>`).join(" ") || "none";
+  const removed = actions.approve.removeRoleIds.map((id) => `<@&${id}>`).join(" ");
   await interaction.channel.send({
     embeds: [
       tsbEmbed({
         title: "Approved",
         color: COLOR_SUCCESS,
-        description: `${member || `<@${userId}>`} is verified.${cfg.verifiedRoleId ? ` Role <@&${cfg.verifiedRoleId}> added.` : ""}`,
+        description:
+          `${member || `<@${userId}>`} is verified.\n` +
+          `Roles added: ${added}` +
+          (removed ? `\nRoles removed: ${removed}` : ""),
       }),
     ],
   });
   await interaction.channel.permissionOverwrites.edit(userId, { SendMessages: false }).catch(() => {});
   const user = await interaction.client.users.fetch(userId).catch(() => null);
+  const dmText = actions.approve.dmMessage || `You’re verified in **${interaction.guild.name}**.`;
   await user?.send({
-    embeds: [
-      tsbEmbed({
-        title: "Verification",
-        color: COLOR_SUCCESS,
-        description: `You’re verified in **${interaction.guild.name}**.`,
-      }),
-    ],
+    embeds: [tsbEmbed({ title: "Verification", color: COLOR_SUCCESS, description: dmText })],
   }).catch(() => {});
+  if (actions.approve.closeTicket) {
+    await interaction.channel.send({ content: "Closing this ticket in 5 seconds." }).catch(() => {});
+    scheduleClose(interaction.channel);
+  }
 }
 
 async function handleDeny(interaction) {
   const cfg = getConfig(interaction.guild.id);
+  const actions = publicConfig(interaction.guild.id);
   if (!canStaffTicket(interaction.member, interaction.guild, cfg)) {
     return interaction.reply({ content: "Staff only.", ephemeral: true });
   }
@@ -342,28 +356,48 @@ async function handleDeny(interaction) {
   if (!userId) {
     return interaction.reply({ content: "This is not a verification ticket.", ephemeral: true });
   }
+  const privateMode = actions.deny.mode === "private";
   setTicket(interaction.guild.id, interaction.channel.id, { status: "denied" });
-  setPending(interaction.guild.id, userId, { status: "denied" });
+  setPending(interaction.guild.id, userId, { status: "denied", ticketChannelId: privateMode ? interaction.channel.id : null });
   await interaction.update({ components: [] }).catch(() => {});
-  await interaction.channel.send({
-    embeds: [
-      tsbEmbed({
-        title: "Denied",
-        color: COLOR_DANGER,
-        description: `<@${userId}> was denied.`,
-      }),
-    ],
-  });
-  await interaction.channel.permissionOverwrites.edit(userId, { SendMessages: false }).catch(() => {});
+
+  if (privateMode) {
+    await interaction.channel.permissionOverwrites.delete(userId).catch(async () => {
+      await interaction.channel.permissionOverwrites.edit(userId, { ViewChannel: false, SendMessages: false }).catch(() => {});
+    });
+    await interaction.channel.send({
+      embeds: [
+        tsbEmbed({
+          title: "Denied · private",
+          color: COLOR_DANGER,
+          description: `<@${userId}> was removed from this ticket. Staff can keep talking here.`,
+        }),
+      ],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(CLOSE_ID).setLabel("Close ticket").setStyle(ButtonStyle.Secondary)
+        ),
+      ],
+    });
+  } else {
+    await interaction.channel.send({
+      embeds: [
+        tsbEmbed({
+          title: "Denied",
+          color: COLOR_DANGER,
+          description: `<@${userId}> was denied. Closing this ticket in 5 seconds.`,
+        }),
+      ],
+    });
+    scheduleClose(interaction.channel, "Verification denied");
+  }
+
   const user = await interaction.client.users.fetch(userId).catch(() => null);
+  const dmText =
+    actions.deny.dmMessage ||
+    `Your verification in **${interaction.guild.name}** was denied. You can start again with the verification button.`;
   await user?.send({
-    embeds: [
-      tsbEmbed({
-        title: "Verification",
-        color: COLOR_DANGER,
-        description: `Your verification in **${interaction.guild.name}** was denied. You can start again with the verification button.`,
-      }),
-    ],
+    embeds: [tsbEmbed({ title: "Verification", color: COLOR_DANGER, description: dmText })],
   }).catch(() => {});
 }
 

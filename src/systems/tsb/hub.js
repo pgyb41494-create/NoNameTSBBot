@@ -74,7 +74,7 @@ function hubPayload(guildId = null) {
           "> **Score:** `/score` records matches and auto-bumps the board\n" +
           "> **Lineups:** `#tsb-lineups` management + `#lineup-{region}` boards\n" +
           "> **Tryouts:** signup channel + ping role · runtime `/tryout`\n" +
-          "> **Verification:** `/verify` panel · DM profile steps · staff ticket",
+          "> **Verification:** `/verify` · DM `/profile` · staff ticket",
       }),
     ],
     components: [{

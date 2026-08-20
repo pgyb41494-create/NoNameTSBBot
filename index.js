@@ -105,13 +105,31 @@ async function handle(req, res) {
         res,
         200,
         [...channels.values()]
-          .filter((ch) => ch && (ch.type === 0 || ch.type === 4 || ch.type === 5))
+          .filter((ch) => ch && (ch.type === 0 || ch.type === 4 || ch.type === 5 || ch.type === 15 || ch.type === 16))
           .map((ch) => ({
             id: ch.id,
             name: ch.name,
-            type: ch.type === 4 ? "category" : ch.type === 5 ? "announcement" : "text",
+            type:
+              ch.type === 4
+                ? "category"
+                : ch.type === 5
+                  ? "announcement"
+                  : ch.type === 15
+                    ? "forum"
+                    : ch.type === 16
+                      ? "media"
+                      : "text",
             parentId: ch.parentId || null,
             position: ch.rawPosition ?? ch.position ?? 0,
+            topic: ch.topic || null,
+            availableTags: Array.isArray(ch.availableTags)
+              ? ch.availableTags.map((tag) => ({
+                  id: String(tag.id),
+                  name: tag.name,
+                  emoji: tag.emoji?.name || tag.emoji?.id || null,
+                  moderated: !!tag.moderated,
+                }))
+              : [],
           }))
           .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name))
       );
@@ -347,6 +365,134 @@ async function handle(req, res) {
         attachments: [],
         mentions: [],
       });
+    }
+
+    const forumPostsMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/channels\/([^/]+)\/posts$/);
+    if (forumPostsMatch) {
+      const c = requireDiscord(res);
+      if (!c) return;
+      const guildId = forumPostsMatch[1];
+      const channelId = forumPostsMatch[2];
+      const channel = await c.channels.fetch(channelId);
+      if (!channel || (channel.type !== 15 && channel.type !== 16)) {
+        return json(res, 400, { error: "That channel is not a forum." });
+      }
+      if (String(channel.guildId) !== String(guildId)) {
+        return json(res, 400, { error: "Channel is not in that server." });
+      }
+      const { userAvatarFromDiscord } = require("./api/lib/discordUser");
+
+      if (req.method === "GET") {
+        const tagMap = new Map(
+          (channel.availableTags || []).map((tag) => [
+            String(tag.id),
+            {
+              id: String(tag.id),
+              name: tag.name,
+              emoji: tag.emoji?.name || tag.emoji?.id || null,
+            },
+          ])
+        );
+        const [active, archived] = await Promise.all([
+          channel.threads.fetchActive().catch(() => ({ threads: new Map() })),
+          channel.threads.fetchArchived({ fetchAll: true }).catch(() => ({ threads: new Map() })),
+        ]);
+        const threads = [
+          ...((active.threads?.values && [...active.threads.values()]) || []),
+          ...((archived.threads?.values && [...archived.threads.values()]) || []),
+        ];
+        const byId = new Map();
+        for (const thread of threads) {
+          if (thread) byId.set(String(thread.id), thread);
+        }
+        const posts = [];
+        for (const thread of byId.values()) {
+          let starter = null;
+          try {
+            const msg = await thread.fetchStarterMessage().catch(() => null);
+            if (msg) {
+              starter = {
+                id: String(msg.id),
+                content: String(msg.content || "").slice(0, 280),
+                createdAt: msg.createdAt?.toISOString?.() || null,
+                author: {
+                  id: String(msg.author.id),
+                  username: msg.author.username,
+                  displayName: msg.member?.displayName || msg.author.globalName || msg.author.username,
+                  avatar: userAvatarFromDiscord(msg.author, 64),
+                  bot: !!msg.author.bot,
+                },
+              };
+            }
+          } catch {}
+          let owner = starter?.author || null;
+          if (!owner && thread.ownerId) {
+            const user = await c.users.fetch(thread.ownerId).catch(() => null);
+            if (user) {
+              owner = {
+                id: String(user.id),
+                username: user.username,
+                displayName: user.globalName || user.username,
+                avatar: userAvatarFromDiscord(user, 64),
+                bot: !!user.bot,
+              };
+            }
+          }
+          posts.push({
+            id: String(thread.id),
+            name: thread.name,
+            parentId: String(thread.parentId || channel.id),
+            archived: !!thread.archived,
+            locked: !!thread.locked,
+            messageCount: Number(thread.messageCount || 0),
+            memberCount: Number(thread.memberCount || 0),
+            createdAt: thread.createdAt?.toISOString?.() || null,
+            lastMessageAt:
+              thread.lastMessage?.createdAt?.toISOString?.() ||
+              (thread.archiveTimestamp ? new Date(thread.archiveTimestamp).toISOString() : null) ||
+              thread.createdAt?.toISOString?.() ||
+              null,
+            owner,
+            starter,
+            tags: (thread.appliedTags || [])
+              .map((id) => tagMap.get(String(id)))
+              .filter(Boolean),
+          });
+        }
+        posts.sort((a, b) => String(b.lastMessageAt || b.createdAt || "").localeCompare(String(a.lastMessageAt || a.createdAt || "")));
+        return json(res, 200, {
+          posts,
+          tags: [...tagMap.values()],
+          channel: {
+            id: channel.id,
+            name: channel.name,
+            type: channel.type === 16 ? "media" : "forum",
+            topic: channel.topic || null,
+          },
+        });
+      }
+
+      if (req.method === "POST") {
+        const body = await readBody(req);
+        const title = String(body.name || body.title || "").trim().slice(0, 100);
+        if (!title) return json(res, 400, { error: "Post title is required." });
+        const { buildMessagePayload } = require("./api/lib/messagePayload");
+        const message = buildMessagePayload({
+          content: body.content,
+          embed: body.embed,
+        });
+        const created = await channel.threads.create({
+          name: title,
+          message,
+          appliedTags: Array.isArray(body.tagIds) ? body.tagIds.slice(0, 5) : undefined,
+          reason: "Created from Ascendant Channel chat",
+        });
+        return json(res, 200, {
+          id: created.id,
+          name: created.name,
+          parentId: created.parentId,
+        });
+      }
     }
 
     const typingMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/channels\/([^/]+)\/typing$/);

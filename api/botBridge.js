@@ -97,13 +97,31 @@ async function listChannels(guildId) {
   const guild = await c.guilds.fetch(guildId);
   const channels = await guild.channels.fetch();
   return [...channels.values()]
-    .filter((ch) => ch && (ch.type === 0 || ch.type === 4 || ch.type === 5))
+    .filter((ch) => ch && (ch.type === 0 || ch.type === 4 || ch.type === 5 || ch.type === 15 || ch.type === 16))
     .map((ch) => ({
       id: ch.id,
       name: ch.name,
-      type: ch.type === 4 ? "category" : ch.type === 5 ? "announcement" : "text",
+      type:
+        ch.type === 4
+          ? "category"
+          : ch.type === 5
+            ? "announcement"
+            : ch.type === 15
+              ? "forum"
+              : ch.type === 16
+                ? "media"
+                : "text",
       parentId: ch.parentId || null,
       position: ch.rawPosition ?? ch.position ?? 0,
+      topic: ch.topic || null,
+      availableTags: Array.isArray(ch.availableTags)
+        ? ch.availableTags.map((tag) => ({
+            id: String(tag.id),
+            name: tag.name,
+            emoji: tag.emoji?.name || tag.emoji?.id || null,
+            moderated: !!tag.moderated,
+          }))
+        : [],
     }))
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name));
 }

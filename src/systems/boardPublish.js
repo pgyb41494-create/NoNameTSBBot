@@ -46,6 +46,65 @@ async function enrichCardsFromGuild(guild, cards) {
   return cards;
 }
 
+async function enrichCardsFromRoblox(guild, cards) {
+  const robloxIds = [];
+  const usernameCards = [];
+  for (const card of cards) {
+    if (card.empty) continue;
+    if (card.robloxId) robloxIds.push(String(card.robloxId));
+    else if (card.robloxUsername) usernameCards.push(card);
+  }
+
+  if (robloxIds.length && api.roblox?.fetchRobloxHeadshots) {
+    try {
+      const headshots = await api.roblox.fetchRobloxHeadshots(robloxIds);
+      for (const card of cards) {
+        if (card.empty || !card.robloxId) continue;
+        const fresh = headshots[String(card.robloxId)];
+        if (fresh) card.avatarUrl = fresh;
+      }
+    } catch (err) {
+      console.warn("[BoardPublish] Roblox headshot batch failed:", err.message);
+    }
+  }
+
+  for (const card of usernameCards) {
+    if (card.robloxId) continue;
+    try {
+      const roblox = await api.roblox.resolveRobloxUser(card.robloxUsername);
+      if (roblox?.avatarUrl) card.avatarUrl = roblox.avatarUrl;
+      if (roblox?.displayName) card.name = roblox.displayName;
+      if (roblox?.name) {
+        card.robloxUsername = roblox.name;
+        card.robloxId = roblox.id;
+      }
+    } catch {}
+  }
+
+  syncRobloxAvatarsToProfiles(guild.id, cards).catch(() => {});
+  return cards;
+}
+
+async function syncRobloxAvatarsToProfiles(guildId, cards) {
+  for (const card of cards) {
+    if (card.empty || !card.discordId || !card.avatarUrl) continue;
+    const profile = await resolveMaybe(api.profiles.getProfile(guildId, card.discordId)).catch(() => null);
+    if (!profile || profile.roblox_avatar_url === card.avatarUrl) continue;
+    await resolveMaybe(
+      api.profiles.saveProfile(guildId, card.discordId, {
+        roblox_avatar_url: card.avatarUrl,
+        skipBoardRefresh: true,
+      })
+    ).catch(() => {});
+  }
+}
+
+async function enrichBoardCards(guild, cards) {
+  let next = await enrichCardsFromGuild(guild, [...cards]);
+  next = await enrichCardsFromRoblox(guild, next);
+  return next;
+}
+
 function emptyPlaceholder(position) {
   return {
     position,
@@ -87,7 +146,7 @@ async function publishLeaderboard(guild) {
   const cfg = await resolveMaybe(api.leaderboard.getConfig(guild.id));
   const theme = resolveTheme(cfg.theme || "classic");
   const snap = await resolveMaybe(api.snapshot.publicSnapshot(guild.id));
-  const cards = await enrichCardsFromGuild(guild, [...(snap.leaderboard.cards || [])]);
+  const cards = await enrichBoardCards(guild, snap.leaderboard.cards || []);
   const channelIds = cfg.publicChannelIds?.length
     ? cfg.publicChannelIds
     : cfg.publicChannelId
@@ -162,7 +221,7 @@ async function publishLineup(guild, regionKey = null) {
     if (!stored?.channelId) continue;
     const channel = await guild.channels.fetch(stored.channelId).catch(() => null);
     if (!channel) continue;
-    const mainEmbeds = (region.main.length ? region.main : []).map((card) =>
+    const mainEmbeds = (region.main.length ? await enrichBoardCards(guild, region.main) : []).map((card) =>
       cardEmbed(card, { mode: "lineup" })
     );
     if (mainEmbeds.length) {
@@ -173,7 +232,7 @@ async function publishLineup(guild, regionKey = null) {
       });
     }
 
-    const subEmbeds = (region.sub?.length ? region.sub : []).map((card) =>
+    const subEmbeds = (region.sub?.length ? await enrichBoardCards(guild, region.sub) : []).map((card) =>
       cardEmbed(card, { mode: "lineup" })
     );
     if (subEmbeds.length) {

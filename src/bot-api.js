@@ -181,6 +181,25 @@ function createBotApi(client) {
     }
   });
 
+  app.post("/discord/guilds/:guildId/boards/refresh", async (req, res) => {
+    try {
+      const client = botBridge.getClient();
+      const guild = await client?.guilds?.fetch(req.params.guildId).catch(() => null);
+      if (!guild) return res.status(404).json({ error: "Guild not found or bot not in server." });
+      const userId = req.body?.userId ? String(req.body.userId) : null;
+      if (userId) {
+        const { refreshUserBoards } = require("./systems/tsb/shared/boardRefresh");
+        const result = await refreshUserBoards(guild, userId);
+        return res.json({ ok: true, ...result });
+      }
+      const { refreshLeaderboard } = require("./systems/tsb/leaderboard/renderer");
+      await refreshLeaderboard(guild);
+      res.json({ ok: true, leaderboard: true });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 

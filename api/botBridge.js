@@ -318,6 +318,17 @@ async function replacePanels(guildId, body) {
   return remoteDiscord(`/discord/guilds/${guildId}/panels`, { method: "PUT", body: body || {} });
 }
 
+async function refreshBoards(guildId, userId) {
+  const body = userId ? { userId: String(userId) } : {};
+  return remoteDiscord(`/discord/guilds/${guildId}/boards/refresh`, { method: "POST", body });
+}
+
+function refreshBoardsBackground(guildId, userId) {
+  refreshBoards(guildId, userId).catch((err) => {
+    console.warn("[botBridge] board refresh failed:", err.message);
+  });
+}
+
 module.exports = {
   setClient,
   getClient,
@@ -338,4 +349,6 @@ module.exports = {
   listPanels,
   replacePanels,
   createChannel,
+  refreshBoards,
+  refreshBoardsBackground,
 };

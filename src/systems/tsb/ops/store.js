@@ -8,6 +8,16 @@ const DEFAULT_INVITE_MESSAGE =
 function defaultGuild() {
   return {
     auditChannelId: "",
+    staffAlerts: {
+      channelId: "",
+      events: {
+        profile: true,
+        phase: true,
+        score: true,
+        challenge: true,
+        duplicateRoblox: true,
+      },
+    },
     invites: {
       enabled: false,
       channelId: "",
@@ -25,9 +35,18 @@ function getConfig(guildId) {
   const db = store.load();
   const current = db[String(guildId)] || {};
   const defaults = defaultGuild();
+  const staffAlerts = {
+    ...defaults.staffAlerts,
+    ...(current.staffAlerts || {}),
+    events: {
+      ...defaults.staffAlerts.events,
+      ...(current.staffAlerts?.events || {}),
+    },
+  };
   return {
     ...defaults,
     ...current,
+    staffAlerts,
     invites: {
       ...defaults.invites,
       ...(current.invites || {}),
@@ -41,6 +60,16 @@ function updateConfig(guildId, patch) {
   store.updateSync((db) => {
     const current = getConfig(guildId);
     next = { ...current, ...patch };
+    if (patch.staffAlerts) {
+      next.staffAlerts = {
+        ...current.staffAlerts,
+        ...patch.staffAlerts,
+        events: {
+          ...current.staffAlerts.events,
+          ...(patch.staffAlerts.events || {}),
+        },
+      };
+    }
     if (patch.invites) {
       next.invites = {
         ...current.invites,
@@ -66,6 +95,35 @@ function publicInvites(guildId) {
     channelId: cfg.invites.channelId || "",
     message: cfg.invites.message || DEFAULT_INVITE_MESSAGE,
   };
+}
+
+function publicStaffAlerts(guildId) {
+  const cfg = getConfig(guildId);
+  return {
+    channelId: cfg.staffAlerts.channelId || "",
+    fallbackChannelId: cfg.auditChannelId || "",
+    events: { ...cfg.staffAlerts.events },
+  };
+}
+
+function applyStaffAlertsPatch(guildId, body = {}) {
+  const current = getConfig(guildId).staffAlerts;
+  const events = { ...current.events };
+  if (body.events && typeof body.events === "object") {
+    for (const key of Object.keys(events)) {
+      if (body.events[key] != null) events[key] = !!body.events[key];
+    }
+  }
+  updateConfig(guildId, {
+    staffAlerts: {
+      channelId:
+        body.channelId != null
+          ? String(body.channelId || "").replace(/\D/g, "").slice(0, 22)
+          : current.channelId,
+      events,
+    },
+  });
+  return publicStaffAlerts(guildId);
 }
 
 function applyAuditPatch(guildId, body = {}) {
@@ -110,8 +168,10 @@ module.exports = {
   getConfig,
   updateConfig,
   publicAudit,
+  publicStaffAlerts,
   publicInvites,
   applyAuditPatch,
+  applyStaffAlertsPatch,
   applyInvitesPatch,
   setJoin,
   getJoin,

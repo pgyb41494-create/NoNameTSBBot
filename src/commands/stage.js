@@ -168,6 +168,12 @@ async function applyStageCommand(ctx, guild, user, stageInput, actor, actorMembe
 
   await maybeLogStage(guild, tsbRanking, resultEmbed);
   maybeRefreshBoards(guild, user.id);
+  if (!process.env.API_SERVER_URL && !process.env.API_URL) {
+    try {
+      const { alertPhase } = require("./tsb/ops/alerts");
+      alertPhase(guild, user, parts.text, actor).catch(() => {});
+    } catch {}
+  }
 
   return reply(ctx, resultEmbed);
 }

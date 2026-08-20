@@ -40,6 +40,10 @@ const {
   handleVerifySetupButton,
   handleVerifySetupSelect,
 } = require("../systems/tsb/verify/setupStore");
+const {
+  handleAlertsSetupButton,
+  handleAlertsSetupSelect,
+} = require("../systems/tsb/ops/setupStore");
 
 async function handleTsbInteraction(interaction) {
   const id = interaction.customId || "";
@@ -63,6 +67,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:score:")) return handleScoreSelect(interaction);
     if (id.startsWith("tsb:lu:")) return handleLineupSelect(interaction);
     if (id.startsWith("tsb:verify:cfg_")) return handleVerifySetupSelect(interaction);
+    if (id.startsWith("tsb:alerts:")) return handleAlertsSetupSelect(interaction);
     if (id.startsWith("tsb:tryout:")) return handleTryoutSelect(interaction);
     if (id.startsWith("tsb:chaltix:")) return handleChallengeTickets(interaction);
   }
@@ -75,6 +80,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:score:")) return handleScoreButton(interaction);
     if (id.startsWith("tsb:lu:")) return handleLineupButton(interaction);
     if (id.startsWith("tsb:verify:cfg_")) return handleVerifySetupButton(interaction);
+    if (id.startsWith("tsb:alerts:")) return handleAlertsSetupButton(interaction);
     if (id.startsWith("tsb:verify:")) return handleVerifyInteraction(interaction);
     if (id.startsWith("tsb:tryout:")) return handleTryoutButton(interaction);
     if (id.startsWith("tsb:chaltix:")) return handleChallengeTickets(interaction);

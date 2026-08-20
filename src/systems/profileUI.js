@@ -306,6 +306,18 @@ async function persistSession(guild, userId, session) {
   sessions.delete(userId);
   sessions.set(userId, { guildId: guild.id, completedAt: Date.now() });
   refreshBoards(guild, userId);
+  if (!process.env.API_SERVER_URL && !process.env.API_URL) {
+    try {
+      const { alertProfile, checkDuplicateRoblox } = require("./tsb/ops/alerts");
+      const user = await guild.client.users.fetch(userId).catch(() => ({ id: userId }));
+      await alertProfile(guild, user, {
+        roblox_username: session.roblox.name,
+        region: session.region,
+        country: session.country?.name,
+      });
+      await checkDuplicateRoblox(guild, userId, session.roblox.id, session.roblox.name);
+    } catch {}
+  }
   try {
     const { onProfileCompleted } = require("./tsb/verify/runtime");
     onProfileCompleted(guild, userId).catch(() => {});

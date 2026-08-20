@@ -329,6 +329,27 @@ function refreshBoardsBackground(guildId, userId) {
   });
 }
 
+async function postStaffAlert(guildId, event, payload = {}) {
+  return remoteDiscord(`/discord/guilds/${guildId}/alerts/post`, {
+    method: "POST",
+    body: { event: String(event), ...payload },
+  });
+}
+
+function postStaffAlertBackground(guildId, event, payload) {
+  postStaffAlert(guildId, event, payload).catch((err) => {
+    console.warn("[botBridge] staff alert failed:", err.message);
+  });
+}
+
+async function getStaffAlertsConfig(guildId) {
+  return remoteDiscord(`/discord/guilds/${guildId}/alerts`);
+}
+
+async function setStaffAlertsConfig(guildId, body) {
+  return remoteDiscord(`/discord/guilds/${guildId}/alerts`, { method: "PUT", body: body || {} });
+}
+
 module.exports = {
   setClient,
   getClient,
@@ -351,4 +372,8 @@ module.exports = {
   createChannel,
   refreshBoards,
   refreshBoardsBackground,
+  postStaffAlert,
+  postStaffAlertBackground,
+  getStaffAlertsConfig,
+  setStaffAlertsConfig,
 };

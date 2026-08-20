@@ -181,6 +181,39 @@ function createBotApi(client) {
     }
   });
 
+  app.post("/discord/guilds/:guildId/alerts/post", async (req, res) => {
+    try {
+      const client = botBridge.getClient();
+      const guild = await client?.guilds?.fetch(req.params.guildId).catch(() => null);
+      if (!guild) return res.status(404).json({ error: "Guild not found or bot not in server." });
+      const { event, ...payload } = req.body || {};
+      if (!event) return res.status(400).json({ error: "event is required" });
+      const { postStaffAlertFromPayload } = require("./systems/tsb/ops/alerts");
+      await postStaffAlertFromPayload(guild, String(event), payload);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.get("/discord/guilds/:guildId/alerts", (req, res) => {
+    try {
+      const { publicStaffAlerts } = require("./systems/tsb/ops/store");
+      res.json(publicStaffAlerts(req.params.guildId));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/discord/guilds/:guildId/alerts", (req, res) => {
+    try {
+      const { applyStaffAlertsPatch } = require("./systems/tsb/ops/store");
+      res.json(applyStaffAlertsPatch(req.params.guildId, req.body || {}));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/discord/guilds/:guildId/boards/refresh", async (req, res) => {
     try {
       const client = botBridge.getClient();

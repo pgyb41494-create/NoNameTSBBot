@@ -40,6 +40,7 @@ function helpEmbed() {
       `\`/score\` — 1v1 / clan match (prefix not used; same options as Obscura)`,
       `\`${p}cd @user\` / \`/cd\` — cooldown and autowin strikes`,
       `\`${p}removecd @user\` / \`/removecd\` — clear 1v1 cooldown (score staff)`,
+      `\`${p}dupes\` / \`/dupes\` — scan duplicate Roblox profiles (score staff)`,
       `\`${p}tryout\` / \`/tryout\` — create · list · end`,
       `\`${p}challenge\` / \`/challenge\``,
       "",

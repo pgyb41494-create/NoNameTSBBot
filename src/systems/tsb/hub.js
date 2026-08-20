@@ -37,6 +37,12 @@ function buildModuleOptions(guildId) {
     const { getConfig } = require("./verify/store");
     verify = !!getConfig(guildId).setupCompleted;
   } catch {}
+  let alerts = false;
+  try {
+    const { publicStaffAlerts } = require("./ops/store");
+    const cfg = publicStaffAlerts(guildId);
+    alerts = !!(cfg.channelId || cfg.fallbackChannelId);
+  } catch {}
 
   return [
     { label: "Top Leaderboard", value: "leaderboard_setup", description: statusLabel(lb).slice(0, 100) },
@@ -45,6 +51,7 @@ function buildModuleOptions(guildId) {
     { label: "Line Up Management", value: "lineup_setup", description: statusLabel(lineup).slice(0, 100) },
     { label: "Tryouts", value: "tryout_setup", description: statusLabel(tryout).slice(0, 100) },
     { label: "Verification", value: "verify_setup", description: statusLabel(verify).slice(0, 100) },
+    { label: "Staff Alerts", value: "alerts_setup", description: statusLabel(alerts).slice(0, 100) },
   ];
 }
 
@@ -59,6 +66,7 @@ function hubPayload(guildId = null) {
         { label: "Line Up Management", value: "lineup_setup", description: "Regional lineups" },
         { label: "Tryouts", value: "tryout_setup", description: "Signup sessions" },
         { label: "Verification", value: "verify_setup", description: "Profile tickets" },
+        { label: "Staff Alerts", value: "alerts_setup", description: "TSB staff feed" },
       ];
 
   return {
@@ -74,7 +82,8 @@ function hubPayload(guildId = null) {
           "> **Score:** `/score` records matches and auto-bumps the board\n" +
           "> **Lineups:** `#tsb-lineups` management + `#lineup-{region}` boards\n" +
           "> **Tryouts:** signup channel + ping role · runtime `/tryout`\n" +
-          "> **Verification:** `/verify` · DM `/profile` · staff ticket",
+          "> **Verification:** `/verify` · DM `/profile` · staff ticket\n" +
+          "> **Staff Alerts:** profiles, ranks, scores, challenges, duplicate Roblox",
       }),
     ],
     components: [{
@@ -130,6 +139,10 @@ async function handleHubSelect(interaction) {
   if (selected === "verify_setup") {
     const { openVerifyModule } = require("./verify/setupStore");
     return openVerifyModule(interaction);
+  }
+  if (selected === "alerts_setup") {
+    const { openAlertsModule } = require("./ops/setupStore");
+    return openAlertsModule(interaction);
   }
 
   return false;

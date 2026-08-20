@@ -494,6 +494,19 @@ async function applyMatchResult({
         }));
     } catch {}
 
+    if (!process.env.API_SERVER_URL && !process.env.API_URL) {
+        try {
+            const { alertScore } = require("../ops/alerts");
+            await alertScore(guild, {
+                winner: { id: winner.discordId },
+                loser: { id: loser.discordId },
+                scoreDisplay: score.display,
+                region: region || null,
+                recorder: recorderId ? { id: recorderId } : null,
+            });
+        } catch {}
+    }
+
     const refIds = [...String(referees || "").matchAll(/<@!?(\d+)>/g)].map((m) => m[1]);
     return {
         body,

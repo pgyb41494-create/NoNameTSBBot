@@ -50,6 +50,68 @@ function createBotApi(client) {
     }
   });
 
+  app.get("/discord/guilds/:guildId/channels/:channelId/messages", async (req, res) => {
+    try {
+      const client = botBridge.getClient();
+      const channel = await client?.channels?.fetch(req.params.channelId).catch(() => null);
+      if (!channel?.isTextBased?.()) {
+        return res.status(400).json({ error: "That channel cannot receive messages." });
+      }
+      const { userAvatarFromDiscord } = require("../api/lib/discordUser");
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit || 50)));
+      const before = req.query.before || null;
+      const fetched = await channel.messages.fetch({
+        limit,
+        ...(before ? { before: String(before) } : {}),
+      });
+      const messages = [...fetched.values()]
+        .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+        .map((message) => ({
+          id: String(message.id),
+          content: message.content || "",
+          createdAt: message.createdAt?.toISOString?.() || null,
+          editedAt: message.editedAt?.toISOString?.() || null,
+          author: {
+            id: String(message.author.id),
+            username: message.author.username,
+            displayName:
+              message.member?.displayName || message.author.globalName || message.author.username,
+            avatar: userAvatarFromDiscord(message.author, 64),
+            bot: !!message.author.bot,
+          },
+          embeds: (message.embeds || []).slice(0, 10).map((embed) =>
+            typeof embed.toJSON === "function" ? embed.toJSON() : embed
+          ),
+          attachments: [...message.attachments.values()].map((file) => ({
+            id: String(file.id),
+            name: file.name,
+            url: file.url,
+            contentType: file.contentType || null,
+          })),
+          mentions: [...message.mentions.users.values()].map((user) => ({
+            id: String(user.id),
+            username: user.username,
+            displayName: user.globalName || user.username,
+          })),
+        }));
+      res.json({ messages });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.post("/discord/guilds/:guildId/channels/:channelId/typing", async (req, res) => {
+    try {
+      const client = botBridge.getClient();
+      const channel = await client?.channels?.fetch(req.params.channelId).catch(() => null);
+      if (!channel?.isTextBased?.()) return res.status(400).json({ error: "Invalid channel" });
+      await channel.sendTyping();
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
   app.get("/discord/guilds/:guildId/roles", async (req, res) => {
     try {
       res.json(await botBridge.listRoles(req.params.guildId));

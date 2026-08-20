@@ -97,13 +97,15 @@ async function listChannels(guildId) {
   const guild = await c.guilds.fetch(guildId);
   const channels = await guild.channels.fetch();
   return [...channels.values()]
-    .filter((ch) => ch && (ch.type === 0 || ch.type === 5))
-    .sort((a, b) => (a.rawPosition ?? 0) - (b.rawPosition ?? 0))
+    .filter((ch) => ch && (ch.type === 0 || ch.type === 4 || ch.type === 5))
     .map((ch) => ({
       id: ch.id,
       name: ch.name,
-      type: ch.type === 5 ? "announcement" : "text",
-    }));
+      type: ch.type === 4 ? "category" : ch.type === 5 ? "announcement" : "text",
+      parentId: ch.parentId || null,
+      position: ch.rawPosition ?? ch.position ?? 0,
+    }))
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name));
 }
 
 async function createChannel(guildId, body = {}) {

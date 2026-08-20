@@ -105,13 +105,15 @@ async function handle(req, res) {
         res,
         200,
         [...channels.values()]
-          .filter((ch) => ch && (ch.type === 0 || ch.type === 5))
-          .sort((a, b) => (a.rawPosition ?? 0) - (b.rawPosition ?? 0))
+          .filter((ch) => ch && (ch.type === 0 || ch.type === 4 || ch.type === 5))
           .map((ch) => ({
             id: ch.id,
             name: ch.name,
-            type: ch.type === 5 ? "announcement" : "text",
+            type: ch.type === 4 ? "category" : ch.type === 5 ? "announcement" : "text",
+            parentId: ch.parentId || null,
+            position: ch.rawPosition ?? ch.position ?? 0,
           }))
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name))
       );
     }
     if (req.method === "POST" && channelMatch) {
@@ -255,6 +257,65 @@ async function handle(req, res) {
     }
 
     const msgChannelMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/channels\/([^/]+)\/messages$/);
+    if (req.method === "GET" && msgChannelMatch) {
+      const c = requireDiscord(res);
+      if (!c) return;
+      const { userAvatarFromDiscord } = require("./api/lib/discordUser");
+      const channel = await c.channels.fetch(msgChannelMatch[2]);
+      if (!channel || !channel.isTextBased?.()) {
+        return json(res, 400, { error: "That channel cannot receive messages." });
+      }
+      if (String(channel.guildId) !== String(msgChannelMatch[1])) {
+        return json(res, 400, { error: "Channel is not in that server." });
+      }
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 50)));
+      const before = url.searchParams.get("before") || null;
+      const fetched = await channel.messages.fetch({
+        limit,
+        ...(before ? { before } : {}),
+      });
+      const messages = [...fetched.values()]
+        .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+        .map((message) => ({
+          id: String(message.id),
+          content: message.content || "",
+          createdAt: message.createdAt?.toISOString?.() || null,
+          editedAt: message.editedAt?.toISOString?.() || null,
+          author: {
+            id: String(message.author.id),
+            username: message.author.username,
+            displayName:
+              message.member?.displayName || message.author.globalName || message.author.username,
+            avatar: userAvatarFromDiscord(message.author, 64),
+            bot: !!message.author.bot,
+          },
+          embeds: (message.embeds || []).slice(0, 10).map((embed) => {
+            try {
+              return typeof embed.toJSON === "function" ? embed.toJSON() : embed;
+            } catch {
+              return {
+                title: embed.title || null,
+                description: embed.description || null,
+                color: embed.color ?? null,
+              };
+            }
+          }),
+          attachments: [...message.attachments.values()].map((file) => ({
+            id: String(file.id),
+            name: file.name,
+            url: file.url,
+            contentType: file.contentType || null,
+            width: file.width || null,
+            height: file.height || null,
+          })),
+          mentions: [...message.mentions.users.values()].map((user) => ({
+            id: String(user.id),
+            username: user.username,
+            displayName: user.globalName || user.username,
+          })),
+        }));
+      return json(res, 200, { messages });
+    }
     if (req.method === "POST" && msgChannelMatch) {
       const c = requireDiscord(res);
       if (!c) return;
@@ -266,7 +327,37 @@ async function handle(req, res) {
         return json(res, 400, { error: "That channel cannot receive messages." });
       }
       const sent = await channel.send(payload);
-      return json(res, 200, { id: sent.id, channelId: sent.channelId });
+      const { userAvatarFromDiscord } = require("./api/lib/discordUser");
+      return json(res, 200, {
+        id: sent.id,
+        channelId: sent.channelId,
+        content: sent.content || "",
+        createdAt: sent.createdAt?.toISOString?.() || null,
+        author: {
+          id: String(sent.author.id),
+          username: sent.author.username,
+          displayName: sent.author.globalName || sent.author.username,
+          avatar: userAvatarFromDiscord(sent.author, 64),
+          bot: !!sent.author.bot,
+        },
+        embeds: (sent.embeds || []).slice(0, 10).map((embed) =>
+          typeof embed.toJSON === "function" ? embed.toJSON() : embed
+        ),
+        attachments: [],
+        mentions: [],
+      });
+    }
+
+    const typingMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/channels\/([^/]+)\/typing$/);
+    if (req.method === "POST" && typingMatch) {
+      const c = requireDiscord(res);
+      if (!c) return;
+      const channel = await c.channels.fetch(typingMatch[2]);
+      if (!channel || !channel.isTextBased?.()) {
+        return json(res, 400, { error: "That channel cannot receive messages." });
+      }
+      await channel.sendTyping();
+      return json(res, 200, { ok: true });
     }
 
     const dmMatch = pathname.match(/^\/discord\/users\/([^/]+)\/messages$/);

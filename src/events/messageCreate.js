@@ -24,7 +24,14 @@ module.exports = {
           const parts = message.content.slice(prefix.length).trim().split(/\s+/);
           const name = (parts.shift() || "").toLowerCase();
           const command = client.commands.get(name);
-          if (command?.executePrefix) await command.executePrefix(message, parts, client);
+          if (command?.executePrefix) {
+            try {
+              await command.executePrefix(message, parts, client);
+            } catch (err) {
+              console.error(`prefix ${name}:`, err);
+              await message.reply({ content: "That command failed." }).catch(() => {});
+            }
+          }
         }
       }
     }

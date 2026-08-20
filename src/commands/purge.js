@@ -18,14 +18,23 @@ module.exports = {
     }
     const n = Math.min(100, Math.max(1, Number(args[0]) || 0));
     if (!n) return message.reply({ embeds: [danger("Usage", "`'purge 10`")] });
-    const deleted = await message.channel.bulkDelete(n, true);
-    const reply = await message.channel.send({ embeds: [ok("Purged", `Deleted ${deleted.size} messages.`)] });
-    setTimeout(() => reply.delete().catch(() => {}), 4000);
+    try {
+      await message.delete().catch(() => {});
+      const deleted = await message.channel.bulkDelete(n, true);
+      const reply = await message.channel.send({ embeds: [ok("Purged", `Deleted ${deleted.size} messages.`)] });
+      setTimeout(() => reply.delete().catch(() => {}), 4000);
+    } catch (err) {
+      return message.reply({ embeds: [danger("Failed", err.message)] });
+    }
   },
 
   async executeSlash(interaction) {
     const n = interaction.options.getInteger("amount");
-    const deleted = await interaction.channel.bulkDelete(n, true);
-    return interaction.reply({ embeds: [ok("Purged", `Deleted ${deleted.size} messages.`)], ephemeral: true });
+    try {
+      const deleted = await interaction.channel.bulkDelete(n, true);
+      return interaction.reply({ embeds: [ok("Purged", `Deleted ${deleted.size} messages.`)], ephemeral: true });
+    } catch (err) {
+      return interaction.reply({ embeds: [danger("Failed", err.message)], ephemeral: true });
+    }
   },
 };

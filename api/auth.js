@@ -51,6 +51,10 @@ function isStaff(id) {
   return STAFF_IDS.has(String(id));
 }
 
+function isOwner(id) {
+  return OWNER_IDS.includes(String(id));
+}
+
 function sign(payload) {
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto.createHmac("sha256", secret()).update(body).digest("base64url");
@@ -125,6 +129,7 @@ function publicUser(session) {
     username: session.username,
     avatar: session.avatar,
     staff: isStaff(session.id),
+    owner: isOwner(session.id),
   };
 }
 
@@ -214,7 +219,9 @@ module.exports = {
   mountAuth,
   readSession,
   isStaff,
+  isOwner,
   publicUser,
   websiteUrl,
+  OWNER_IDS,
   STAFF_IDS,
 };

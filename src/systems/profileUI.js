@@ -64,6 +64,14 @@ async function sendProfileToUser(user, guild) {
   return { hasProfile: !!(profile && profile.roblox_username) };
 }
 
+function discordRelative(isoOrDate) {
+  if (!isoOrDate) return "none";
+  const ms = isoOrDate instanceof Date ? isoOrDate.getTime() : new Date(isoOrDate).getTime();
+  if (!Number.isFinite(ms)) return "none";
+  if (ms <= Date.now()) return "ready";
+  return `<t:${Math.floor(ms / 1000)}:R>`;
+}
+
 function profileEmbed(profile, extras = {}) {
   const titleName =
     profile.display_name || profile.roblox_display_name || profile.roblox_username || "Player";
@@ -78,6 +86,11 @@ function profileEmbed(profile, extras = {}) {
     extras.wins || extras.losses
       ? `> **Record:** ${extras.wins || 0}W · ${extras.losses || 0}L`
       : "> No scored matches yet";
+  const cooldownActive = extras.cooldownUntil && new Date(extras.cooldownUntil).getTime() > Date.now();
+  const cooldown = cooldownActive ? discordRelative(extras.cooldownUntil) : "Ready";
+  const threshold = Number(extras.autowinThreshold) || 3;
+  const strikes = Number(extras.autowinStrikes) || 0;
+  const autowin = extras.autowinEnabled === false ? "Off" : `${strikes}/${threshold}`;
 
   const embed = new EmbedBuilder()
     .setColor(brand.color || 0x2b2d31)
@@ -92,7 +105,9 @@ function profileEmbed(profile, extras = {}) {
       { name: "Region", value: api.regions.regionLabel(profile.region), inline: true },
       { name: "Country", value: country, inline: true },
       { name: "Phase", value: extras.stage || "No phase", inline: true },
-      { name: "1v1 Score", value: record, inline: false }
+      { name: "Cooldown", value: cooldown, inline: true },
+      { name: "1v1 Score", value: record, inline: false },
+      { name: "Autowin", value: autowin, inline: true }
     )
     .setFooter({ text: "Profile system" })
     .setTimestamp();
@@ -128,7 +143,28 @@ async function payloadFor(guild, userId) {
   if (!profile) return null;
   const stage = (await maybe(api.ranking.getStage(guild.id, userId))) || "Unranked";
   const record = (await maybe(api.score.getRecord(guild.id, userId))) || { wins: 0, losses: 0 };
-  const embed = profileEmbed(profile, { stage, wins: record.wins, losses: record.losses });
+  let cooldownUntil = null;
+  let autowinStrikes = 0;
+  let autowinThreshold = 3;
+  let autowinEnabled = true;
+  try {
+    const { getScoreConfig, getPlayerState } = require("./tsb/score/config");
+    const cfg = await maybe(getScoreConfig(guild.id));
+    const state = await maybe(getPlayerState(guild.id, userId));
+    cooldownUntil = state?.cooldownUntil || null;
+    autowinStrikes = state?.autowinStrikes || 0;
+    autowinThreshold = cfg?.autowinThreshold ?? 3;
+    autowinEnabled = cfg?.autowinEnabled !== false;
+  } catch {}
+  const embed = profileEmbed(profile, {
+    stage,
+    wins: record.wins,
+    losses: record.losses,
+    cooldownUntil,
+    autowinStrikes,
+    autowinThreshold,
+    autowinEnabled,
+  });
   const files = [];
   const divider = await profileDividerAttachment();
   if (divider) {

@@ -1,11 +1,16 @@
 const fs = require("fs");
 const path = require("path");
 
+function remoteApiUrl() {
+  return String(process.env.API_SERVER_URL || process.env.API_URL || process.env.ASCENDANT_API_URL || "")
+    .trim()
+    .replace(/\/$/, "");
+}
+
 /**
- * Obscura-style resolution:
- * 1) Vendored ./api for Discord command data (always available in this repo)
- * 2) Optional remote HTTP client when API_SERVER_URL is set (shared website API)
- * 3) Sibling NoNameBotAPI for local monorepo work
+ * Shared clan data lives on the website API.
+ * 1) Remote HTTP when API_SERVER_URL is set (Railway bot → Railway API)
+ * 2) Vendored ./api only as a local fallback
  */
 function candidates() {
   const botRoot = path.join(__dirname, "..", "..");
@@ -20,9 +25,16 @@ function candidates() {
 }
 
 function resolveApiModule() {
-  if (process.env.API_SERVER_URL) {
+  const remote = remoteApiUrl();
+  if (remote) {
+    process.env.API_SERVER_URL = remote;
+    console.log(`[api] source of truth: remote ${remote}`);
     return require("./remoteApi");
   }
+
+  console.warn(
+    "[api] API_SERVER_URL is not set — using local JSON. Set it on the bot service so Discord and the website share one store."
+  );
 
   for (const dir of candidates()) {
     const indexJs = path.join(dir, "index.js");
@@ -30,7 +42,7 @@ function resolveApiModule() {
   }
 
   throw new Error(
-    "Cannot find the API package. Expected vendored ./api inside the bot repo (Obscura-style)."
+    "Cannot find the API package. Expected vendored ./api inside the bot repo, or API_SERVER_URL."
   );
 }
 

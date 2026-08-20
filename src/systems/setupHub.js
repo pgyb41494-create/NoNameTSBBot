@@ -29,7 +29,7 @@ function moduleStatus(guildId) {
     { label: "Ranking / Stages", value: "ranking", description: api.ranking.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
     { label: "1v1 Score", value: "score", description: api.score.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
     { label: "Line Up", value: "lineup", description: api.lineup.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
-    { label: "Blacklist", value: "blacklist", description: `${api.blacklist.getList(guildId).entries.length} listed` },
+    { label: "Blacklist", value: "blacklist", description: `${api.blacklist.getList("network").entries.length} on the network list` },
   ];
 }
 
@@ -99,7 +99,7 @@ async function openModule(interaction, key) {
       "Creates `#ascendant-lineups` + `#lineup-na`.\n" +
       "Paste the **draft text block** (region + slots), then type `send` — no buttons.",
     blacklist:
-      "Blacklist is managed on the website (Report + staff Dashboard). No Discord command.",
+      "The network blacklist is public on the website. Only the two bot owners can add or remove people from Network in the dashboard.",
   };
 
   const components = [moduleButtons(key)];

@@ -3,22 +3,61 @@ const { danger, ok } = require("../utils/embeds");
 const { hasMod } = require("../utils/permissions");
 
 const CUSTOM_EMOJI = /<(a)?:(\w+):(\d+)>/g;
+const EMOJI_CDN = /cdn\.discordapp\.com\/emojis\/(\d+)\.(?:png|gif|webp)/i;
 const MAX_STEAL = 5;
 
 function parseCustomEmojis(text) {
   const out = [];
   const seen = new Set();
-  for (const match of String(text || "").matchAll(CUSTOM_EMOJI)) {
+  const raw = String(text || "");
+
+  for (const match of raw.matchAll(CUSTOM_EMOJI)) {
     const id = match[3];
     if (seen.has(id)) continue;
     seen.add(id);
     out.push({ animated: Boolean(match[1]), name: match[2], id });
   }
+
+  for (const match of raw.matchAll(EMOJI_CDN)) {
+    const id = match[1];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      animated: /\.gif/i.test(match[0]),
+      name: `emoji_${id.slice(-6)}`,
+      id,
+    });
+  }
+
+  for (const token of raw.split(/\s+/)) {
+    const id = token.replace(/[<>:]/g, "").trim();
+    if (!/^\d{17,20}$/.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ animated: null, name: `emoji_${id.slice(-6)}`, id });
+  }
+
   return out;
 }
 
 function emojiUrl(emoji) {
-  return `https://cdn.discordapp.com/emojis/${emoji.id}.${emoji.animated ? "gif" : "png"}?quality=lossless`;
+  if (emoji.animated === true) {
+    return `https://cdn.discordapp.com/emojis/${emoji.id}.gif?quality=lossless`;
+  }
+  if (emoji.animated === false) {
+    return `https://cdn.discordapp.com/emojis/${emoji.id}.png?quality=lossless`;
+  }
+  return `https://cdn.discordapp.com/emojis/${emoji.id}.png?quality=lossless`;
+}
+
+async function downloadEmoji(emoji) {
+  let res = await fetch(emojiUrl(emoji));
+  if (!res.ok && emoji.animated == null) {
+    res = await fetch(`https://cdn.discordapp.com/emojis/${emoji.id}.gif?quality=lossless`);
+    if (res.ok) emoji.animated = true;
+  }
+  if (!res.ok) throw new Error(`Could not download ${emoji.name}`);
+  if (emoji.animated == null) emoji.animated = false;
+  return Buffer.from(await res.arrayBuffer());
 }
 
 function safeName(name) {
@@ -69,12 +108,6 @@ async function resolveEmojiSources(interactionOrMessage, args = []) {
   return [];
 }
 
-async function downloadEmoji(emoji) {
-  const res = await fetch(emojiUrl(emoji));
-  if (!res.ok) throw new Error(`Could not download ${emoji.name}`);
-  return Buffer.from(await res.arrayBuffer());
-}
-
 async function stealOne(guild, emoji, actorTag) {
   const buffer = await downloadEmoji(emoji);
   const name = uniqueName(guild, emoji.name);
@@ -97,7 +130,7 @@ async function runSteal(context) {
       embeds: [
         danger(
           "No emoji found",
-          "Send a custom emoji like `'emojisteal <:name:123>` or reply to a message that contains one."
+          "Send a custom emoji (`<:name:123>`), paste the emoji ID, paste a CDN link, or reply to a message that contains one."
         ),
       ],
     });
@@ -143,7 +176,7 @@ module.exports = {
       .setName("emojisteal")
       .setDescription("Add a custom emoji from another server to this one")
       .addStringOption((o) =>
-        o.setName("emoji").setDescription("Custom emoji, or leave empty when replying to a message").setRequired(false)
+        o.setName("emoji").setDescription("Emoji tag, ID, CDN link, or leave empty when replying").setRequired(false)
       )
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuildExpressions),
 

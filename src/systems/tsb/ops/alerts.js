@@ -2,6 +2,20 @@ const { EmbedBuilder } = require("discord.js");
 const { publicStaffAlerts } = require("./store");
 const { COLOR_SURFACE, COLOR_WARN, COLOR_SUCCESS, COLOR_DANGER } = require("../shared/embeds");
 
+function recordNetworkActivity(guildId, event, payload = {}) {
+  const base = String(process.env.API_SERVER_URL || process.env.API_URL || "").replace(/\/$/, "");
+  if (!base || !guildId || !event) return;
+  const token = process.env.API_TOKEN || process.env.BOT_API_TOKEN || "";
+  fetch(`${base}/api/bot/activity`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { "x-bot-token": token } : {}),
+    },
+    body: JSON.stringify({ guildId: String(guildId), event: String(event), payload }),
+  }).catch(() => {});
+}
+
 async function postStaffAlert(guild, eventKey, { title, description, color, fields, user } = {}) {
   if (!guild || !eventKey) return false;
   const cfg = publicStaffAlerts(guild.id);
@@ -33,6 +47,12 @@ async function alertProfile(guild, user, profile) {
   if (!guild || !user) return;
   const roblox = profile?.roblox_username || profile?.robloxUsername || "—";
   const region = profile?.region || "—";
+  recordNetworkActivity(guild.id, "profile", {
+    discordId: user.id,
+    roblox_username: profile?.roblox_username || profile?.robloxUsername,
+    region: profile?.region,
+    country: profile?.country,
+  });
   await postStaffAlert(guild, "profile", {
     title: "Profile registered",
     color: COLOR_SUCCESS,
@@ -46,6 +66,11 @@ async function alertProfile(guild, user, profile) {
 }
 
 async function alertPhase(guild, targetUser, stage, actor) {
+  recordNetworkActivity(guild.id, "phase", {
+    targetId: targetUser?.id,
+    stage,
+    actorId: actor?.id || null,
+  });
   await postStaffAlert(guild, "phase", {
     title: "Rank updated",
     color: COLOR_SURFACE,
@@ -56,6 +81,13 @@ async function alertPhase(guild, targetUser, stage, actor) {
 }
 
 async function alertScore(guild, { winner, loser, scoreDisplay, region, recorder }) {
+  recordNetworkActivity(guild.id, "score", {
+    winnerId: winner?.id,
+    loserId: loser?.id,
+    score: scoreDisplay,
+    region,
+    recorderId: recorder?.id || null,
+  });
   await postStaffAlert(guild, "score", {
     title: "Match recorded",
     color: COLOR_SUCCESS,
@@ -69,6 +101,10 @@ async function alertScore(guild, { winner, loser, scoreDisplay, region, recorder
 }
 
 async function alertChallenge(guild, challenger, target) {
+  recordNetworkActivity(guild.id, "challenge", {
+    fromId: challenger?.id,
+    targetId: target?.id,
+  });
   await postStaffAlert(guild, "challenge", {
     title: "Challenge opened",
     color: COLOR_WARN,
@@ -82,6 +118,12 @@ async function alertDuplicateRoblox(guild, primaryDiscordId, robloxId, robloxUse
     .slice(0, 6)
     .map((p) => `<@${p.discord_id || p.discordId}> · @${p.roblox_username || p.robloxUsername || "?"}`)
     .join("\n");
+  recordNetworkActivity(guild.id, "duplicateRoblox", {
+    primaryDiscordId,
+    robloxId,
+    robloxUsername,
+    others,
+  });
   await postStaffAlert(guild, "duplicateRoblox", {
     title: "Duplicate Roblox account",
     color: COLOR_DANGER,

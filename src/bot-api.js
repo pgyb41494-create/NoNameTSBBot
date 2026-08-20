@@ -233,6 +233,26 @@ function createBotApi(client) {
     }
   });
 
+  app.get("/discord/network/snapshot", (_req, res) => {
+    try {
+      const api = require("./utils/loadApi");
+      const profileList =
+        typeof api.profiles?.allProfiles === "function" ? api.profiles.allProfiles() || [] : [];
+      const stages =
+        typeof api.ranking?.listAllStages === "function" ? api.ranking.listAllStages() || [] : [];
+      const matches =
+        typeof api.score?.listAllMatches === "function" ? api.score.listAllMatches() || [] : [];
+      res.json({
+        profiles: profileList,
+        stages,
+        matches,
+        source: process.env.API_SERVER_URL || process.env.API_URL ? "remote" : "local",
+      });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 

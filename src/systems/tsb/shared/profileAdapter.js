@@ -1,12 +1,12 @@
 const api = require("../../../utils/loadApi");
 
 function getProfileByDiscordId(guildId, userId) {
-  if (!userId) return null;
-  return api.profiles.getProfile(guildId, userId);
+  if (!userId) return Promise.resolve(null);
+  return Promise.resolve(api.profiles.getProfile(guildId, userId));
 }
 
-async function resolveRobloxUser(query) {
-  return api.roblox.resolveRobloxUser(query);
+function resolveRobloxUser(query) {
+  return Promise.resolve(api.roblox.resolveRobloxUser(query));
 }
 
 module.exports = {

@@ -279,7 +279,6 @@ async function handle(req, res) {
     if (req.method === "GET" && msgChannelMatch) {
       const c = requireDiscord(res);
       if (!c) return;
-      const { userAvatarFromDiscord } = require("./api/lib/discordUser");
       const channel = await c.channels.fetch(msgChannelMatch[2]);
       if (!channel || !channel.isTextBased?.()) {
         return json(res, 400, { error: "That channel cannot receive messages." });
@@ -293,46 +292,10 @@ async function handle(req, res) {
         limit,
         ...(before ? { before } : {}),
       });
+      const { publicMessage } = require("./api/lib/publicMessage");
       const messages = [...fetched.values()]
         .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-        .map((message) => ({
-          id: String(message.id),
-          content: message.content || "",
-          createdAt: message.createdAt?.toISOString?.() || null,
-          editedAt: message.editedAt?.toISOString?.() || null,
-          author: {
-            id: String(message.author.id),
-            username: message.author.username,
-            displayName:
-              message.member?.displayName || message.author.globalName || message.author.username,
-            avatar: userAvatarFromDiscord(message.author, 64),
-            bot: !!message.author.bot,
-          },
-          embeds: (message.embeds || []).slice(0, 10).map((embed) => {
-            try {
-              return typeof embed.toJSON === "function" ? embed.toJSON() : embed;
-            } catch {
-              return {
-                title: embed.title || null,
-                description: embed.description || null,
-                color: embed.color ?? null,
-              };
-            }
-          }),
-          attachments: [...message.attachments.values()].map((file) => ({
-            id: String(file.id),
-            name: file.name,
-            url: file.url,
-            contentType: file.contentType || null,
-            width: file.width || null,
-            height: file.height || null,
-          })),
-          mentions: [...message.mentions.users.values()].map((user) => ({
-            id: String(user.id),
-            username: user.username,
-            displayName: user.globalName || user.username,
-          })),
-        }));
+        .map(publicMessage);
       return json(res, 200, { messages });
     }
     if (req.method === "POST" && msgChannelMatch) {
@@ -346,25 +309,8 @@ async function handle(req, res) {
         return json(res, 400, { error: "That channel cannot receive messages." });
       }
       const sent = await channel.send(payload);
-      const { userAvatarFromDiscord } = require("./api/lib/discordUser");
-      return json(res, 200, {
-        id: sent.id,
-        channelId: sent.channelId,
-        content: sent.content || "",
-        createdAt: sent.createdAt?.toISOString?.() || null,
-        author: {
-          id: String(sent.author.id),
-          username: sent.author.username,
-          displayName: sent.author.globalName || sent.author.username,
-          avatar: userAvatarFromDiscord(sent.author, 64),
-          bot: !!sent.author.bot,
-        },
-        embeds: (sent.embeds || []).slice(0, 10).map((embed) =>
-          typeof embed.toJSON === "function" ? embed.toJSON() : embed
-        ),
-        attachments: [],
-        mentions: [],
-      });
+      const { publicMessage } = require("./api/lib/publicMessage");
+      return json(res, 200, publicMessage(sent));
     }
 
     const forumPostsMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/channels\/([^/]+)\/posts$/);
@@ -381,6 +327,7 @@ async function handle(req, res) {
         return json(res, 400, { error: "Channel is not in that server." });
       }
       const { userAvatarFromDiscord } = require("./api/lib/discordUser");
+      const { publicMessage } = require("./api/lib/publicMessage");
 
       if (req.method === "GET") {
         const tagMap = new Map(
@@ -411,17 +358,12 @@ async function handle(req, res) {
           try {
             const msg = await thread.fetchStarterMessage().catch(() => null);
             if (msg) {
+              const full = publicMessage(msg);
               starter = {
-                id: String(msg.id),
-                content: String(msg.content || "").slice(0, 280),
-                createdAt: msg.createdAt?.toISOString?.() || null,
-                author: {
-                  id: String(msg.author.id),
-                  username: msg.author.username,
-                  displayName: msg.member?.displayName || msg.author.globalName || msg.author.username,
-                  avatar: userAvatarFromDiscord(msg.author, 64),
-                  bot: !!msg.author.bot,
-                },
+                id: full.id,
+                content: String(full.content || "").slice(0, 280),
+                createdAt: full.createdAt,
+                author: full.author,
               };
             }
           } catch {}

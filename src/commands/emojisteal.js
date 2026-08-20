@@ -3,7 +3,7 @@ const { danger, ok } = require("../utils/embeds");
 const { hasMod } = require("../utils/permissions");
 
 const CUSTOM_EMOJI = /<(a)?:(\w+):(\d+)>/g;
-const EMOJI_CDN = /cdn\.discordapp\.com\/emojis\/(\d+)\.(?:png|gif|webp)/i;
+const EMOJI_CDN = /cdn\.discordapp\.com\/emojis\/(\d+)\.(?:png|gif|webp)/gi;
 const MAX_STEAL = 5;
 
 function parseCustomEmojis(text) {

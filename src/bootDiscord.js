@@ -175,9 +175,7 @@ module.exports = function bootDiscord(setClient) {
     }
   };
 
-  // v14 emits "ready"; v15 prefers "clientReady"
   client.once("clientReady", onReady);
-  client.once("ready", onReady);
 
   client.login(token).catch((err) => {
     console.error("Discord login failed:", err.message);

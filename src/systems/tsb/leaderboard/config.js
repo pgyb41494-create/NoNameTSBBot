@@ -1,4 +1,5 @@
 const api = require("../../../utils/loadApi");
+const { resolveMaybe } = require("../../../utils/resolveMaybe");
 
 function defaultChallengeTickets() {
   return {
@@ -65,8 +66,7 @@ function defaultConfig(guildId) {
     : api.leaderboard.getConfig(guildId);
 }
 
-function getLeaderboardConfig(guildId) {
-  const cfg = api.leaderboard.getConfig(guildId);
+function normalizeLeaderboardConfig(cfg) {
   if (!cfg.topPerChannel) cfg.topPerChannel = cfg.slotCount || 10;
   if (cfg.suffix == null) cfg.suffix = "default";
   if (!cfg.rankLabel) cfg.rankLabel = "Phase";
@@ -75,6 +75,17 @@ function getLeaderboardConfig(guildId) {
   if (!cfg.boardPages) cfg.boardPages = [];
   cfg.challengeTickets = challengeTicketsOf(cfg);
   return cfg;
+}
+
+function getLeaderboardConfig(guildId) {
+  const cfg = api.leaderboard.getConfig(guildId);
+  if (cfg && typeof cfg.then === "function") return cfg;
+  return normalizeLeaderboardConfig(cfg);
+}
+
+async function getLeaderboardConfigAsync(guildId) {
+  const cfg = await resolveMaybe(api.leaderboard.getConfig(guildId));
+  return normalizeLeaderboardConfig(cfg);
 }
 
 function setLeaderboardConfig(guildId, config) {
@@ -108,6 +119,8 @@ function ensureSlots(guildId, count) {
 
 module.exports = {
   getLeaderboardConfig,
+  getLeaderboardConfigAsync,
+  normalizeLeaderboardConfig,
   setLeaderboardConfig,
   updateLeaderboardConfig,
   ensureSlots,

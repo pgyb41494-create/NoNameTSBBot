@@ -1,5 +1,6 @@
 const { EmbedBuilder, AttachmentBuilder } = require("discord.js");
 const api = require("../utils/loadApi");
+const { resolveMaybe } = require("../utils/resolveMaybe");
 const { formatCardDescription, cardTitle, sanitizeThumbnail, CARD_COLOR, VACANT_COLOR } = api.cards;
 const { brand } = api;
 const { generateLeaderboardBanner } = require("./bannerGenerate");
@@ -28,6 +29,21 @@ function cardEmbed(card, { mode = "leaderboard" } = {}) {
 
   if (!card.empty && thumb) embed.setThumbnail(thumb);
   return embed;
+}
+
+async function enrichCardsFromGuild(guild, cards) {
+  for (const card of cards) {
+    if (card.empty || !card.discordId) continue;
+    const member = await guild.members.fetch(card.discordId).catch(() => null);
+    if (!member) continue;
+    const discordAvatar = member.displayAvatarURL({ extension: "png", size: 256 });
+    if (discordAvatar) card.avatarUrl = card.avatarUrl || discordAvatar;
+    if (!card.discordTag) card.discordTag = `<@${card.discordId}>`;
+    if (!card.robloxUsername) {
+      card.name = member.displayName || member.user.username || card.name;
+    }
+  }
+  return cards;
 }
 
 function emptyPlaceholder(position) {
@@ -68,10 +84,10 @@ async function replaceMessage(channel, existingId, payload) {
 }
 
 async function publishLeaderboard(guild) {
-  const cfg = api.leaderboard.getConfig(guild.id);
+  const cfg = await resolveMaybe(api.leaderboard.getConfig(guild.id));
   const theme = resolveTheme(cfg.theme || "classic");
-  const snap = api.snapshot.publicSnapshot(guild.id);
-  const cards = snap.leaderboard.cards || [];
+  const snap = await resolveMaybe(api.snapshot.publicSnapshot(guild.id));
+  const cards = await enrichCardsFromGuild(guild, [...(snap.leaderboard.cards || [])]);
   const channelIds = cfg.publicChannelIds?.length
     ? cfg.publicChannelIds
     : cfg.publicChannelId
@@ -125,16 +141,18 @@ async function publishLeaderboard(guild) {
     messageIds[`page-${page}`] = await replaceMessage(channel, messageIds[`page-${page}`], payload);
   }
 
-  api.leaderboard.updateConfig(guild.id, {
-    messageIds,
-    setupCompleted: true,
-    theme: theme.id,
-  });
+  await resolveMaybe(
+    api.leaderboard.updateConfig(guild.id, {
+      messageIds,
+      setupCompleted: true,
+      theme: theme.id,
+    })
+  );
 }
 
 async function publishLineup(guild, regionKey = null) {
-  const cfg = api.lineup.getConfig(guild.id);
-  const snap = api.snapshot.publicSnapshot(guild.id);
+  const cfg = await resolveMaybe(api.lineup.getConfig(guild.id));
+  const snap = await resolveMaybe(api.snapshot.publicSnapshot(guild.id));
   const regions = regionKey
     ? snap.lineup.regions.filter((r) => r.key === regionKey)
     : snap.lineup.regions;
@@ -173,7 +191,7 @@ async function publishLineup(guild, regionKey = null) {
       }
     }
   }
-  api.lineup.updateConfig(guild.id, { regions: cfg.regions, setupCompleted: true });
+  await resolveMaybe(api.lineup.updateConfig(guild.id, { regions: cfg.regions, setupCompleted: true }));
 }
 
 module.exports = { cardEmbed, publishLeaderboard, publishLineup };

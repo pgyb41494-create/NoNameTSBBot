@@ -1,6 +1,7 @@
-const { getLeaderboardConfig, updateLeaderboardConfig, ensureSlots } = require("./config");
+const { getLeaderboardConfig, getLeaderboardConfigAsync, updateLeaderboardConfig, ensureSlots } = require("./config");
 const { publishLeaderboard } = require("../../boardPublish");
 const { getOrCreateNamedChannel } = require("../shared/channelReuse");
+const { resolveMaybe } = require("../../../utils/resolveMaybe");
 
 const MAX_TOP = 50;
 
@@ -55,12 +56,12 @@ async function getOrCreatePageChannel(guild, start, end, cfg, existingPage = nul
 }
 
 async function upsertLeaderboard(guild, { createChannels = true } = {}) {
-  const cfg = getLeaderboardConfig(guild.id);
+  const cfg = await getLeaderboardConfigAsync(guild.id);
   if (!createChannels && !cfg.setupCompleted && !(cfg.publicChannelIds || []).length) {
     return { skipped: true, boardPages: [], channelId: null, messageIds: {} };
   }
   const total = Math.max(1, Math.min(MAX_TOP, cfg.topPerChannel || cfg.slotCount || 10));
-  ensureSlots(guild.id, total);
+  await resolveMaybe(ensureSlots(guild.id, total));
   const ranges = getPageRanges(total);
   const previousPages = cfg.boardPages || [];
   const boardPages = [];
@@ -82,26 +83,29 @@ async function upsertLeaderboard(guild, { createChannels = true } = {}) {
     return { skipped: true, boardPages: [], channelId: null, messageIds: {} };
   }
 
-  updateLeaderboardConfig(guild.id, {
-    publicChannelIds,
-    boardPages,
-    leaderboardChannelId: publicChannelIds[0] || null,
-    slotCount: total,
-    topPerChannel: total,
-    setupCompleted: true,
-  });
+  await resolveMaybe(
+    updateLeaderboardConfig(guild.id, {
+      publicChannelIds,
+      boardPages,
+      leaderboardChannelId: publicChannelIds[0] || null,
+      slotCount: total,
+      topPerChannel: total,
+      setupCompleted: true,
+    })
+  );
 
   await publishLeaderboard(guild);
+  const latest = await getLeaderboardConfigAsync(guild.id);
   return {
     channelId: publicChannelIds[0] || null,
     boardPages,
-    messageIds: getLeaderboardConfig(guild.id).messageIds || {},
+    messageIds: latest.messageIds || {},
     edited: true,
   };
 }
 
 async function refreshLeaderboard(guild) {
-  const cfg = getLeaderboardConfig(guild.id);
+  const cfg = await getLeaderboardConfigAsync(guild.id);
   const hasChannels = (cfg.publicChannelIds || []).length || cfg.publicChannelId || cfg.leaderboardChannelId;
   if (!cfg.setupCompleted && !hasChannels) {
     return { skipped: true, boardPages: [], channelId: null, messageIds: {} };

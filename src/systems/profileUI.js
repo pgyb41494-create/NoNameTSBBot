@@ -618,6 +618,7 @@ async function handleProfileInteraction(interaction) {
     if (action === "delete") {
       const guild = await resolveGuild(interaction);
       await maybe(api.profiles.deleteProfile(guild?.id || resolveGuildId(interaction), targetId));
+      refreshBoards(guild, targetId);
       return interaction.update({
         embeds: [ok("Profile deleted", "You can create a new one with `/profile`.")],
         components: [],

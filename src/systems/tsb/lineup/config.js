@@ -1,4 +1,5 @@
 const api = require("../../../utils/loadApi");
+const { resolveMaybe } = require("../../../utils/resolveMaybe");
 
 const DEFAULT_REGIONS = [
   { key: "na", label: "NA" },
@@ -28,8 +29,7 @@ const DEFAULT_REGIONS = [
   { key: "sydney", label: "Sydney" },
 ];
 
-function getLineupConfig(guildId) {
-  const cfg = api.lineup.getConfig(guildId);
+function normalizeLineupConfig(cfg) {
   if (!cfg.enabledRegionKeys) {
     cfg.enabledRegionKeys = Object.keys(cfg.regions || {}).filter((k) => cfg.regions[k]);
   }
@@ -37,6 +37,17 @@ function getLineupConfig(guildId) {
   if (!cfg.subSlotsPerRegion) cfg.subSlotsPerRegion = cfg.slotsPerRegion;
   if (!cfg.allowedRoles) cfg.allowedRoles = [];
   return cfg;
+}
+
+function getLineupConfig(guildId) {
+  const cfg = api.lineup.getConfig(guildId);
+  if (cfg && typeof cfg.then === "function") return cfg;
+  return normalizeLineupConfig(cfg);
+}
+
+async function getLineupConfigAsync(guildId) {
+  const cfg = await resolveMaybe(api.lineup.getConfig(guildId));
+  return normalizeLineupConfig(cfg);
 }
 
 function setLineupConfig(guildId, config) {
@@ -120,6 +131,8 @@ function setRegionSlot(guildId, regionKey, position, discordId, board = "main") 
 module.exports = {
   DEFAULT_REGIONS,
   getLineupConfig,
+  getLineupConfigAsync,
+  normalizeLineupConfig,
   setLineupConfig,
   updateLineupConfig,
   ensureRegions,

@@ -1,6 +1,6 @@
-const { getLineupConfig } = require("../lineup/config");
+const { getLineupConfigAsync } = require("../lineup/config");
 const { publishRegionLineup } = require("../lineup/renderer");
-const { getLeaderboardConfig } = require("../leaderboard/config");
+const { getLeaderboardConfigAsync } = require("../leaderboard/config");
 const { refreshLeaderboard } = require("../leaderboard/renderer");
 
 async function refreshUserBoards(guild, discordId) {
@@ -9,7 +9,7 @@ async function refreshUserBoards(guild, discordId) {
   const results = { lineup: [], leaderboard: null };
 
   try {
-    const lu = getLineupConfig(guild.id);
+    const lu = await getLineupConfigAsync(guild.id);
     for (const key of lu.enabledRegionKeys || Object.keys(lu.regions || {})) {
       const region = lu.regions?.[key];
       if (!region) continue;
@@ -24,7 +24,7 @@ async function refreshUserBoards(guild, discordId) {
   }
 
   try {
-    const lb = getLeaderboardConfig(guild.id);
+    const lb = await getLeaderboardConfigAsync(guild.id);
     const onBoard = (lb.slots || []).some((s) => String(s.discordId || "") === id);
     if (onBoard && lb.setupCompleted) results.leaderboard = await refreshLeaderboard(guild);
   } catch (err) {

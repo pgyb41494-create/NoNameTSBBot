@@ -15,7 +15,7 @@ module.exports = {
     const user = message.mentions.users.first();
     if (!user) return message.reply({ embeds: [danger("Usage", "`'challenge @user`")] });
     try {
-      api.challenges.createChallenge(message.guild.id, message.author.id, user.id);
+      await Promise.resolve(api.challenges.createChallenge(message.guild.id, message.author.id, user.id));
       await publishLeaderboard(message.guild).catch(() => {});
       return message.reply({ embeds: [ok("Challenge posted", `${message.author} → ${user}`)] });
     } catch (err) {
@@ -25,7 +25,7 @@ module.exports = {
 
   async executeSlash(interaction) {
     const user = interaction.options.getUser("user");
-    api.challenges.createChallenge(interaction.guildId, interaction.user.id, user.id);
+    await Promise.resolve(api.challenges.createChallenge(interaction.guildId, interaction.user.id, user.id));
     await publishLeaderboard(interaction.guild).catch(() => {});
     return interaction.reply({ embeds: [ok("Challenge posted", `${interaction.user} → ${user}`)] });
   },

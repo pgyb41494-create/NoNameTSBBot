@@ -147,6 +147,12 @@ module.exports = function bootDiscord(setClient) {
     } catch (err) {
       console.error(`Slash sync failed for ${guild.name}:`, err.message);
     }
+    try {
+      const { sendGuildJoinWelcome } = require("./systems/tsb/shared/guildJoinWelcome");
+      await sendGuildJoinWelcome(guild);
+    } catch (err) {
+      console.warn(`guildCreate welcome failed for ${guild.name}:`, err.message);
+    }
   });
 
   let readyHandled = false;

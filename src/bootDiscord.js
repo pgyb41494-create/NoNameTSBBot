@@ -135,6 +135,13 @@ module.exports = function bootDiscord(setClient) {
     } catch {}
   });
 
+  client.on("typingStart", (typing) => {
+    try {
+      const { noteTyping } = require("./systems/tsb/ops/typingCache");
+      noteTyping(typing.channel?.id || typing.channelId, typing.user, typing.member);
+    } catch {}
+  });
+
   client.on("guildCreate", async (guild) => {
     try {
       await Promise.resolve(api.guilds.updateGuild(guild.id, { name: guild.name }));

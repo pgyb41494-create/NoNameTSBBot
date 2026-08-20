@@ -112,6 +112,16 @@ function createBotApi(client) {
     }
   });
 
+  app.get("/discord/guilds/:guildId/channels/:channelId/typing", async (req, res) => {
+    try {
+      const client = botBridge.getClient();
+      const { listTyping } = require("./systems/tsb/ops/typingCache");
+      res.json({ typing: listTyping(req.params.channelId, client?.user?.id) });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
   app.get("/discord/guilds/:guildId/roles", async (req, res) => {
     try {
       res.json(await botBridge.listRoles(req.params.guildId));

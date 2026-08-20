@@ -231,13 +231,14 @@ async function handle(req, res) {
           );
         }
       }
-      await guild.members.fetch({ limit: 40 }).catch(() => {});
+      await guild.members.fetch({ limit: 100 }).catch(() => {});
       return json(
         res,
         200,
         [...guild.members.cache.values()]
           .filter((m) => !m.user.bot)
-          .slice(0, 40)
+          .sort((a, b) => String(a.displayName || "").localeCompare(String(b.displayName || "")))
+          .slice(0, 100)
           .map((m) => ({
             id: m.id,
             username: m.user.username,
@@ -349,6 +350,14 @@ async function handle(req, res) {
     }
 
     const typingMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/channels\/([^/]+)\/typing$/);
+    if (req.method === "GET" && typingMatch) {
+      const c = requireDiscord(res);
+      if (!c) return;
+      const { listTyping } = require("./src/systems/tsb/ops/typingCache");
+      return json(res, 200, {
+        typing: listTyping(typingMatch[2], c.user?.id),
+      });
+    }
     if (req.method === "POST" && typingMatch) {
       const c = requireDiscord(res);
       if (!c) return;

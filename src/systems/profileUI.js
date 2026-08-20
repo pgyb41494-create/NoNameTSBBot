@@ -83,13 +83,11 @@ function profileEmbed(profile, extras = {}) {
     .setColor(brand.color || 0x2b2d31)
     .setTitle(`Profile: ${titleName}`)
     .addFields(
-      { name: "Display Name", value: profile.display_name || "—", inline: true },
       {
         name: "Roblox",
         value: robloxUrl ? `[@${robloxUsername}](${robloxUrl})` : robloxUsername,
         inline: true,
       },
-      { name: "Roblox Display Name", value: profile.roblox_display_name || "—", inline: true },
       { name: "Main Character", value: profile.main_character || "—", inline: true },
       { name: "Region", value: api.regions.regionLabel(profile.region), inline: true },
       { name: "Country", value: country, inline: true },

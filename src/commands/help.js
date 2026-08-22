@@ -46,7 +46,7 @@ function helpEmbed() {
       "",
       "**Moderation**",
       `\`${p}kick\` \`${p}ban\` \`${p}unban\` \`${p}timeout\` \`${p}purge\` (slash too)`,
-      `\`${p}emojisteal\` / \`/emojisteal\` — copy a custom emoji into this server`,
+      `\`${p}emojisteal\` / \`/emojisteal\` — copy custom emojis (IDs, tags, or comma lists)`,
       "",
       "**Info**",
       "`/help` `/serverinfo` `/userinfo` `/avatar`",

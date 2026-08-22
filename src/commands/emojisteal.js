@@ -4,7 +4,7 @@ const { hasMod } = require("../utils/permissions");
 
 const CUSTOM_EMOJI = /<(a)?:(\w+):(\d+)>/g;
 const EMOJI_CDN = /cdn\.discordapp\.com\/emojis\/(\d+)\.(?:png|gif|webp)/gi;
-const MAX_STEAL = 5;
+const MAX_STEAL = 20;
 
 function parseCustomEmojis(text) {
   const out = [];
@@ -29,7 +29,7 @@ function parseCustomEmojis(text) {
     });
   }
 
-  for (const token of raw.split(/\s+/)) {
+  for (const token of raw.split(/[\s,;|]+/)) {
     const id = token.replace(/[<>:]/g, "").trim();
     if (!/^\d{17,20}$/.test(id) || seen.has(id)) continue;
     seen.add(id);
@@ -130,7 +130,7 @@ async function runSteal(context) {
       embeds: [
         danger(
           "No emoji found",
-          "Send a custom emoji (`<:name:123>`), paste the emoji ID, paste a CDN link, or reply to a message that contains one."
+          "Send custom emojis (`<:name:123>`), IDs (`123, 456, 789`), CDN links, or reply to a message that has them."
         ),
       ],
     });
@@ -176,7 +176,10 @@ module.exports = {
       .setName("emojisteal")
       .setDescription("Add a custom emoji from another server to this one")
       .addStringOption((o) =>
-        o.setName("emoji").setDescription("Emoji tag, ID, CDN link, or leave empty when replying").setRequired(false)
+        o
+          .setName("emoji")
+          .setDescription("Emoji tags, IDs (comma-separated), CDN links, or leave empty when replying")
+          .setRequired(false)
       )
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuildExpressions),
 

@@ -57,12 +57,14 @@ module.exports = {
           .setDescription("Section")
           .addChoices(
             { name: "Overview", value: "overview" },
+            { name: "About TSBCC", value: "about" },
             { name: "Blacklist", value: "blacklist" },
             { name: "Blacklist (cont.)", value: "blacklist2" },
             { name: "Bail", value: "bail" },
             { name: "Clan verification", value: "verification" },
             { name: "War rights", value: "wars" },
-            { name: "FAQ", value: "faq" }
+            { name: "FAQ", value: "faq" },
+            { name: "Links", value: "links" }
           )
       ),
 
@@ -78,6 +80,8 @@ module.exports = {
 
 function normalizeSection(raw) {
   const t = String(raw || "").toLowerCase();
+  if (/link|invite|vanity|advertise|ticket|register|promote|agent/.test(t)) return "links";
+  if (/about|tsbcc is|community|founded|vanity/.test(t)) return "about";
   if (/bail/.test(t)) return "bail";
   if (/verif|clan apply|100 member/.test(t)) return "verification";
   if (/faq|question/.test(t)) return "faq";

@@ -7,7 +7,7 @@ module.exports = {
   slash: () =>
     new SlashCommandBuilder()
       .setName("ask")
-      .setDescription("Ask a TSBCC / LATAM rules question")
+      .setDescription("Ask a TSBCC rules question")
       .addStringOption((o) =>
         o.setName("question").setDescription("Your TSBCC question").setRequired(true).setMaxLength(800)
       )
@@ -25,7 +25,7 @@ module.exports = {
     const parsed = parseAskArgs(args);
     if (!parsed.question) {
       return message.reply({
-        content: "`'ask <TSBCC question>` — e.g. `'ask challenge cooldown`\nSpanish: `'ask es cooldown de retos`",
+        content: "`'ask <TSBCC question>` — e.g. `'ask can I dodge a war`",
         allowedMentions: { repliedUser: false },
       });
     }

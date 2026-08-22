@@ -14,8 +14,6 @@ const { isAdminOrOwner } = require("../shared/permissions");
 const { tsbEmbed, COLOR_PRIMARY } = require("../shared/embeds");
 const { danger, ok } = require("../../../utils/embeds");
 const {
-  DEFAULT_TITLE,
-  DEFAULT_BODY,
   getConfig,
   updateConfig,
   safeText,
@@ -36,9 +34,11 @@ const ID = {
 };
 
 function interpolate(template, vars) {
-  return String(template || "").replace(/\{([a-z0-9_]+)\}/gi, (_, key) => {
-    const found = vars[String(key).toLowerCase()];
-    return found == null ? `{${key}}` : String(found);
+  return String(template || "").replace(/\{([a-z0-9_]+)\}/gi, (full, key) => {
+    const id = String(key).toLowerCase();
+    if (id === "v2line" || id === "v2_line") return full;
+    const found = vars[id];
+    return found == null ? full : String(found);
   });
 }
 
@@ -53,54 +53,76 @@ function buildVars(guild) {
   };
 }
 
+function splitV2Line(text) {
+  return String(text || "").split(/\{v2line\}|\{v2_line\}/gi);
+}
+
 function fill(text, vars, max) {
-  return interpolate(text, vars)
-    .replace(/\{v2\}/gi, "")
-    .replace(/\{records\}/gi, "")
-    .replace(/\{record_count\}/gi, "")
-    .replace(/\{score_points\}/gi, "")
-    .replace(/\{mvps\}/gi, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .slice(0, max);
+  return interpolate(text, vars).slice(0, max);
+}
+
+function addText(container, content, thumbnail) {
+  const sliced = String(content || "").trim();
+  if (!sliced) return false;
+  const body = sliced.slice(0, 4000);
+  if (thumbnail) {
+    container.addSectionComponents((section) =>
+      section
+        .addTextDisplayComponents((td) => td.setContent(body))
+        .setThumbnailAccessory((acc) => acc.setURL(thumbnail))
+    );
+  } else {
+    container.addTextDisplayComponents((td) => td.setContent(body));
+  }
+  return true;
+}
+
+function addDivider(container) {
+  container.addSeparatorComponents((sep) =>
+    sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+  );
 }
 
 async function buildPayload(guild, cfg = getConfig(guild.id)) {
   const vars = buildVars(guild);
   const title = fill(cfg.title || "", vars, 256).trim();
-  const body = fill(cfg.body || DEFAULT_BODY, vars, 3900).trim() || "\u200b";
+  const body = fill(cfg.body || "", vars, 3900);
   const footer = fill(cfg.footer || "", vars, 500).trim();
   const gif = safeUrl(cfg.gif);
   const thumbnail = safeUrl(cfg.thumbnail);
   const color = parseColor(cfg.color);
   const container = new ContainerBuilder().setAccentColor(color);
+  let usedThumb = false;
 
   if (gif) {
     container.addMediaGalleryComponents(
       new MediaGalleryBuilder().addItems((item) => item.setURL(gif))
     );
-    container.addSeparatorComponents((sep) =>
-      sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small)
-    );
   }
 
-  const heading = title ? `# ${title}` : "";
-  const main = heading ? `${heading}\n${body}` : body;
+  const chunks = splitV2Line(body);
+  let wrote = false;
 
-  if (thumbnail) {
-    container.addSectionComponents((section) =>
-      section
-        .addTextDisplayComponents((td) => td.setContent(main.slice(0, 4000)))
-        .setThumbnailAccessory((acc) => acc.setURL(thumbnail))
-    );
-  } else {
-    container.addTextDisplayComponents((td) => td.setContent(main.slice(0, 4000)));
+  if (title) {
+    wrote = addText(container, `# ${title}`, thumbnail) || wrote;
+    usedThumb = !!thumbnail;
   }
+
+  chunks.forEach((chunk, index) => {
+    if (index > 0) addDivider(container);
+    const text = String(chunk || "").trim();
+    if (!text) return;
+    wrote = addText(container, text, !usedThumb && thumbnail ? thumbnail : "") || wrote;
+    if (!usedThumb && thumbnail) usedThumb = true;
+  });
 
   if (footer) {
-    container.addSeparatorComponents((sep) =>
-      sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small)
-    );
-    container.addTextDisplayComponents((td) => td.setContent(`-# ${footer}`));
+    addDivider(container);
+    wrote = addText(container, `-# ${footer}`) || wrote;
+  }
+
+  if (!wrote && !gif) {
+    addText(container, "\u200b");
   }
 
   return {
@@ -136,9 +158,15 @@ async function refreshPosted(guild) {
 
 function varsHelp() {
   return [
-    "Write the whole card yourself. Optional inserts:",
-    "`{server}` `{guild}` `{name}` — server name",
-    "`{members}` `{owner}` `{created}`",
+    "Title, body, and footer start empty — write them yourself.",
+    "",
+    "`{v2line}` — Discord divider between two text blocks:",
+    "```",
+    "Message above",
+    "{v2line}",
+    "Message below",
+    "```",
+    "`{server}` `{members}` `{owner}` `{created}`",
   ].join("\n");
 }
 
@@ -194,6 +222,7 @@ function modal(customId, title, fields) {
       .setStyle(field.style || TextInputStyle.Paragraph)
       .setRequired(field.required === true)
       .setMaxLength(field.max || 4000);
+    if (field.placeholder) input.setPlaceholder(String(field.placeholder).slice(0, 100));
     const value = String(field.value || "").slice(0, field.max || 4000);
     if (value) input.setValue(value);
     builder.addComponents(new ActionRowBuilder().addComponents(input));
@@ -234,14 +263,15 @@ async function handleAboutInteraction(interaction) {
             label: "Title",
             style: TextInputStyle.Short,
             max: 256,
-            value: cfg.title || DEFAULT_TITLE,
+            value: cfg.title,
+            placeholder: "Leave empty for no title",
           },
           {
             id: "body",
-            label: "Body (markdown, quotes, lists)",
+            label: "Body — use {v2line} for a divider",
             max: 3900,
-            value: cfg.body || DEFAULT_BODY,
-            required: true,
+            value: cfg.body,
+            placeholder: "Message above\n{v2line}\nMessage below",
           },
           {
             id: "footer",
@@ -249,6 +279,7 @@ async function handleAboutInteraction(interaction) {
             style: TextInputStyle.Short,
             max: 500,
             value: cfg.footer,
+            placeholder: "Leave empty for no footer",
           },
         ])
       );

@@ -26,7 +26,7 @@ function helpEmbed() {
       `\`${p}verify\` / \`/verify\` — staff posts the panel · members get \`/profile\` in DMs`,
       `\`${p}invitetracker on|off\` / \`/invitetracker\` — join tracking · channel + message on the dashboard`,
       `\`${p}panel <key>\` / \`/panel\` — send a saved dashboard panel (roles / reply / link buttons)`,
-      `\`${p}aboutserver\` / \`/aboutserver\` — editable GIF card (title, body, footer)`,
+      `\`${p}aboutserver\` / \`/aboutserver\` — editable GIF card; \`{v2line}\` adds a divider`,
       "",
       "**Profile & coach**",
       `\`/profile\` · \`${p}profile\``,

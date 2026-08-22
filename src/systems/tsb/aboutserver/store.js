@@ -2,16 +2,6 @@ const { createJsonStore } = require("../../../../api/store/jsonStore");
 
 const store = createJsonStore("aboutserver.json", {});
 
-const DEFAULT_TITLE = "Wars Records";
-const DEFAULT_BODY = [
-  "**Wars Records** is the official archive that gathers every historical feat and competitive record of the clan, preserving each victory for the ages.",
-  "",
-  "> **5-0** to **{server}** against **Silence**",
-  "> **5-1** to **{server}** against **iHeavenly**",
-  ">",
-].join("\n");
-const DEFAULT_FOOTER = "";
-
 function safeText(value, max) {
   return String(value ?? "").slice(0, max);
 }
@@ -32,25 +22,39 @@ function defaultConfig() {
   return {
     gif: "",
     thumbnail: "",
-    title: DEFAULT_TITLE,
-    body: DEFAULT_BODY,
-    footer: DEFAULT_FOOTER,
+    title: "",
+    body: "",
+    footer: "",
     color: "2B2D31",
     channelId: "",
     messageId: "",
   };
 }
 
+function isStockTemplate(cfg) {
+  const body = String(cfg.body || "");
+  return (
+    body.includes("official archive that gathers every historical feat") ||
+    (body.includes("{v2}") && body.includes("{records}"))
+  );
+}
+
 function getConfig(guildId) {
   const db = store.load();
   const current = db[String(guildId)] || {};
-  return { ...defaultConfig(), ...current };
+  const merged = { ...defaultConfig(), ...current };
+  if (isStockTemplate(current) && !current.clearedStock) {
+    merged.title = "";
+    merged.body = "";
+    merged.footer = "";
+  }
+  return merged;
 }
 
 function updateConfig(guildId, patch) {
   let next = null;
   store.updateSync((db) => {
-    next = { ...getConfig(guildId), ...patch };
+    next = { ...getConfig(guildId), ...patch, clearedStock: true };
     delete next.records;
     delete next.v2;
     delete next.recordCount;
@@ -63,9 +67,6 @@ function updateConfig(guildId, patch) {
 }
 
 module.exports = {
-  DEFAULT_TITLE,
-  DEFAULT_BODY,
-  DEFAULT_FOOTER,
   safeText,
   safeUrl,
   parseColor,

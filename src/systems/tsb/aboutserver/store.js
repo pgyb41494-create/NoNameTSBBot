@@ -2,25 +2,15 @@ const { createJsonStore } = require("../../../../api/store/jsonStore");
 
 const store = createJsonStore("aboutserver.json", {});
 
+const DEFAULT_TITLE = "Wars Records";
 const DEFAULT_BODY = [
   "**Wars Records** is the official archive that gathers every historical feat and competitive record of the clan, preserving each victory for the ages.",
   "",
-  "{records}",
-  "",
-  "{v2}",
-].join("\n");
-
-const DEFAULT_RECORDS = [
   "> **5-0** to **{server}** against **Silence**",
   "> **5-1** to **{server}** against **iHeavenly**",
   ">",
 ].join("\n");
-
-const DEFAULT_V2 = [
-  "┌ Records: {record_count}",
-  "├ Total Score Points: {score_points}",
-  "└ MVPS: {mvps}",
-].join("\n");
+const DEFAULT_FOOTER = "";
 
 function safeText(value, max) {
   return String(value ?? "").slice(0, max);
@@ -32,15 +22,20 @@ function safeUrl(value) {
   return raw.slice(0, 500);
 }
 
+function parseColor(value) {
+  const raw = String(value || "").replace(/^#/, "").trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(raw)) return 0x2b2d31;
+  return parseInt(raw, 16);
+}
+
 function defaultConfig() {
   return {
     gif: "",
+    thumbnail: "",
+    title: DEFAULT_TITLE,
     body: DEFAULT_BODY,
-    records: DEFAULT_RECORDS,
-    v2: DEFAULT_V2,
-    recordCount: "",
-    scorePoints: "",
-    mvps: "",
+    footer: DEFAULT_FOOTER,
+    color: "2B2D31",
     channelId: "",
     messageId: "",
   };
@@ -56,6 +51,11 @@ function updateConfig(guildId, patch) {
   let next = null;
   store.updateSync((db) => {
     next = { ...getConfig(guildId), ...patch };
+    delete next.records;
+    delete next.v2;
+    delete next.recordCount;
+    delete next.scorePoints;
+    delete next.mvps;
     db[String(guildId)] = next;
     return db;
   });
@@ -63,11 +63,12 @@ function updateConfig(guildId, patch) {
 }
 
 module.exports = {
+  DEFAULT_TITLE,
   DEFAULT_BODY,
-  DEFAULT_RECORDS,
-  DEFAULT_V2,
+  DEFAULT_FOOTER,
   safeText,
   safeUrl,
+  parseColor,
   defaultConfig,
   getConfig,
   updateConfig,

@@ -21,7 +21,7 @@ function usage() {
     title: "About server",
     color: COLOR_PRIMARY,
     description: [
-      `Post a Components v2 card (GIF on top + text with variables).`,
+      `Post an editable v2 card (GIF, title, body, footer).`,
       "",
       `\`${p}aboutserver\` — editor`,
       `\`${p}aboutserver post\` — post / update in this channel`,

@@ -37,7 +37,7 @@ module.exports = {
       const result = await api.coach.askTsbl(parsed);
       return pending.edit(formatAsk(result));
     } catch (err) {
-      return pending.edit({ content: err.message || "Ask failed.", embeds: [] });
+      return pending.edit({ content: safeAskError(err), embeds: [] });
     }
   },
 
@@ -49,7 +49,7 @@ module.exports = {
       const result = await api.coach.askTsbl({ question, lang });
       return interaction.editReply(formatAsk(result));
     } catch (err) {
-      return interaction.editReply({ content: err.message || "Ask failed.", embeds: [] });
+      return interaction.editReply({ content: safeAskError(err), embeds: [] });
     }
   },
 };
@@ -63,6 +63,15 @@ function parseAskArgs(args) {
     return { question: m[2].trim(), lang };
   }
   return { question: raw };
+}
+
+function safeAskError(err) {
+  const m = String(err?.message || "");
+  if (/ASK_BLOCKED|prohibited use|input blocked/i.test(m)) {
+    return "Couldn't answer that. Try a specific TSBCC rules question, e.g. `'ask war range`.";
+  }
+  const stripped = m.replace(/https?:\/\/\S+/gi, "").trim();
+  return stripped.slice(0, 400) || "Ask failed.";
 }
 
 function formatAsk(result) {

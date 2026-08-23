@@ -7,9 +7,9 @@ module.exports = {
   slash: () =>
     new SlashCommandBuilder()
       .setName("ask")
-      .setDescription("Ask a TSBCC rules question")
+      .setDescription("Chat with Ascendant (TSBCC rules + anything else)")
       .addStringOption((o) =>
-        o.setName("question").setDescription("Your TSBCC question").setRequired(true).setMaxLength(800)
+        o.setName("question").setDescription("Anything you want to ask").setRequired(true).setMaxLength(800)
       )
       .addStringOption((o) =>
         o
@@ -25,7 +25,7 @@ module.exports = {
     const parsed = parseAskArgs(args);
     if (!parsed.question) {
       return message.reply({
-        content: "`'ask <TSBCC question>` — e.g. `'ask can I dodge a war`",
+        content: "`'ask <anything>` — e.g. `'ask hi` or `'ask can I dodge a war`",
         allowedMentions: { repliedUser: false },
       });
     }
@@ -67,9 +67,6 @@ function parseAskArgs(args) {
 
 function safeAskError(err) {
   const m = String(err?.message || "");
-  if (/ASK_BLOCKED|prohibited use|input blocked/i.test(m)) {
-    return "Couldn't answer that. Try a specific TSBCC rules question, e.g. `'ask war range`.";
-  }
   const stripped = m.replace(/https?:\/\/\S+/gi, "").trim();
   return stripped.slice(0, 400) || "Ask failed.";
 }

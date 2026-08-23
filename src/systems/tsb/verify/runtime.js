@@ -3,6 +3,7 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
+  MessageFlags,
   PermissionFlagsBits,
 } = require("discord.js");
 const api = require("../../../utils/loadApi");
@@ -27,6 +28,25 @@ const START_ID = "tsb:verify:start";
 const APPROVE_ID = "tsb:verify:approve";
 const DENY_ID = "tsb:verify:deny";
 const CLOSE_ID = "tsb:verify:close";
+
+async function deferPrivately(interaction) {
+  if (interaction.deferred || interaction.replied) return;
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+}
+
+async function replyPrivately(interaction, payload) {
+  const data = { ...payload };
+  delete data.ephemeral;
+  data.flags = MessageFlags.Ephemeral;
+  if (interaction.deferred) return interaction.editReply(data);
+  if (interaction.replied) return interaction.followUp(data);
+  return interaction.reply(data);
+}
+
+async function ackButton(interaction) {
+  if (interaction.deferred || interaction.replied) return;
+  await interaction.deferUpdate();
+}
 
 function canPostPanel(member, guild) {
   if (isAdminOrOwner(member, guild)) return true;
@@ -311,16 +331,16 @@ async function startVerification(interaction) {
   const member = interaction.member;
   const addIds = actions.approve.addRoleIds;
   if (addIds.length && addIds.every((id) => member?.roles?.cache?.has(id))) {
-    return interaction.reply({ content: "You're already verified.", ephemeral: true });
+    return replyPrivately(interaction, { content: "You're already verified." });
   }
+
+  await deferPrivately(interaction);
+
   const open = findOpenTicket(guild.id, user.id);
   if (open?.ticketChannelId) {
     const ch = await guild.channels.fetch(open.ticketChannelId).catch(() => null);
     if (ch) {
-      return interaction.reply({
-        content: `You already have a ticket: ${ch}`,
-        ephemeral: true,
-      });
+      return replyPrivately(interaction, { content: `You already have a ticket: ${ch}` });
     }
   }
 
@@ -348,25 +368,23 @@ async function startVerification(interaction) {
   if (hasProfile) {
     const channel = await openTicket(guild, user);
     if (!dmOk) {
-      return interaction.reply({
+      return replyPrivately(interaction, {
         content: `I couldn't DM you (enable DMs from server members). Ticket opened: ${channel}`,
-        ephemeral: true,
       });
     }
-    return interaction.reply({ content: `Check your DMs. Ticket opened: ${channel}`, ephemeral: true });
+    return replyPrivately(interaction, { content: `Check your DMs. Ticket opened: ${channel}` });
   }
 
   if (!dmOk) {
-    return interaction.reply({
-      ephemeral: true,
+    const prompt = registerPrompt(user.id);
+    return replyPrivately(interaction, {
+      ...prompt,
       content: "I couldn't DM you — enable DMs from server members, then press **Start verification** again.",
-      ...registerPrompt(user.id),
     });
   }
 
-  return interaction.reply({
+  return replyPrivately(interaction, {
     content: "Check your DMs and finish `/profile` there. A ticket opens when you're done.",
-    ephemeral: true,
   });
 }
 
@@ -392,13 +410,14 @@ async function handleApprove(interaction) {
   const cfg = getConfig(interaction.guild.id);
   const actions = publicConfig(interaction.guild.id);
   if (!canStaffTicket(interaction.member, interaction.guild, cfg)) {
-    return interaction.reply({ content: "Staff only.", ephemeral: true });
+    return replyPrivately(interaction, { content: "Staff only." });
   }
   const ticket = getTicket(interaction.guild.id, interaction.channel.id);
   const userId = ticket?.userId || interaction.channel.topic?.replace(/^verify:/, "");
   if (!userId) {
-    return interaction.reply({ content: "This is not a verification ticket.", ephemeral: true });
+    return replyPrivately(interaction, { content: "This is not a verification ticket." });
   }
+  await ackButton(interaction);
   const member = await interaction.guild.members.fetch(userId).catch(() => null);
   const profile = await Promise.resolve(api.profiles.getProfile(interaction.guild.id, userId)).catch(() => null);
   const reason = `Verified by ${interaction.user.tag}`;
@@ -414,7 +433,7 @@ async function handleApprove(interaction) {
   }
   setTicket(interaction.guild.id, interaction.channel.id, { status: "approved" });
   setPending(interaction.guild.id, userId, { status: "approved" });
-  await interaction.update({ components: [] }).catch(() => {});
+  await interaction.message.edit({ components: [] }).catch(() => {});
   const added = actions.approve.addRoleIds.map((id) => `<@&${id}>`).join(" ") || "none";
   const removed = actions.approve.removeRoleIds.map((id) => `<@&${id}>`).join(" ");
   await interaction.channel.send({
@@ -451,17 +470,18 @@ async function handleDeny(interaction) {
   const cfg = getConfig(interaction.guild.id);
   const actions = publicConfig(interaction.guild.id);
   if (!canStaffTicket(interaction.member, interaction.guild, cfg)) {
-    return interaction.reply({ content: "Staff only.", ephemeral: true });
+    return replyPrivately(interaction, { content: "Staff only." });
   }
   const ticket = getTicket(interaction.guild.id, interaction.channel.id);
   const userId = ticket?.userId || interaction.channel.topic?.replace(/^verify:/, "");
   if (!userId) {
-    return interaction.reply({ content: "This is not a verification ticket.", ephemeral: true });
+    return replyPrivately(interaction, { content: "This is not a verification ticket." });
   }
+  await ackButton(interaction);
   const privateMode = actions.deny.mode === "private";
   setTicket(interaction.guild.id, interaction.channel.id, { status: "denied" });
   setPending(interaction.guild.id, userId, { status: "denied", ticketChannelId: privateMode ? interaction.channel.id : null });
-  await interaction.update({ components: [] }).catch(() => {});
+  await interaction.message.edit({ components: [] }).catch(() => {});
 
   if (privateMode) {
     await interaction.channel.permissionOverwrites.delete(userId).catch(async () => {
@@ -512,13 +532,14 @@ async function handleDeny(interaction) {
 async function handleClose(interaction) {
   const cfg = getConfig(interaction.guild.id);
   if (!canStaffTicket(interaction.member, interaction.guild, cfg)) {
-    return interaction.reply({ content: "Staff only.", ephemeral: true });
+    return replyPrivately(interaction, { content: "Staff only." });
   }
+  await ackButton(interaction);
   const ticket = getTicket(interaction.guild.id, interaction.channel.id);
   const userId = ticket?.userId || interaction.channel.topic?.replace(/^verify:/, "");
   setTicket(interaction.guild.id, interaction.channel.id, { status: "closed" });
   if (userId) setPending(interaction.guild.id, userId, { status: "closed", ticketChannelId: null });
-  await interaction.reply({ content: "Closing this ticket in 5 seconds." });
+  await interaction.channel.send({ content: "Closing this ticket in 5 seconds." }).catch(() => {});
   await postAudit(interaction.guild, {
     title: "Verification ticket closed",
     color: COLOR_PRIMARY,

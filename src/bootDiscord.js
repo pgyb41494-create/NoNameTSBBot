@@ -52,8 +52,10 @@ module.exports = function bootDiscord(setClient) {
     try {
       await require("./events/interactionCreate").execute(interaction, client);
     } catch (err) {
-      console.error("Interaction error:", err);
-      const payload = { content: "Something went wrong running that.", ephemeral: true };
+      if (err?.code !== 10062) console.error("Interaction error:", err);
+      if (err?.code === 10062) return;
+      const { MessageFlags } = require("discord.js");
+      const payload = { content: "Something went wrong running that.", flags: MessageFlags.Ephemeral };
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp(payload).catch(() => {});
       } else {

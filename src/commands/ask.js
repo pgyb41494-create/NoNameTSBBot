@@ -7,7 +7,7 @@ module.exports = {
   slash: () =>
     new SlashCommandBuilder()
       .setName("ask")
-      .setDescription("Chat with Ascendant (TSBCC rules + anything else)")
+      .setDescription("Chat with Ascendant (can also answer TSBCC rules)")
       .addStringOption((o) =>
         o.setName("question").setDescription("Anything you want to ask").setRequired(true).setMaxLength(800)
       )
@@ -34,7 +34,10 @@ module.exports = {
       allowedMentions: { repliedUser: false },
     });
     try {
-      const result = await api.coach.askTsbl(parsed);
+      const result = await api.coach.askTsbl({
+        ...parsed,
+        guildName: message.guild?.name || "",
+      });
       return pending.edit(formatAsk(result));
     } catch (err) {
       return pending.edit({ content: safeAskError(err), embeds: [] });
@@ -46,7 +49,11 @@ module.exports = {
     const lang = interaction.options.getString("lang") || undefined;
     await interaction.reply({ content: "Thinking please wait.." });
     try {
-      const result = await api.coach.askTsbl({ question, lang });
+      const result = await api.coach.askTsbl({
+        question,
+        lang,
+        guildName: interaction.guild?.name || "",
+      });
       return interaction.editReply(formatAsk(result));
     } catch (err) {
       return interaction.editReply({ content: safeAskError(err), embeds: [] });

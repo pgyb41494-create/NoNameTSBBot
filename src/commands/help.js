@@ -31,7 +31,7 @@ function helpEmbed() {
       "**Profile & coach**",
       `\`/profile\` · \`${p}profile\``,
       `\`/tsbcoach\` · \`${p}tsbcoach\` (aliases: coach, vod)`,
-      `\`${p}ask\` / \`/ask\` — chat (TSBCC rules + anything else)`,
+      `\`${p}ask\` / \`/ask\` — chat (can also answer TSBCC rules)`,
       `\`${p}rules\` / \`/rules\` — TSBCC rulebook (blacklist, bail, wars, FAQ)`,
       "",
       "**Boards**",

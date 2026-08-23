@@ -469,7 +469,67 @@ async function handle(req, res) {
       return json(res, 200, { id: sent.id, userId: user.id });
     }
 
-    return json(res, 404, { error: "Not found" });
+    const alertsPostMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/alerts\/post$/);
+    if (req.method === "POST" && alertsPostMatch) {
+      const c = requireDiscord(res);
+      if (!c) return;
+      const guild = await c.guilds.fetch(alertsPostMatch[1]).catch(() => null);
+      if (!guild) return json(res, 404, { error: "Guild not found or bot not in server." });
+      const body = await readBody(req);
+      const { event, ...payload } = body || {};
+      if (!event) return json(res, 400, { error: "event is required" });
+      const { postStaffAlertFromPayload } = require("./src/systems/tsb/ops/alerts");
+      await postStaffAlertFromPayload(guild, String(event), payload);
+      return json(res, 200, { ok: true });
+    }
+
+    const alertsMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/alerts$/);
+    if (alertsMatch) {
+      const { publicStaffAlerts, applyStaffAlertsPatch } = require("./src/systems/tsb/ops/store");
+      const guildId = alertsMatch[1];
+      if (req.method === "GET") return json(res, 200, publicStaffAlerts(guildId));
+      if (req.method === "PUT") {
+        const body = await readBody(req);
+        return json(res, 200, applyStaffAlertsPatch(guildId, body || {}));
+      }
+    }
+
+    const boardsMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/boards\/refresh$/);
+    if (req.method === "POST" && boardsMatch) {
+      const c = requireDiscord(res);
+      if (!c) return;
+      const guild = await c.guilds.fetch(boardsMatch[1]).catch(() => null);
+      if (!guild) return json(res, 404, { error: "Guild not found or bot not in server." });
+      const body = await readBody(req);
+      const userId = body?.userId ? String(body.userId) : null;
+      if (userId) {
+        const { refreshUserBoards } = require("./src/systems/tsb/shared/boardRefresh");
+        const result = await refreshUserBoards(guild, userId);
+        return json(res, 200, { ok: true, ...result });
+      }
+      const { refreshLeaderboard } = require("./src/systems/tsb/leaderboard/renderer");
+      await refreshLeaderboard(guild);
+      return json(res, 200, { ok: true, leaderboard: true });
+    }
+
+    const networkMatch = pathname === "/discord/network/snapshot";
+    if (req.method === "GET" && networkMatch) {
+      const api = require("./src/utils/loadApi");
+      const profileList =
+        typeof api.profiles?.allProfiles === "function" ? api.profiles.allProfiles() || [] : [];
+      const stages =
+        typeof api.ranking?.listAllStages === "function" ? api.ranking.listAllStages() || [] : [];
+      const matches =
+        typeof api.score?.listAllMatches === "function" ? api.score.listAllMatches() || [] : [];
+      return json(res, 200, {
+        profiles: profileList,
+        stages,
+        matches,
+        source: process.env.API_SERVER_URL || process.env.API_URL ? "remote" : "local",
+      });
+    }
+
+    return json(res, 404, { error: "Not found", path: pathname });
   } catch (err) {
     console.error("bot-api error:", err);
     return json(res, 500, { error: err.message || "Request failed" });

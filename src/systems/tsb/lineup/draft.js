@@ -146,9 +146,9 @@ function parseLineupDraft(content, cfg) {
     return { regionKey, board, start, end, slots };
 }
 
-function applyDraftSlots(guildId, parsed) {
-    const cfg = getLineupConfig(guildId);
-    const region = getRegion(guildId, parsed.regionKey);
+async function applyDraftSlots(guildId, parsed) {
+    const cfg = await getLineupConfig(guildId);
+    const region = await getRegion(guildId, parsed.regionKey);
     if (!region) return null;
 
     const isSub = parsed.board === "sub";
@@ -187,12 +187,12 @@ function applyDraftSlots(guildId, parsed) {
         };
     }
 
-    updateRegion(guildId, parsed.regionKey, {
+    await updateRegion(guildId, parsed.regionKey, {
         slots: mainSlots,
         subSlots
     });
 
-    updateLineupConfig(guildId, {
+    await updateLineupConfig(guildId, {
         lastDraft: {
             regionKey: parsed.regionKey,
             board: parsed.board,
@@ -231,7 +231,7 @@ function parseSendCommand(content) {
 async function handleLineupDraftMessage(message) {
     if (!message.guild || message.author.bot) return false;
 
-    const cfg = getLineupConfig(message.guild.id);
+    const cfg = await getLineupConfig(message.guild.id);
     if (!cfg.setupCompleted) return false;
     if (!isManagementChannel(message, cfg)) return false;
 
@@ -239,7 +239,7 @@ async function handleLineupDraftMessage(message) {
         (message.channel.name === "tsb-lineups" || message.channel.name === "ascendant-lineups")
         && cfg.managementChannelId !== message.channel.id
     ) {
-        updateLineupConfig(message.guild.id, {
+        await updateLineupConfig(message.guild.id, {
             managementChannelId: message.channel.id
         });
     }
@@ -286,7 +286,7 @@ async function handleLineupDraftMessage(message) {
             ? "**all regions**"
             : `**${cfg.regions?.[targetKey]?.label || targetKey}**`;
 
-        updateLineupConfig(message.guild.id, {
+        await updateLineupConfig(message.guild.id, {
             pendingPublish: publishAll ? { all: true } : { regionKey: targetKey }
         });
 
@@ -323,7 +323,7 @@ async function handleLineupDraftMessage(message) {
     const parsed = parseLineupDraft(content, cfg);
     if (!parsed) return false;
 
-    applyDraftSlots(message.guild.id, parsed);
+    await applyDraftSlots(message.guild.id, parsed);
 
     const filled = parsed.slots.filter((s) => s.discordId).length;
     const region = cfg.regions?.[parsed.regionKey];
@@ -345,7 +345,7 @@ async function collectMissingProfiles(guild, regionKeys) {
     const { loadPlayerCard } = require("./renderer");
     const missing = [];
     for (const key of regionKeys) {
-        const region = getRegion(guild.id, key);
+        const region = await getRegion(guild.id, key);
         if (!region) continue;
         const ids = [
             ...(region.slots || []).map((s) => s.discordId),
@@ -361,7 +361,7 @@ async function collectMissingProfiles(guild, regionKeys) {
 
 async function publishLiveLineup(interaction) {
     const guild = interaction.guild;
-    let cfg = getLineupConfig(guild.id);
+    let cfg = await getLineupConfig(guild.id);
 
     if (!canManageLineup(interaction.member, guild, cfg)) {
         return interaction.reply({
@@ -378,7 +378,7 @@ async function publishLiveLineup(interaction) {
 
     if (pending.all) {
         await publishAllLineups(guild);
-        cfg = getLineupConfig(guild.id);
+        cfg = await getLineupConfig(guild.id);
         regionKeys = cfg.enabledRegionKeys || [];
         const lines = regionKeys.map((key) => {
             const region = cfg.regions?.[key];
@@ -401,7 +401,7 @@ async function publishLiveLineup(interaction) {
         }
 
         const result = await publishRegionLineup(guild, regionKey);
-        cfg = getLineupConfig(guild.id);
+        cfg = await getLineupConfig(guild.id);
         regionKeys = [regionKey];
         const label = cfg.regions[regionKey]?.label || regionKey;
         const mainId = result.channel?.id || cfg.regions[regionKey]?.channelId;
@@ -420,7 +420,7 @@ async function publishLiveLineup(interaction) {
             `Those spots show placeholders until they run \`/profile\`, then you \`send\` again.`;
     }
 
-    updateLineupConfig(guild.id, { pendingPublish: null });
+    await updateLineupConfig(guild.id, { pendingPublish: null });
 
     return interaction.editReply({
         embeds: [{

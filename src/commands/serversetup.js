@@ -28,7 +28,8 @@ module.exports = {
         allowedMentions: { repliedUser: false },
       });
     }
-    return message.reply({ ...hubPayload(message.guild.id), allowedMentions: { repliedUser: false } });
+    const payload = await hubPayload(message.guild.id);
+    return message.reply({ ...payload, allowedMentions: { repliedUser: false } });
   },
 
   async executeSlash(interaction) {
@@ -38,6 +39,7 @@ module.exports = {
         ephemeral: true,
       });
     }
-    return interaction.reply({ ...hubPayload(interaction.guildId), ephemeral: true });
+    const payload = await hubPayload(interaction.guildId);
+    return interaction.reply({ ...payload, ephemeral: true });
   },
 };

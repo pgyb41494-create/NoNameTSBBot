@@ -3,7 +3,7 @@
  * Used when API_SERVER_URL points at the separate website API service.
  */
 const BASE = (process.env.API_SERVER_URL || "").replace(/\/$/, "");
-const TOKEN = process.env.API_TOKEN || process.env.BOT_TOKEN || process.env.DISCORD_TOKEN || "";
+const TOKEN = process.env.API_TOKEN || process.env.BOT_API_TOKEN || "";
 
 async function req(pathname, { method = "GET", body, allowNull = false } = {}) {
   if (!BASE) throw new Error("API_SERVER_URL is not set");

@@ -7,15 +7,16 @@ const {
 const { publishLineup } = require("../../boardPublish");
 const { getOrCreateNamedChannel } = require("../shared/channelReuse");
 const api = require("../../../utils/loadApi");
+const { resolveMaybe } = require("../../../utils/resolveMaybe");
 
 async function loadPlayerCard(guild, userId) {
-  const bundle = api.snapshot.playerBundle(guild.id, userId);
+  const bundle = await resolveMaybe(api.snapshot.playerBundle(guild.id, userId));
   return {
-    hasProfile: !!bundle.hasProfile,
-    name: bundle.displayName || bundle.robloxUsername || "Unknown",
-    host: bundle.host || bundle.region || "—",
-    rank: bundle.stage || "—",
-    region: bundle.region || "—",
+    hasProfile: !!bundle?.hasProfile,
+    name: bundle?.displayName || bundle?.robloxUsername || "Unknown",
+    host: bundle?.host || bundle?.region || "—",
+    rank: bundle?.stage || "—",
+    region: bundle?.region || "—",
   };
 }
 
@@ -44,7 +45,7 @@ function lineupChannelNames(regionKey, isSub) {
 }
 
 async function resolveOrCreateLineupChannel(guild, region, board, { create = true } = {}) {
-  const cfg = getLineupConfig(guild.id);
+  const cfg = await getLineupConfig(guild.id);
   const separateSub = !!cfg.separateSubChannels;
   const isSub = board === "sub";
   if (isSub && !separateSub) {
@@ -68,17 +69,20 @@ async function resolveOrCreateLineupChannel(guild, region, board, { create = tru
 }
 
 async function publishRegionLineup(guild, regionKey, { createChannels = true } = {}) {
-  const cfg = getLineupConfig(guild.id);
-  ensureRegions(
+  const cfg = await getLineupConfig(guild.id);
+  await ensureRegions(
     guild.id,
     cfg.enabledRegionKeys || Object.keys(cfg.regions || {}),
     cfg.slotsPerRegion,
     cfg.subSlotsPerRegion
   );
-  let region = getRegion(guild.id, regionKey);
+  let region = await getRegion(guild.id, regionKey);
   if (!region) throw new Error(`Unknown region: ${regionKey}`);
 
-  if (!createChannels && !region.channelId && !region.subChannelId) return null;
+  if (!createChannels && !region.channelId && !region.subChannelId) {
+    const existing = await resolveOrCreateLineupChannel(guild, region, "main", { create: false });
+    if (!existing) return null;
+  }
 
   const separateSub = !!cfg.separateSubChannels;
   const mainChannel = await resolveOrCreateLineupChannel(guild, region, "main", {
@@ -89,20 +93,21 @@ async function publishRegionLineup(guild, regionKey, { createChannels = true } =
     ? await resolveOrCreateLineupChannel(guild, region, "sub", { create: createChannels })
     : mainChannel;
 
-  const regions = { ...getLineupConfig(guild.id).regions };
+  const latest = await getLineupConfig(guild.id);
+  const regions = { ...latest.regions };
   regions[regionKey] = {
     ...regions[regionKey],
     channelId: mainChannel.id,
     subChannelId: (separateSub ? subChannel?.id : mainChannel.id) || mainChannel.id,
   };
-  updateLineupConfig(guild.id, { regions, setupCompleted: createChannels ? true : cfg.setupCompleted });
+  await updateLineupConfig(guild.id, { regions, setupCompleted: createChannels ? true : latest.setupCompleted });
 
   await publishLineup(guild, regionKey);
   return { channel: mainChannel, subChannel };
 }
 
 async function publishAllLineups(guild, { createChannels = true } = {}) {
-  const cfg = getLineupConfig(guild.id);
+  const cfg = await getLineupConfig(guild.id);
   if (!createChannels && !cfg.setupCompleted) return [];
   const results = [];
   for (const key of cfg.enabledRegionKeys || Object.keys(cfg.regions || {})) {

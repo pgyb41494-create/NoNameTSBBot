@@ -105,7 +105,7 @@ async function handleLineupBotButton(interaction) {
     const id = interaction.customId;
     if (!id.startsWith("tsb:lubot:")) return false;
 
-    const cfg = getLineupConfig(interaction.guild.id);
+    const cfg = await getLineupConfig(interaction.guild.id);
     if (!cfg.setupCompleted) {
         return interaction.reply({
             content: "Line Up is not set up yet. Use `/tsbsetup` → **Line Up Management**.",
@@ -156,7 +156,7 @@ async function handleLineupBotModal(interaction) {
     const id = interaction.customId;
     if (!id.startsWith("tsb:lubot:modal:")) return false;
 
-    const cfg = getLineupConfig(interaction.guild.id);
+    const cfg = await getLineupConfig(interaction.guild.id);
     if (!canManage(interaction.member, interaction.guild, cfg)) {
         return interaction.reply({
             content: "You can't manage lineups.",
@@ -192,7 +192,7 @@ async function handleLineupBotModal(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
     if (isRemove) {
-        setRegionSlot(interaction.guild.id, regionKey, pos, null, board);
+        await setRegionSlot(interaction.guild.id, regionKey, pos, null, board);
         await publishRegionLineup(interaction.guild, regionKey);
         return interaction.editReply(`Cleared **${regionKey} ${board} #${pos}**.`);
     }
@@ -214,7 +214,7 @@ async function handleLineupBotModal(interaction) {
         );
     }
 
-    setRegionSlot(interaction.guild.id, regionKey, pos, userId, board);
+    await setRegionSlot(interaction.guild.id, regionKey, pos, userId, board);
     await publishRegionLineup(interaction.guild, regionKey);
 
     return interaction.editReply(

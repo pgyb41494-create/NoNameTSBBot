@@ -11,9 +11,9 @@ const { publishAllLineups } = require("./renderer");
 const COLOR = 0x2B2D31;
 const sessions = new Map();
 
-function getSession(guildId) {
+async function getSession(guildId) {
     if (!sessions.has(guildId)) {
-        const saved = getLineupConfig(guildId);
+        const saved = await getLineupConfig(guildId);
         sessions.set(guildId, {
             step: 0,
             fromSetup: false,
@@ -71,9 +71,9 @@ function navButtons(extra = [], { disableNext = false } = {}) {
     return rows;
 }
 
-function overviewPayload(guildId) {
-    const saved = getLineupConfig(guildId);
-    const session = getSession(guildId);
+async function overviewPayload(guildId) {
+    const saved = await getLineupConfig(guildId);
+    const session = await getSession(guildId);
     return {
         embeds: [{
             title: "Lineup Setup",
@@ -96,8 +96,8 @@ function overviewPayload(guildId) {
     };
 }
 
-function stepPayload(interaction) {
-    const session = getSession(interaction.guild.id);
+async function stepPayload(interaction) {
+    const session = await getSession(interaction.guild.id);
     const { step, data } = session;
     const title = `Lineup Setup · Step ${step}/5`;
 
@@ -228,15 +228,15 @@ function stepPayload(interaction) {
     };
 }
 
-function renderOverview(interaction) {
-    const payload = overviewPayload(interaction.guild.id);
+async function renderOverview(interaction) {
+    const payload = await overviewPayload(interaction.guild.id);
     if (interaction.replied || interaction.deferred) return interaction.editReply(payload);
     if (interaction.message) return interaction.update(payload);
     return interaction.reply(payload);
 }
 
-function renderStep(interaction) {
-    const payload = stepPayload(interaction);
+async function renderStep(interaction) {
+    const payload = await stepPayload(interaction);
     if (interaction.replied || interaction.deferred) return interaction.editReply(payload);
     if (interaction.message) return interaction.update(payload);
     return interaction.reply(payload);
@@ -247,7 +247,7 @@ function openHub(interaction) {
     return hubOpen(interaction);
 }
 
-function openLineupModule(interaction) {
+async function openLineupModule(interaction) {
     if (
         !interaction.member?.permissions?.has?.("Administrator") &&
         interaction.guild?.ownerId !== interaction.user?.id
@@ -258,7 +258,7 @@ function openLineupModule(interaction) {
         });
     }
 
-    const session = getSession(interaction.guild.id);
+    const session = await getSession(interaction.guild.id);
     session.step = 0;
     session.fromSetup = true;
     return renderOverview(interaction);
@@ -266,7 +266,7 @@ function openLineupModule(interaction) {
 
 async function applySetup(interaction) {
     await interaction.deferUpdate();
-    const session = getSession(interaction.guild.id);
+    const session = await getSession(interaction.guild.id);
     const data = session.data;
     const guild = interaction.guild;
 
@@ -289,15 +289,14 @@ async function applySetup(interaction) {
         }
     }
 
-    ensureRegions(
+    await ensureRegions(
         guild.id,
         data.enabledRegionKeys,
         data.slotsPerRegion,
         data.subSlotsPerRegion || data.slotsPerRegion
     );
 
-    setLineupConfig(guild.id, {
-        ...getLineupConfig(guild.id),
+    await setLineupConfig(guild.id, {
         managementChannelId: managementChannel.id,
         allowedRoles: data.allowedRoles || [],
         slotsPerRegion: data.slotsPerRegion,
@@ -308,7 +307,7 @@ async function applySetup(interaction) {
     });
 
     // Re-ensure after set
-    ensureRegions(
+    await ensureRegions(
         guild.id,
         data.enabledRegionKeys,
         data.slotsPerRegion,
@@ -353,7 +352,7 @@ async function handleLineupButton(interaction) {
 }
 
 async function handleLineupAction(interaction, id) {
-    const session = getSession(interaction.guild.id);
+    const session = await getSession(interaction.guild.id);
 
     if (id === "tsb:lu:publish_confirm") {
         const { publishLiveLineup } = require("./draft");
@@ -364,7 +363,7 @@ async function handleLineupAction(interaction, id) {
     }
 
     if (id === "tsb:lu:publish_cancel") {
-        updateLineupConfig(interaction.guild.id, { pendingPublish: null });
+        await updateLineupConfig(interaction.guild.id, { pendingPublish: null });
         await interaction.update({
             embeds: [{
                 title: "Publish canceled",
@@ -396,7 +395,7 @@ async function handleLineupAction(interaction, id) {
     }
 
     if (id === "tsb:lu:reset") {
-        updateLineupConfig(interaction.guild.id, {
+        await updateLineupConfig(interaction.guild.id, {
             setupCompleted: false,
             regions: {},
             enabledRegionKeys: ["na", "east", "west", "central", "eu", "asia"],
@@ -407,7 +406,7 @@ async function handleLineupAction(interaction, id) {
             managementChannelId: null
         });
         sessions.delete(interaction.guild.id);
-        const fresh = getSession(interaction.guild.id);
+        const fresh = await getSession(interaction.guild.id);
         fresh.fromSetup = true;
         return renderOverview(interaction);
     }
@@ -497,7 +496,7 @@ async function handleLineupAction(interaction, id) {
 
 async function handleLineupSelect(interaction) {
     const id = interaction.customId;
-    const session = getSession(interaction.guild.id);
+    const session = await getSession(interaction.guild.id);
 
     if (id === "tsb:hub" || id === "tsb:hub") {
         if (interaction.values[0] === "lineup_setup") {
@@ -527,7 +526,7 @@ async function handleLineupSelect(interaction) {
 }
 
 async function handleLineupModal(interaction) {
-    const session = getSession(interaction.guild.id);
+    const session = await getSession(interaction.guild.id);
     if (!session.fromSetup) {
         return interaction.reply({
             content: "Open Line Up with `/tsbsetup` → **Line Up Management**.",

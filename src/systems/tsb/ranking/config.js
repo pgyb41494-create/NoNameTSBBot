@@ -1,6 +1,7 @@
 const { PermissionFlagsBits } = require("discord.js");
 const api = require("../../../utils/loadApi");
 const { hasAccessPerm } = require("../access/store");
+const { resolveMaybe } = require("../../../utils/resolveMaybe");
 
 function normalizeCommandName(value) {
   return api.ranking.normalizeCommandName
@@ -19,8 +20,9 @@ function remapPhaseDefaults(cfg) {
   return cfg;
 }
 
-function getGuildConfig(guildId) {
-  return remapPhaseDefaults(api.ranking.getConfig(guildId));
+async function getGuildConfig(guildId) {
+  const cfg = await resolveMaybe(api.ranking.getConfig(guildId));
+  return remapPhaseDefaults(cfg && typeof cfg === "object" ? { ...cfg } : {});
 }
 
 function setGuildConfig(guildId, config) {
@@ -41,14 +43,28 @@ function resetGuildConfig(guildId) {
   return api.ranking.updateConfig(guildId, defaultGuildConfig());
 }
 
-function isSetupCompleted(guildId) {
-  return !!getGuildConfig(guildId).setupCompleted;
+async function isSetupCompleted(guildId) {
+  const cfg = await getGuildConfig(guildId);
+  return !!cfg.setupCompleted;
 }
 
-function getSafeGuildConfig(guildOrId) {
+async function getSafeGuildConfig(guildOrId) {
   const guildId = typeof guildOrId === "string" ? guildOrId : guildOrId?.id;
-  if (!guildId || !isSetupCompleted(guildId)) return null;
-  return getGuildConfig(guildId);
+  if (!guildId) return null;
+  const cfg = await getGuildConfig(guildId);
+  if (!cfg.setupCompleted) return null;
+  return cfg;
+}
+
+async function canUseRanking(member, guild, cfg = null) {
+  if (!member || !guild) return false;
+  if (guild.ownerId === member.id) return true;
+  if (member.permissions?.has?.(PermissionFlagsBits.Administrator)) return true;
+  if (hasAccessPerm(guild.id, member.id, "PHASE")) return true;
+  const config = cfg || (await getGuildConfig(guild.id));
+  const allowed = config.authorizedRoles || config.authorizedRoleIds || [];
+  if (!allowed.length) return false;
+  return allowed.some((id) => member.roles.cache.has(id));
 }
 
 function formatRankPart(part) {
@@ -60,17 +76,6 @@ function formatRankPart(part) {
     })
     .replace(/\s{2,}/g, " ")
     .trim();
-}
-
-function canUseRanking(member, guild, cfg = null) {
-  if (!member || !guild) return false;
-  if (guild.ownerId === member.id) return true;
-  if (member.permissions?.has?.(PermissionFlagsBits.Administrator)) return true;
-  if (hasAccessPerm(guild.id, member.id, "PHASE")) return true;
-  const config = cfg || getGuildConfig(guild.id);
-  const allowed = config.authorizedRoles || config.authorizedRoleIds || [];
-  if (!allowed.length) return false;
-  return allowed.some((id) => member.roles.cache.has(id));
 }
 
 module.exports = {

@@ -6,7 +6,7 @@ function statusLabel(ok) {
   return ok ? "Configured" : "Not configured";
 }
 
-function buildModuleOptions(guildId) {
+async function buildModuleOptions(guildId) {
   let lb = false;
   let rank = false;
   let score = false;
@@ -15,19 +15,19 @@ function buildModuleOptions(guildId) {
   let verify = false;
   try {
     const { getLeaderboardConfig } = require("./leaderboard/config");
-    lb = !!getLeaderboardConfig(guildId).setupCompleted;
+    lb = !!(await getLeaderboardConfig(guildId)).setupCompleted;
   } catch {}
   try {
     const { isSetupCompleted } = require("./ranking/config");
-    rank = !!isSetupCompleted(guildId);
+    rank = !!(await isSetupCompleted(guildId));
   } catch {}
   try {
     const { getScoreConfig } = require("./score/config");
-    score = !!getScoreConfig(guildId).setupCompleted;
+    score = !!(await getScoreConfig(guildId)).setupCompleted;
   } catch {}
   try {
     const { getLineupConfig } = require("./lineup/config");
-    lineup = !!getLineupConfig(guildId).setupCompleted;
+    lineup = !!(await getLineupConfig(guildId)).setupCompleted;
   } catch {}
   try {
     const { getTryoutSettings } = require("./tryout/settings");
@@ -55,10 +55,10 @@ function buildModuleOptions(guildId) {
   ];
 }
 
-function hubPayload(guildId = null) {
+async function hubPayload(guildId = null) {
   const { tsbEmbed, COLOR_PRIMARY } = require("./shared/embeds");
   const options = guildId
-    ? buildModuleOptions(guildId)
+    ? await buildModuleOptions(guildId)
     : [
         { label: "Top Leaderboard", value: "leaderboard_setup", description: "Boards & drafts" },
         { label: "Ranking Setup", value: "ranking_setup", description: "Tiers & cooldowns" },
@@ -98,8 +98,8 @@ function hubPayload(guildId = null) {
   };
 }
 
-function openHub(interaction) {
-  const payload = hubPayload(interaction.guild?.id);
+async function openHub(interaction) {
+  const payload = await hubPayload(interaction.guild?.id);
   if (interaction.replied || interaction.deferred) return interaction.editReply(payload);
   if (interaction.message) return interaction.update(payload);
   return interaction.reply(payload);

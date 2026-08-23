@@ -77,40 +77,39 @@ function normalizeLeaderboardConfig(cfg) {
   return cfg;
 }
 
-function getLeaderboardConfig(guildId) {
-  const cfg = api.leaderboard.getConfig(guildId);
-  if (cfg && typeof cfg.then === "function") return cfg;
-  return normalizeLeaderboardConfig(cfg);
+async function getLeaderboardConfig(guildId) {
+  const cfg = await resolveMaybe(api.leaderboard.getConfig(guildId));
+  return normalizeLeaderboardConfig(cfg && typeof cfg === "object" ? { ...cfg } : {});
 }
 
 async function getLeaderboardConfigAsync(guildId) {
-  const cfg = await resolveMaybe(api.leaderboard.getConfig(guildId));
-  return normalizeLeaderboardConfig(cfg);
+  return getLeaderboardConfig(guildId);
 }
 
-function setLeaderboardConfig(guildId, config) {
-  const current = getLeaderboardConfig(guildId);
+async function setLeaderboardConfig(guildId, config) {
+  const current = await getLeaderboardConfig(guildId);
   const top = config.topPerChannel || config.slotCount || current.topPerChannel || 10;
-  return api.leaderboard.updateConfig(guildId, {
+  return resolveMaybe(api.leaderboard.updateConfig(guildId, {
     ...current,
     ...config,
     setupCompleted: true,
     slotCount: top,
     topPerChannel: top,
-  });
+  }));
 }
 
-function updateLeaderboardConfig(guildId, patch) {
-  const current = getLeaderboardConfig(guildId);
-  if (patch.topPerChannel && !patch.slotCount) patch = { ...patch, slotCount: patch.topPerChannel };
-  if (patch.slotCount && !patch.topPerChannel) patch = { ...patch, topPerChannel: patch.slotCount };
-  if (patch.challengeTickets) {
-    patch = {
-      ...patch,
-      challengeTickets: challengeTicketsOf({ challengeTickets: { ...current.challengeTickets, ...patch.challengeTickets } }),
+async function updateLeaderboardConfig(guildId, patch) {
+  const current = await getLeaderboardConfig(guildId);
+  let nextPatch = { ...patch };
+  if (nextPatch.topPerChannel && !nextPatch.slotCount) nextPatch = { ...nextPatch, slotCount: nextPatch.topPerChannel };
+  if (nextPatch.slotCount && !nextPatch.topPerChannel) nextPatch = { ...nextPatch, topPerChannel: nextPatch.slotCount };
+  if (nextPatch.challengeTickets) {
+    nextPatch = {
+      ...nextPatch,
+      challengeTickets: challengeTicketsOf({ challengeTickets: { ...current.challengeTickets, ...nextPatch.challengeTickets } }),
     };
   }
-  return api.leaderboard.updateConfig(guildId, { ...current, ...patch });
+  return resolveMaybe(api.leaderboard.updateConfig(guildId, { ...current, ...nextPatch }));
 }
 
 function ensureSlots(guildId, count) {

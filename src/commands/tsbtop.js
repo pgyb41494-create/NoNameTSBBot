@@ -5,11 +5,16 @@ const { canManageLeaderboard } = require("../systems/tsb/leaderboard/draft");
 const { refreshLeaderboard, upsertLeaderboard } = require("../systems/tsb/leaderboard/renderer");
 const { resolveGuildPrefix } = require("../systems/tsb/shared/guildPrefix");
 
-function placeOnTopBoard(guildId, position, userId) {
-  const cfg = getLeaderboardConfig(guildId);
+async function placeOnTopBoard(guildId, position, userId) {
+  const api = require("../utils/loadApi");
+  if (typeof api.leaderboard.place === "function") {
+    await api.leaderboard.place(guildId, position, userId);
+    return getLeaderboardConfig(guildId);
+  }
+  const cfg = await getLeaderboardConfig(guildId);
   const count = Math.max(cfg.slots?.length || cfg.topPerChannel || 10, position);
-  ensureSlots(guildId, count);
-  const next = getLeaderboardConfig(guildId);
+  await ensureSlots(guildId, count);
+  const next = await getLeaderboardConfig(guildId);
   const slots = [...(next.slots || [])];
   while (slots.length < position) {
     slots.push({ position: slots.length + 1, discordId: null });
@@ -20,7 +25,7 @@ function placeOnTopBoard(guildId, position, userId) {
     }
   }
   slots[position - 1] = { position, discordId: userId };
-  updateLeaderboardConfig(guildId, { slots });
+  await updateLeaderboardConfig(guildId, { slots });
   return getLeaderboardConfig(guildId);
 }
 
@@ -45,7 +50,7 @@ module.exports = {
       .addUserOption((o) => o.setName("user").setDescription("Player to place").setRequired(true)),
 
   async executePrefix(message, args) {
-    const cfg = getLeaderboardConfig(message.guild.id);
+    const cfg = await getLeaderboardConfig(message.guild.id);
     if (!cfg.setupCompleted) {
       return message.reply({
         embeds: [
@@ -84,7 +89,7 @@ module.exports = {
     if (!user) {
       return message.reply({ content: "User not found.", allowedMentions: { repliedUser: false } });
     }
-    placeOnTopBoard(message.guild.id, position, user.id);
+    await placeOnTopBoard(message.guild.id, position, user.id);
     await refreshLeaderboard(message.guild).catch(() => upsertLeaderboard(message.guild));
     return message.reply({
       embeds: [updatedEmbed(position, user)],
@@ -96,7 +101,7 @@ module.exports = {
     if (!interaction.guild) {
       return interaction.reply({ content: "Use this in a server.", ephemeral: true });
     }
-    const cfg = getLeaderboardConfig(interaction.guild.id);
+    const cfg = await getLeaderboardConfig(interaction.guild.id);
     if (!cfg.setupCompleted) {
       return interaction.reply({
         content: "Top boards are not set up. Use `/tsbsetup` → **Top Leaderboard**.",
@@ -108,7 +113,7 @@ module.exports = {
     }
     const position = interaction.options.getInteger("position", true);
     const user = interaction.options.getUser("user", true);
-    placeOnTopBoard(interaction.guild.id, position, user.id);
+    await placeOnTopBoard(interaction.guild.id, position, user.id);
     await refreshLeaderboard(interaction.guild).catch(() => upsertLeaderboard(interaction.guild));
     return interaction.reply({ embeds: [updatedEmbed(position, user)] });
   },

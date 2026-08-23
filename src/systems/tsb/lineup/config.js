@@ -29,80 +29,97 @@ const DEFAULT_REGIONS = [
   { key: "sydney", label: "Sydney" },
 ];
 
+function emptySlots(n) {
+  return Array.from({ length: n }, (_, i) => ({ position: i + 1, discordId: null }));
+}
+
+function defaultRegion(key, count, subCount) {
+  const meta = DEFAULT_REGIONS.find((r) => r.key === key) || { key, label: key.toUpperCase() };
+  return {
+    key,
+    label: meta.label,
+    channelId: null,
+    subChannelId: null,
+    messageId: null,
+    subMessageId: null,
+    slots: emptySlots(count),
+    subSlots: emptySlots(subCount),
+  };
+}
+
 function normalizeLineupConfig(cfg) {
-  if (!cfg.enabledRegionKeys) {
-    cfg.enabledRegionKeys = Object.keys(cfg.regions || {}).filter((k) => cfg.regions[k]);
+  const next = cfg && typeof cfg === "object" ? { ...cfg } : {};
+  if (!next.slotsPerRegion) next.slotsPerRegion = 10;
+  if (!next.subSlotsPerRegion) next.subSlotsPerRegion = next.slotsPerRegion;
+  if (!next.allowedRoles) next.allowedRoles = [];
+  if (!next.regions || typeof next.regions !== "object") next.regions = {};
+  if (!next.enabledRegionKeys) {
+    next.enabledRegionKeys = Object.keys(next.regions).filter((k) => next.regions[k]);
   }
-  if (!cfg.slotsPerRegion) cfg.slotsPerRegion = 10;
-  if (!cfg.subSlotsPerRegion) cfg.subSlotsPerRegion = cfg.slotsPerRegion;
-  if (!cfg.allowedRoles) cfg.allowedRoles = [];
-  return cfg;
+  if (!next.enabledRegionKeys.length) {
+    next.enabledRegionKeys = ["na", "east", "west", "central", "eu", "asia"];
+  }
+  const count = next.slotsPerRegion;
+  const subCount = next.subSlotsPerRegion;
+  for (const key of next.enabledRegionKeys) {
+    if (!next.regions[key]) next.regions[key] = defaultRegion(key, count, subCount);
+  }
+  return next;
 }
 
-function getLineupConfig(guildId) {
-  const cfg = api.lineup.getConfig(guildId);
-  if (cfg && typeof cfg.then === "function") return cfg;
-  return normalizeLineupConfig(cfg);
-}
-
-async function getLineupConfigAsync(guildId) {
+async function getLineupConfig(guildId) {
   const cfg = await resolveMaybe(api.lineup.getConfig(guildId));
   return normalizeLineupConfig(cfg);
 }
 
-function setLineupConfig(guildId, config) {
-  return api.lineup.updateConfig(guildId, { ...getLineupConfig(guildId), ...config, setupCompleted: true });
+async function getLineupConfigAsync(guildId) {
+  return getLineupConfig(guildId);
 }
 
-function updateLineupConfig(guildId, patch) {
-  return api.lineup.updateConfig(guildId, { ...getLineupConfig(guildId), ...patch });
+async function setLineupConfig(guildId, config) {
+  const current = await getLineupConfig(guildId);
+  return resolveMaybe(api.lineup.updateConfig(guildId, { ...current, ...config, setupCompleted: true }));
 }
 
-function ensureRegions(guildId, keys, slotsPer, subSlotsPer) {
-  if (typeof api.lineup.ensureRegions === "function") {
-    return api.lineup.ensureRegions(guildId, keys, slotsPer, subSlotsPer);
+async function updateLineupConfig(guildId, patch) {
+  const current = await getLineupConfig(guildId);
+  const nextPatch = { ...patch };
+  if (nextPatch.regions && !Object.keys(nextPatch.regions).length && Object.keys(current.regions || {}).length) {
+    delete nextPatch.regions;
   }
-  const cfg = getLineupConfig(guildId);
+  return resolveMaybe(api.lineup.updateConfig(guildId, { ...current, ...nextPatch }));
+}
+
+async function ensureRegions(guildId, keys, slotsPer, subSlotsPer) {
+  const cfg = await getLineupConfig(guildId);
+  const list = Array.isArray(keys) ? keys.filter(Boolean) : [];
+  if (!list.length) return cfg;
   const count = Math.max(1, Math.min(10, slotsPer || cfg.slotsPerRegion || 10));
   const subCount = Math.max(1, Math.min(10, subSlotsPer ?? cfg.subSlotsPerRegion ?? count));
   const regions = { ...(cfg.regions || {}) };
-  const empty = (n) => Array.from({ length: n }, (_, i) => ({ position: i + 1, discordId: null }));
   const resize = (existing, n) => {
     const slots = [...(existing || [])];
     while (slots.length < n) slots.push({ position: slots.length + 1, discordId: null });
     return slots.slice(0, n).map((s, i) => ({ position: i + 1, discordId: s.discordId || null }));
   };
-  for (const key of keys) {
-    const meta = DEFAULT_REGIONS.find((r) => r.key === key) || { key, label: key.toUpperCase() };
-    if (!regions[key]) {
-      regions[key] = {
-        key,
-        label: meta.label,
-        channelId: null,
-        subChannelId: null,
-        messageId: null,
-        subMessageId: null,
-        slots: empty(count),
-        subSlots: empty(subCount),
-      };
-    } else {
+  for (const key of list) {
+    if (!regions[key]) regions[key] = defaultRegion(key, count, subCount);
+    else {
       regions[key].slots = resize(regions[key].slots, count);
       regions[key].subSlots = resize(regions[key].subSlots, subCount);
     }
   }
-  for (const key of Object.keys(regions)) {
-    if (!keys.includes(key)) delete regions[key];
-  }
   return updateLineupConfig(guildId, {
-    enabledRegionKeys: keys,
+    enabledRegionKeys: list,
     slotsPerRegion: count,
     subSlotsPerRegion: subCount,
     regions,
   });
 }
 
-function getRegion(guildId, regionKey) {
-  return getLineupConfig(guildId).regions?.[regionKey] || null;
+async function getRegion(guildId, regionKey) {
+  const cfg = await getLineupConfig(guildId);
+  return cfg.regions?.[regionKey] || null;
 }
 
 function resizeSlots(existing, count) {
@@ -116,16 +133,16 @@ function resizeSlots(existing, count) {
   }));
 }
 
-function updateRegion(guildId, regionKey, patch) {
-  const cfg = getLineupConfig(guildId);
+async function updateRegion(guildId, regionKey, patch) {
+  const cfg = await getLineupConfig(guildId);
   const regions = { ...(cfg.regions || {}) };
   if (!regions[regionKey]) return null;
   regions[regionKey] = { ...regions[regionKey], ...patch };
   return updateLineupConfig(guildId, { regions });
 }
 
-function setRegionSlot(guildId, regionKey, position, discordId, board = "main") {
-  return api.lineup.setSlot(guildId, regionKey, board, position, discordId);
+async function setRegionSlot(guildId, regionKey, position, discordId, board = "main") {
+  return resolveMaybe(api.lineup.setSlot(guildId, regionKey, board, position, discordId));
 }
 
 module.exports = {

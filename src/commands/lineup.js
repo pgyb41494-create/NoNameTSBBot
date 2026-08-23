@@ -50,7 +50,7 @@ module.exports = {
     const focused = interaction.options.getFocused(true);
     if (focused?.name !== "region") return interaction.respond([]);
     const sub = interaction.options.getSubcommand(false);
-    const choices = autocompleteLineupRegion(interaction.guildId, focused.value, sub);
+    const choices = await autocompleteLineupRegion(interaction.guildId, focused.value, sub);
     return interaction.respond(choices);
   },
 };

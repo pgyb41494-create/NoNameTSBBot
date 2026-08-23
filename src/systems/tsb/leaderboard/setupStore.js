@@ -34,9 +34,9 @@ function defaultData() {
     };
 }
 
-function getSession(guildId) {
+async function getSession(guildId) {
     if (!sessions.has(guildId)) {
-        const saved = getLeaderboardConfig(guildId);
+        const saved = await getLeaderboardConfig(guildId);
         sessions.set(guildId, {
             step: 1,
             fromSetup: false,
@@ -90,8 +90,8 @@ function configSummary(data) {
     );
 }
 
-function stepPayload(interaction) {
-    const session = getSession(interaction.guild.id);
+async function stepPayload(interaction) {
+    const session = await getSession(interaction.guild.id);
     const { step, data } = session;
     const title = `Top Boards Setup · Step ${step}/${TOTAL_STEPS}`;
 
@@ -340,8 +340,8 @@ function stepPayload(interaction) {
     };
 }
 
-function renderStep(interaction) {
-    const payload = stepPayload(interaction);
+async function renderStep(interaction) {
+    const payload = await stepPayload(interaction);
     if (interaction.replied || interaction.deferred) return interaction.editReply(payload);
     if (interaction.message) return interaction.update(payload);
     return interaction.reply(payload);
@@ -352,7 +352,7 @@ function openHub(interaction) {
     return hubOpen(interaction);
 }
 
-function openLeaderboardModule(interaction) {
+async function openLeaderboardModule(interaction) {
     if (
         !interaction.member?.permissions?.has?.("Administrator") &&
         interaction.guild?.ownerId !== interaction.user?.id
@@ -363,7 +363,7 @@ function openLeaderboardModule(interaction) {
         });
     }
 
-    const session = getSession(interaction.guild.id);
+    const session = await getSession(interaction.guild.id);
     session.step = 1;
     session.fromSetup = true;
     return renderStep(interaction);
@@ -378,7 +378,7 @@ async function createManagementChannel(interaction) {
         reason: "Ascendant Top Leaderboard management channel",
     });
 
-    const session = getSession(interaction.guild.id);
+    const session = await getSession(interaction.guild.id);
     if (!channel) {
         return interaction.reply({ content: "Could not find or create a boards channel.", ephemeral: true });
     }
@@ -389,7 +389,7 @@ async function createManagementChannel(interaction) {
 async function confirmAndPublish(interaction) {
     await interaction.deferUpdate();
 
-    const session = getSession(interaction.guild.id);
+    const session = await getSession(interaction.guild.id);
     const data = session.data;
     const guild = interaction.guild;
 
@@ -414,12 +414,13 @@ async function confirmAndPublish(interaction) {
         data.managementChannelId = managementChannel.id;
     }
 
-    ensureSlots(guild.id, data.topPerChannel);
+    await ensureSlots(guild.id, data.topPerChannel);
 
-    setLeaderboardConfig(guild.id, {
+    const currentForSlots = await getLeaderboardConfig(guild.id);
+    await setLeaderboardConfig(guild.id, {
         ...data,
         managementChannelId: managementChannel.id,
-        slots: getLeaderboardConfig(guild.id).slots
+        slots: currentForSlots.slots
     });
 
     const { describeLeaderboardChannels } = require("./draft");
@@ -428,8 +429,8 @@ async function confirmAndPublish(interaction) {
 
     const published = await upsertLeaderboard(guild);
 
-    setLeaderboardConfig(guild.id, {
-        ...getLeaderboardConfig(guild.id),
+    await setLeaderboardConfig(guild.id, {
+        ...(await getLeaderboardConfig(guild.id)),
         managementChannelId: managementChannel.id,
         leaderboardChannelId: published.channelId,
         leaderboardMessageIds: published.messageIds,
@@ -438,8 +439,8 @@ async function confirmAndPublish(interaction) {
 
     const tips = await sweepManagementChannel(managementChannel, guild.id, "leaderboard");
     if (tips?.id) {
-        setLeaderboardConfig(guild.id, {
-            ...getLeaderboardConfig(guild.id),
+        await setLeaderboardConfig(guild.id, {
+            ...(await getLeaderboardConfig(guild.id)),
             tipsMessageId: tips.id
         });
     }
@@ -485,7 +486,7 @@ async function handleLeaderboardButton(interaction) {
 }
 
 async function handleLeaderboardAction(interaction, id) {
-    const session = getSession(interaction.guild.id);
+    const session = await getSession(interaction.guild.id);
 
     if (id === "tsb:lb:publish_confirm") {
         const { publishLiveLeaderboard } = require("./draft");
@@ -705,7 +706,7 @@ async function handleLeaderboardAction(interaction, id) {
 }
 
 async function handleLeaderboardSelect(interaction) {
-    const session = getSession(interaction.guild.id);
+    const session = await getSession(interaction.guild.id);
 
     if (interaction.customId === "tsb:lb:mgmt_channel") {
         session.data.managementChannelId = interaction.values[0] || null;
@@ -752,7 +753,7 @@ async function handleLeaderboardSelect(interaction) {
 }
 
 async function handleLeaderboardModal(interaction) {
-    const session = getSession(interaction.guild.id);
+    const session = await getSession(interaction.guild.id);
     const data = session.data;
     const id = interaction.customId;
 

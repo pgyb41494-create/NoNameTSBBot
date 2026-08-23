@@ -63,8 +63,8 @@ function isManagementChannel(message, cfg) {
 
 async function getOrCreateTopChannel(guild, cfg) {
     // Prefer publishing all pages; return the first page channel.
-    const merged = { ...getLeaderboardConfig(guild.id), ...cfg };
-    updateLeaderboardConfig(guild.id, {
+    const merged = { ...(await getLeaderboardConfig(guild.id)), ...cfg };
+    await updateLeaderboardConfig(guild.id, {
         topPerChannel: Math.max(1, Math.min(MAX_TOP, merged.topPerChannel || 10)),
         suffix: merged.suffix || "default"
     });
@@ -183,7 +183,7 @@ async function applyDraftSlots(guild, parsed) {
 async function handleLeaderboardDraftMessage(message) {
     if (!message.guild || message.author.bot) return false;
 
-    const cfg = getLeaderboardConfig(message.guild.id);
+    const cfg = await getLeaderboardConfig(message.guild.id);
     if (!isManagementChannel(message, cfg)) return false;
 
     // Keep management channel id in sync if matched by name
@@ -191,7 +191,7 @@ async function handleLeaderboardDraftMessage(message) {
         (message.channel.name === "tsb-boards" || message.channel.name === "ascendant-boards")
         && cfg.managementChannelId !== message.channel.id
     ) {
-        updateLeaderboardConfig(message.guild.id, {
+        await updateLeaderboardConfig(message.guild.id, {
             managementChannelId: message.channel.id,
             setupCompleted: cfg.setupCompleted || true
         });
@@ -257,7 +257,7 @@ async function handleLeaderboardDraftMessage(message) {
 
 async function publishLiveLeaderboard(interaction) {
     const guild = interaction.guild;
-    let cfg = getLeaderboardConfig(guild.id);
+    let cfg = await getLeaderboardConfig(guild.id);
 
     if (!canManageLeaderboard(interaction.member, guild, cfg)) {
         return interaction.reply({
@@ -268,11 +268,11 @@ async function publishLiveLeaderboard(interaction) {
 
     await interaction.deferUpdate();
 
-    ensureSlots(guild.id, Math.max(1, Math.min(MAX_TOP, cfg.topPerChannel || 10)));
-    cfg = getLeaderboardConfig(guild.id);
+    await ensureSlots(guild.id, Math.max(1, Math.min(MAX_TOP, cfg.topPerChannel || 10)));
+    cfg = await getLeaderboardConfig(guild.id);
 
     const result = await upsertLeaderboard(guild);
-    cfg = getLeaderboardConfig(guild.id);
+    cfg = await getLeaderboardConfig(guild.id);
 
     const missingProfiles = result.missingProfiles || [];
     const channelLines = (result.boardPages || [])

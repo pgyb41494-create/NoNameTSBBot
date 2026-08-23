@@ -1,4 +1,5 @@
 const api = require("../../../utils/loadApi");
+const { resolveMaybe } = require("../../../utils/resolveMaybe");
 
 function defaultConfig() {
   return api.score.defaultConfig ? api.score.defaultConfig() : {
@@ -15,24 +16,27 @@ function defaultConfig() {
   };
 }
 
-function getScoreConfig(guildId) {
-  const cfg = api.score.getConfig(guildId);
-  if (cfg.winnerCooldownDays == null) cfg.winnerCooldownDays = 4;
-  if (cfg.loserCooldownDays == null) cfg.loserCooldownDays = 7;
-  if (cfg.autowinEnabled == null) cfg.autowinEnabled = true;
-  if (cfg.autowinThreshold == null) cfg.autowinThreshold = 3;
-  if (!cfg.autowinSuccessBehavior) cfg.autowinSuccessBehavior = "reset";
-  if (!cfg.allowedRoleIds) cfg.allowedRoleIds = [];
-  if (!cfg.playerState) cfg.playerState = {};
-  return cfg;
+async function getScoreConfig(guildId) {
+  const cfg = await resolveMaybe(api.score.getConfig(guildId));
+  const next = cfg && typeof cfg === "object" ? { ...cfg } : {};
+  if (next.winnerCooldownDays == null) next.winnerCooldownDays = 4;
+  if (next.loserCooldownDays == null) next.loserCooldownDays = 7;
+  if (next.autowinEnabled == null) next.autowinEnabled = true;
+  if (next.autowinThreshold == null) next.autowinThreshold = 3;
+  if (!next.autowinSuccessBehavior) next.autowinSuccessBehavior = "reset";
+  if (!next.allowedRoleIds) next.allowedRoleIds = [];
+  if (!next.playerState) next.playerState = {};
+  return next;
 }
 
-function setScoreConfig(guildId, config) {
-  return api.score.updateConfig(guildId, { ...getScoreConfig(guildId), ...config, setupCompleted: true });
+async function setScoreConfig(guildId, config) {
+  const current = await getScoreConfig(guildId);
+  return resolveMaybe(api.score.updateConfig(guildId, { ...current, ...config, setupCompleted: true }));
 }
 
-function updateScoreConfig(guildId, patch) {
-  return api.score.updateConfig(guildId, { ...getScoreConfig(guildId), ...patch });
+async function updateScoreConfig(guildId, patch) {
+  const current = await getScoreConfig(guildId);
+  return resolveMaybe(api.score.updateConfig(guildId, { ...current, ...patch }));
 }
 
 function resetScoreConfig(guildId) {
@@ -40,9 +44,11 @@ function resetScoreConfig(guildId) {
   return api.score.updateConfig(guildId, defaultConfig());
 }
 
-function getPlayerState(guildId, userId) {
-  if (typeof api.score.getPlayerState === "function") return api.score.getPlayerState(guildId, userId);
-  const cfg = getScoreConfig(guildId);
+async function getPlayerState(guildId, userId) {
+  if (typeof api.score.getPlayerState === "function") {
+    return resolveMaybe(api.score.getPlayerState(guildId, userId));
+  }
+  const cfg = await getScoreConfig(guildId);
   return cfg.playerState?.[String(userId)] || {
     lastMatchAt: null,
     lastResult: null,
@@ -51,9 +57,11 @@ function getPlayerState(guildId, userId) {
   };
 }
 
-function setPlayerState(guildId, userId, patch) {
-  if (typeof api.score.setPlayerState === "function") return api.score.setPlayerState(guildId, userId, patch);
-  const cfg = getScoreConfig(guildId);
+async function setPlayerState(guildId, userId, patch) {
+  if (typeof api.score.setPlayerState === "function") {
+    return resolveMaybe(api.score.setPlayerState(guildId, userId, patch));
+  }
+  const cfg = await getScoreConfig(guildId);
   const id = String(userId);
   const playerState = { ...(cfg.playerState || {}) };
   playerState[id] = {
@@ -67,9 +75,11 @@ function setPlayerState(guildId, userId, patch) {
   return updateScoreConfig(guildId, { playerState });
 }
 
-function pushMatch(guildId, match) {
-  if (typeof api.score.pushMatch === "function") return api.score.pushMatch(guildId, match);
-  const cfg = getScoreConfig(guildId);
+async function pushMatch(guildId, match) {
+  if (typeof api.score.pushMatch === "function") {
+    return resolveMaybe(api.score.pushMatch(guildId, match));
+  }
+  const cfg = await getScoreConfig(guildId);
   const matches = [match, ...(cfg.matches || [])].slice(0, 100);
   return updateScoreConfig(guildId, { matches });
 }

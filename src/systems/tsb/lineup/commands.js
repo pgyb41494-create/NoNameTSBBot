@@ -81,7 +81,7 @@ async function placePlayer(ctx, cfg, board, action, regionKey, pos, user) {
     const guild = ctx.guild;
 
     if (action === 'remove') {
-        setRegionSlot(guild.id, regionKey, pos, null, board);
+        await setRegionSlot(guild.id, regionKey, pos, null, board);
         await publishRegionLineup(guild, regionKey);
         return send(`Cleared **${regionKey} ${label} #${pos}**.`);
     }
@@ -98,7 +98,7 @@ async function placePlayer(ctx, cfg, board, action, regionKey, pos, user) {
         return send(`<@${user.id}> needs a \`/profile\` before they can be placed on a lineup.`);
     }
 
-    setRegionSlot(guild.id, regionKey, pos, user.id, board);
+    await setRegionSlot(guild.id, regionKey, pos, user.id, board);
     await publishRegionLineup(guild, regionKey);
 
     return send(
@@ -107,7 +107,7 @@ async function placePlayer(ctx, cfg, board, action, regionKey, pos, user) {
 }
 
 async function handleLineupPrefix(message, args) {
-    const cfg = getLineupConfig(message.guild.id);
+    const cfg = await getLineupConfig(message.guild.id);
 
     if (!cfg.setupCompleted) {
         return message.reply('Line Up is not set up yet. Use `/tsbsetup` → **Line Up Management**.');
@@ -177,7 +177,7 @@ async function handleLineupPrefix(message, args) {
 }
 
 async function handleLineupSlash(interaction) {
-    const cfg = getLineupConfig(interaction.guild.id);
+    const cfg = await getLineupConfig(interaction.guild.id);
 
     if (!cfg.setupCompleted) {
         return interaction.reply({
@@ -244,8 +244,8 @@ async function handleLineupSlash(interaction) {
  * Discord slash autocomplete for lineup `region` options.
  * @returns {{ name: string, value: string }[]}
  */
-function autocompleteLineupRegion(guildId, focusedValue = '', subcommand = null) {
-    const cfg = getLineupConfig(guildId);
+async function autocompleteLineupRegion(guildId, focusedValue = '', subcommand = null) {
+    const cfg = await getLineupConfig(guildId);
     const q = String(focusedValue || '').toLowerCase().trim();
     const choices = [];
 

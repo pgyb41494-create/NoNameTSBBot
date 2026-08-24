@@ -37,8 +37,8 @@ const ENTER_SCORE_ID = "tsb:chaltix:enterscore";
 const POST_ID = "tsb:chaltix:post";
 const SCORE_MODAL_ID = "tsb:chaltix:scoremodal";
 
-function filledSlots(guildId) {
-  const cfg = getLeaderboardConfig(guildId);
+async function filledSlots(guildId) {
+  const cfg = await getLeaderboardConfig(guildId);
   return (cfg.slots || [])
     .filter((slot) => slot?.discordId)
     .map((slot) => ({ position: Number(slot.position), discordId: String(slot.discordId) }))
@@ -91,8 +91,8 @@ function shortBoardLines(slots, busy, limit = 15) {
   return lines.join("\n") || "*Board is empty.*";
 }
 
-function panelPayload(guild) {
-  const tickets = challengeTicketsOf(getLeaderboardConfig(guild.id));
+async function panelPayload(guild) {
+  const tickets = challengeTicketsOf(await getLeaderboardConfig(guild.id));
   return {
     embeds: [
       challengeCard({
@@ -115,10 +115,12 @@ function panelPayload(guild) {
   };
 }
 
-async function publishPanel(guild) {
-  const cfg = getLeaderboardConfig(guild.id);
-  const tickets = challengeTicketsOf(cfg);
-  if (!tickets.enabled) return null;
+async function publishPanel(guild, ticketOverride) {
+  const cfg = await getLeaderboardConfig(guild.id);
+  const tickets = challengeTicketsOf({
+    challengeTickets: { ...challengeTicketsOf(cfg), ...(ticketOverride || {}) },
+  });
+  if (!tickets.enabled && !tickets.channelId) return null;
 
   const channel = await getOrCreateNamedChannel(guild, {
     channelId: tickets.channelId,
@@ -127,10 +129,11 @@ async function publishPanel(guild) {
     createName: "challenge-tickets",
     topic: "Leaderboard challenge tickets",
     reason: "Ascendant challenge tickets panel",
+    create: true,
   });
   if (!channel) return null;
 
-  const payload = panelPayload(guild);
+  const payload = await panelPayload(guild);
   let message = null;
   if (tickets.panelMessageId) {
     message = await channel.messages.fetch(tickets.panelMessageId).catch(() => null);
@@ -149,7 +152,7 @@ async function publishPanel(guild) {
   }
   if (!message) message = await channel.send(payload);
 
-  updateLeaderboardConfig(guild.id, {
+  await updateLeaderboardConfig(guild.id, {
     challengeTickets: {
       ...tickets,
       enabled: true,
@@ -292,9 +295,11 @@ function combinedCrossScore(regionA, regionB) {
   return { left, right, display: `${left}-${right}` };
 }
 
-function canFinishMatch(member, guild) {
-  if (canStaff(member, guild, getLeaderboardConfig(guild.id))) return true;
-  return canUseScore(member, guild, getScoreConfig(guild.id));
+async function canFinishMatch(member, guild) {
+  const lb = await getLeaderboardConfig(guild.id);
+  if (canStaff(member, guild, lb)) return true;
+  const score = await getScoreConfig(guild.id);
+  return canUseScore(member, guild, score);
 }
 
 async function matchNames(guild, ticket) {
@@ -489,9 +494,9 @@ async function refreshMatchMessage(interaction, ticket) {
 }
 
 async function ticketPayload(guild, userId) {
-  const cfg = getLeaderboardConfig(guild.id);
+  const cfg = await getLeaderboardConfig(guild.id);
   const tickets = challengeTicketsOf(cfg);
-  const slots = filledSlots(guild.id);
+  const slots = await filledSlots(guild.id);
   const busy = await busySet(guild.id);
   const myPos = positionOf(slots, userId);
   const targets = validTargets(slots, userId, tickets, busy);
@@ -547,13 +552,13 @@ async function ticketPayload(guild, userId) {
 
 async function openTicket(interaction) {
   const guild = interaction.guild;
-  const cfg = getLeaderboardConfig(guild.id);
+  const cfg = await getLeaderboardConfig(guild.id);
   const ticketsCfg = challengeTicketsOf(cfg);
   if (!ticketsCfg.enabled) {
     return interaction.reply({ content: "Challenge tickets are not set up.", ephemeral: true });
   }
 
-  const slots = filledSlots(guild.id);
+  const slots = await filledSlots(guild.id);
   const myPos = positionOf(slots, interaction.user.id);
   if (!myPos) {
     return interaction.reply({
@@ -582,7 +587,7 @@ async function openTicket(interaction) {
 
   const category = await ensureCategory(guild, ticketsCfg);
   if (category?.id && category.id !== ticketsCfg.categoryId) {
-    updateLeaderboardConfig(guild.id, {
+    await updateLeaderboardConfig(guild.id, {
       challengeTickets: { ...ticketsCfg, categoryId: category.id },
     });
   }
@@ -625,7 +630,8 @@ async function pickTarget(interaction) {
   if (!userId) {
     return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
   }
-  if (String(interaction.user.id) !== String(userId) && !canStaff(interaction.member, interaction.guild, getLeaderboardConfig(interaction.guild.id))) {
+  const cfg = await getLeaderboardConfig(interaction.guild.id);
+  if (String(interaction.user.id) !== String(userId) && !canStaff(interaction.member, interaction.guild, cfg)) {
     return interaction.reply({ content: "Only the challenger can pick.", ephemeral: true });
   }
   if (ticket?.status === "picked" || ticket?.status === "accepted") {
@@ -633,9 +639,8 @@ async function pickTarget(interaction) {
   }
 
   const targetId = interaction.values[0];
-  const cfg = getLeaderboardConfig(interaction.guild.id);
   const ticketsCfg = challengeTicketsOf(cfg);
-  const slots = filledSlots(interaction.guild.id);
+  const slots = await filledSlots(interaction.guild.id);
   const busy = await busySet(interaction.guild.id);
   const allowed = validTargets(slots, userId, ticketsCfg, busy);
   if (!allowed.some((slot) => slot.discordId === String(targetId))) {
@@ -818,7 +823,7 @@ async function handleDecline(interaction) {
 }
 
 async function closeTicket(interaction) {
-  const cfg = getLeaderboardConfig(interaction.guild.id);
+  const cfg = await getLeaderboardConfig(interaction.guild.id);
   const ticket = getTicket(interaction.guild.id, interaction.channel.id);
   const userId = ticket?.userId || interaction.channel.topic?.replace(/^challenge:/, "");
   const isTarget = String(interaction.user.id) === String(ticket?.targetId);
@@ -869,7 +874,7 @@ async function handleFormat(interaction, format) {
   if (!ticket?.targetId) {
     return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
   }
-  if (!canFinishMatch(interaction.member, interaction.guild)) {
+  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
     return interaction.reply({ content: "Only staff picks the format.", ephemeral: true });
   }
   if (ticket.status !== "scoring") {
@@ -885,7 +890,7 @@ async function handleHost(interaction, who) {
   if (!ticket?.targetId) {
     return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
   }
-  if (!canFinishMatch(interaction.member, interaction.guild)) {
+  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
     return interaction.reply({ content: "Only staff picks the host.", ephemeral: true });
   }
   if (ticket.status !== "scoring") {
@@ -906,7 +911,7 @@ async function handleDone(interaction) {
   if (!ticket?.targetId) {
     return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
   }
-  if (!canFinishMatch(interaction.member, interaction.guild)) {
+  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
     return interaction.reply({ content: "Only staff can press Done.", ephemeral: true });
   }
   if (ticket.status === "picked") {
@@ -919,7 +924,7 @@ async function handleDone(interaction) {
 
 async function handleWinner(interaction, who) {
   const ticket = loadLiveTicket(interaction);
-  if (!canFinishMatch(interaction.member, interaction.guild)) {
+  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
     return interaction.reply({ content: "Only staff can pick the winner.", ephemeral: true });
   }
   if (ticket?.status !== "scoring") {
@@ -933,7 +938,7 @@ async function handleWinner(interaction, who) {
 
 async function handleChannelPick(interaction) {
   const ticket = loadLiveTicket(interaction);
-  if (!canFinishMatch(interaction.member, interaction.guild)) {
+  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
     return interaction.reply({ content: "Only staff can choose the channel.", ephemeral: true });
   }
   if (ticket?.status !== "scoring") {
@@ -947,7 +952,7 @@ async function handleChannelPick(interaction) {
 
 async function handleEnterScore(interaction) {
   const ticket = loadLiveTicket(interaction);
-  if (!canFinishMatch(interaction.member, interaction.guild)) {
+  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
     return interaction.reply({ content: "Only staff can enter the score.", ephemeral: true });
   }
   if (ticket?.status !== "scoring") {
@@ -1007,7 +1012,7 @@ async function handleEnterScore(interaction) {
 
 async function handleScoreModal(interaction) {
   const ticket = loadLiveTicket(interaction);
-  if (!canFinishMatch(interaction.member, interaction.guild)) {
+  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
     return interaction.reply({ content: "Only staff can enter the score.", ephemeral: true });
   }
   if (ticket?.status !== "scoring") {
@@ -1063,7 +1068,7 @@ async function handleScoreModal(interaction) {
 
 async function handlePost(interaction) {
   const ticket = loadLiveTicket(interaction);
-  if (!canFinishMatch(interaction.member, interaction.guild)) {
+  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
     return interaction.reply({ content: "Only staff can post the result.", ephemeral: true });
   }
   if (ticket?.status !== "scoring") {

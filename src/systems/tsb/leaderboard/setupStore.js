@@ -428,13 +428,15 @@ async function confirmAndPublish(interaction) {
     const { sweepManagementChannel } = require("../shared/mgmtCleaner");
 
     const published = await upsertLeaderboard(guild);
+    const chal = challengeTicketsOf({ challengeTickets: data.challengeTickets });
 
     await setLeaderboardConfig(guild.id, {
         ...(await getLeaderboardConfig(guild.id)),
         managementChannelId: managementChannel.id,
         leaderboardChannelId: published.channelId,
         leaderboardMessageIds: published.messageIds,
-        boardPages: published.boardPages
+        boardPages: published.boardPages,
+        challengeTickets: chal.enabled ? chal : (await getLeaderboardConfig(guild.id)).challengeTickets
     });
 
     const tips = await sweepManagementChannel(managementChannel, guild.id, "leaderboard");
@@ -446,11 +448,10 @@ async function confirmAndPublish(interaction) {
     }
 
     let challengeLine = "Challenge tickets: off";
-    const chal = challengeTicketsOf({ challengeTickets: data.challengeTickets });
     if (chal.enabled) {
         try {
             const { publishPanel } = require("../challengeTickets/runtime");
-            const posted = await publishPanel(guild);
+            const posted = await publishPanel(guild, chal);
             if (posted?.channel) challengeLine = `Challenge tickets: ${posted.channel}`;
         } catch (err) {
             challengeLine = `Challenge tickets failed: ${err.message}`;

@@ -157,18 +157,34 @@ async function stepPayload(interaction) {
     }
 
     if (step === 3) {
+        const { getPageRanges, pageChannelName } = require("./renderer");
+        const ranges = getPageRanges(data.topPerChannel);
+        const preview = ranges
+            .map((r) => `• **#${r.start}–${r.end}** → \`#${pageChannelName(r.start, r.end, data.suffix)}\``)
+            .join("\n");
+        const spotBtn = (n) => ({
+            type: 2,
+            style: Number(data.topPerChannel) === n ? 3 : 2,
+            label: `Top ${n}`,
+            custom_id: `tsb:lb:spots:${n}`,
+        });
         return {
             embeds: [{
                 title,
                 description:
-                    "Set total top positions (max 50). Spots are split into channels of 10 (1–10, 11–20, …).\n\n" +
-                    `Total positions: \`${data.topPerChannel}\`\n` +
-                    `Suffix: \`${data.suffix}\``,
+                    "How many top spots? Each **10** get their own channel (`top-1-10`, `top-11-20`, …).\n\n" +
+                    `**Selected:** \`${data.topPerChannel}\` spots\n` +
+                    `**Suffix:** \`${data.suffix || "default"}\`\n\n` +
+                    `${preview || "Pick a size above."}`,
                 color: COLOR
             }],
-            components: navButtons([
-                { type: 2, style: 1, label: "Set chunk + suffix", custom_id: "tsb:lb:cfg_naming" }
-            ])
+            components: [
+                { type: 1, components: [spotBtn(10), spotBtn(20), spotBtn(30), spotBtn(40), spotBtn(50)] },
+                ...navButtons([
+                    { type: 2, style: 1, label: "Custom size + suffix", custom_id: "tsb:lb:cfg_naming" },
+                    { type: 2, style: 2, label: "Suffix only", custom_id: "tsb:lb:cfg_suffix" },
+                ])
+            ]
         };
     }
 
@@ -549,6 +565,31 @@ async function handleLeaderboardAction(interaction, id) {
     }
     if (id === "tsb:lb:confirm") return confirmAndPublish(interaction);
 
+    if (id.startsWith("tsb:lb:spots:")) {
+        const n = parseInt(id.split(":")[3], 10);
+        if (Number.isFinite(n)) session.data.topPerChannel = Math.max(1, Math.min(50, n));
+        return renderStep(interaction);
+    }
+
+    if (id === "tsb:lb:cfg_suffix") {
+        return interaction.showModal({
+            title: "Board suffix",
+            custom_id: "tsb:lb:modal:suffix",
+            components: [{
+                type: 1,
+                components: [{
+                    type: 4,
+                    custom_id: "suffix",
+                    label: "Suffix (default = top-1-10)",
+                    style: 1,
+                    required: true,
+                    value: session.data.suffix || "default",
+                    max_length: 32
+                }]
+            }]
+        });
+    }
+
     if (id === "tsb:lb:chal_create") {
         const { getOrCreateNamedChannel } = require("../shared/channelReuse");
         const channel = await getOrCreateNamedChannel(interaction.guild, {
@@ -626,6 +667,7 @@ async function handleLeaderboardAction(interaction, id) {
                         style: 1,
                         required: true,
                         value: String(session.data.topPerChannel),
+                        placeholder: "20 for 1-10 and 11-20",
                         max_length: 2
                     }]
                 },
@@ -761,6 +803,8 @@ async function handleLeaderboardModal(interaction) {
     if (id === "tsb:lb:modal:naming") {
         const count = parseInt(interaction.fields.getTextInputValue("top_count"), 10);
         data.topPerChannel = Math.max(1, Math.min(50, Number.isFinite(count) ? count : 10));
+        data.suffix = interaction.fields.getTextInputValue("suffix").trim() || "default";
+    } else if (id === "tsb:lb:modal:suffix") {
         data.suffix = interaction.fields.getTextInputValue("suffix").trim() || "default";
     } else if (id === "tsb:lb:modal:ranklabel") {
         data.rankLabel = interaction.fields.getTextInputValue("rank_label").trim() || "Phase";

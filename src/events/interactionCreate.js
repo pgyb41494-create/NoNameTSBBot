@@ -36,6 +36,7 @@ const { handleSetupInteraction } = require("../systems/setupHub");
 const { handleAccessInteraction } = require("../systems/tsb/access/panel");
 const { handleVerifyInteraction } = require("../systems/tsb/verify/runtime");
 const { handleChallengeTickets } = require("../systems/tsb/challengeTickets/runtime");
+const { handleTickets } = require("../systems/tsb/tickets/runtime");
 const { handlePanelButton } = require("../systems/tsb/panels/runtime");
 const { handleAboutInteraction } = require("../systems/tsb/aboutserver/runtime");
 const {
@@ -55,6 +56,8 @@ async function handleTsbInteraction(interaction) {
     if (command?.autocomplete) return command.autocomplete(interaction);
     return false;
   }
+
+  if (id.startsWith("tsb:tix:")) return handleTickets(interaction);
 
   if (
     interaction.isStringSelectMenu?.()
@@ -86,6 +89,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:verify:")) return handleVerifyInteraction(interaction);
     if (id.startsWith("tsb:tryout:")) return handleTryoutButton(interaction);
     if (id.startsWith("tsb:chaltix:")) return handleChallengeTickets(interaction);
+    if (id.startsWith("tsb:tix:")) return handleTickets(interaction);
     if (id.startsWith("panel_btn_") || id.startsWith("pannel_btn_")) return handlePanelButton(interaction);
     if (id.startsWith("tsb:about:")) return handleAboutInteraction(interaction);
   }
@@ -98,6 +102,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:lu:")) return handleLineupModal(interaction);
     if (id.startsWith("tsb:tryout:")) return handleTryoutModal(interaction);
     if (id.startsWith("tsb:chaltix:")) return handleChallengeTickets(interaction);
+    if (id.startsWith("tsb:tix:")) return handleTickets(interaction);
     if (id.startsWith("tsb:about:")) return handleAboutInteraction(interaction);
   }
 

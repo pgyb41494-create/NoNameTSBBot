@@ -289,6 +289,7 @@ async function stepPayload(interaction) {
                     "Players can only challenge people **ahead** of them, within the spots-ahead rule, and not anyone already challenged.\n\n" +
                     `> **Enabled:** \`${chal.enabled ? "yes" : "no"}\`\n` +
                     `> **Channel:** ${chal.channelId ? `<#${chal.channelId}>` : "not set"}\n` +
+                    `> **Support team:** ${chal.supportRoleIds?.length ? chal.supportRoleIds.map((id) => `<@&${id}>`).join(", ") : "board staff roles"}\n` +
                     `> **Rules:** ${formatChallengeRules(chal)}`,
                 color: COLOR
             }],
@@ -302,6 +303,16 @@ async function stepPayload(interaction) {
                         min_values: 0,
                         max_values: 1,
                         channel_types: [0, 5]
+                    }]
+                },
+                {
+                    type: 1,
+                    components: [{
+                        type: 6,
+                        custom_id: "tsb:lb:chal_support",
+                        placeholder: "Support team roles to ping in tickets",
+                        min_values: 0,
+                        max_values: 25
                     }]
                 },
                 ...navButtons([
@@ -342,7 +353,8 @@ async function stepPayload(interaction) {
                 `**Roblox verification:** ${data.requireRobloxVerification ? "required" : "optional"}\n` +
                 `**Top player role:** ${data.topPlayerRoleId ? `<@&${data.topPlayerRoleId}>` : "none"}\n` +
                 `**Verified-rank requirements:** ${data.rankRequirements?.length || 0} segment(s)\n` +
-                `**Challenge tickets:** ${chal.enabled ? (chal.channelId ? `<#${chal.channelId}>` : "create on confirm") : "off"} · ${formatChallengeRules(chal)}\n\n` +
+                `**Challenge tickets:** ${chal.enabled ? (chal.channelId ? `<#${chal.channelId}>` : "create on confirm") : "off"} · ${formatChallengeRules(chal)}\n` +
+                `**Challenge support:** ${chal.supportRoleIds?.length ? chal.supportRoleIds.map((id) => `<@&${id}>`).join(", ") : "board staff"}\n\n` +
                 "Confirm to create/update **top-1-10**, **top-11-20**, … channels and publish profile-linked boards.",
             color: COLOR
         }],
@@ -772,6 +784,14 @@ async function handleLeaderboardSelect(interaction) {
             ...challengeTicketsOf({ challengeTickets: session.data.challengeTickets }),
             enabled: !!channelId,
             channelId,
+        };
+        return renderStep(interaction);
+    }
+
+    if (interaction.customId === "tsb:lb:chal_support") {
+        session.data.challengeTickets = {
+            ...challengeTicketsOf({ challengeTickets: session.data.challengeTickets }),
+            supportRoleIds: interaction.values || [],
         };
         return renderStep(interaction);
     }

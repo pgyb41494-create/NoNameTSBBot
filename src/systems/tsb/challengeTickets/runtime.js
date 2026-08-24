@@ -13,7 +13,7 @@ const {
 const api = require("../../../utils/loadApi");
 const { tsbEmbed, COLOR_PRIMARY, COLOR_SURFACE, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARN } = require("../shared/embeds");
 const { isAdminOrOwner, memberHasAnyRole } = require("../shared/permissions");
-const { getLeaderboardConfig, updateLeaderboardConfig, challengeTicketsOf, spotsAheadFor, formatChallengeRules } = require("../leaderboard/config");
+const { getLeaderboardConfig, updateLeaderboardConfig, challengeTicketsOf, spotsAheadFor, formatChallengeRules, challengeStaffRoleIds } = require("../leaderboard/config");
 const { getOrCreateNamedChannel } = require("../shared/channelReuse");
 const { applyMatchResult, canUseScore, parseScore } = require("../score/system");
 const { getScoreConfig } = require("../score/config");
@@ -190,7 +190,17 @@ function sanitizeName(user) {
 
 function canStaff(member, guild, cfg) {
   if (isAdminOrOwner(member, guild)) return true;
-  return memberHasAnyRole(member, cfg.allowedRoles || []);
+  const tickets = challengeTicketsOf(cfg);
+  return memberHasAnyRole(member, [
+    ...(cfg.allowedRoles || []),
+    ...(tickets.supportRoleIds || []),
+  ]);
+}
+
+function ticketStaffRoles(cfg) {
+  const tickets = challengeTicketsOf(cfg);
+  const ids = [...(tickets.supportRoleIds || []), ...(cfg.allowedRoles || [])];
+  return [...new Set(ids.map((id) => String(id)).filter(Boolean))];
 }
 
 function ticketOverwrites(guild, user, staffRoleIds) {
@@ -602,7 +612,7 @@ async function openTicket(interaction) {
     type: ChannelType.GuildText,
     parent: category?.id || null,
     topic: `challenge:${interaction.user.id}`,
-    permissionOverwrites: ticketOverwrites(guild, interaction.user, cfg.allowedRoles),
+    permissionOverwrites: ticketOverwrites(guild, interaction.user, ticketStaffRoles(cfg)),
     reason: `Challenge ticket for ${interaction.user.tag || interaction.user.username}`,
   });
 
@@ -614,10 +624,11 @@ async function openTicket(interaction) {
   setTicket(guild.id, channel.id, { userId: interaction.user.id, status: "open" });
 
   const payload = await ticketPayload(guild, interaction.user.id);
-  const staffPing = (cfg.allowedRoles || []).map((id) => `<@&${id}>`).join(" ");
+  const pingRoles = challengeStaffRoleIds(ticketsCfg, cfg.allowedRoles);
+  const staffPing = pingRoles.map((id) => `<@&${id}>`).join(" ");
   await channel.send({
     content: `${interaction.user} ${staffPing}`.trim(),
-    allowedMentions: { users: [interaction.user.id], roles: cfg.allowedRoles || [] },
+    allowedMentions: { users: [interaction.user.id], roles: pingRoles },
     ...payload,
   });
 

@@ -9,6 +9,7 @@ function defaultChallengeTickets() {
     panelMessageId: "",
     spotsAhead: 3,
     ranges: [],
+    supportRoleIds: [],
   };
 }
 
@@ -40,7 +41,18 @@ function challengeTicketsOf(cfg = {}) {
     panelMessageId: String(raw.panelMessageId || ""),
     spotsAhead,
     ranges: Array.isArray(raw.ranges) ? raw.ranges.filter((r) => r && r.from && r.to && r.spots) : [],
+    supportRoleIds: Array.isArray(raw.supportRoleIds)
+      ? [...new Set(raw.supportRoleIds.map((id) => String(id || "")).filter(Boolean))]
+      : [],
   };
+}
+
+function challengeStaffRoleIds(tickets, fallbackRoles = []) {
+  const inner = tickets && Array.isArray(tickets.supportRoleIds)
+    ? tickets
+    : challengeTicketsOf({ challengeTickets: tickets });
+  if (inner.supportRoleIds?.length) return inner.supportRoleIds.map(String);
+  return (fallbackRoles || []).map((id) => String(id)).filter(Boolean);
 }
 
 function spotsAheadFor(position, tickets) {
@@ -137,4 +149,5 @@ module.exports = {
   challengeTicketsOf,
   spotsAheadFor,
   formatChallengeRules,
+  challengeStaffRoleIds,
 };

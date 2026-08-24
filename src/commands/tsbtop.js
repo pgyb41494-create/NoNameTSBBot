@@ -37,6 +37,11 @@ function updatedEmbed(position, user) {
   });
 }
 
+function deleteSoon(message, ms = 5000) {
+  if (!message) return;
+  setTimeout(() => message.delete().catch(() => {}), ms);
+}
+
 module.exports = {
   name: "tsbtop",
   aliases: ["top", "lbset"],
@@ -91,10 +96,12 @@ module.exports = {
     }
     await placeOnTopBoard(message.guild.id, position, user.id);
     await refreshLeaderboard(message.guild).catch(() => upsertLeaderboard(message.guild));
-    return message.reply({
+    const reply = await message.reply({
       embeds: [updatedEmbed(position, user)],
       allowedMentions: { repliedUser: false },
     });
+    deleteSoon(reply);
+    return reply;
   },
 
   async executeSlash(interaction) {
@@ -115,6 +122,9 @@ module.exports = {
     const user = interaction.options.getUser("user", true);
     await placeOnTopBoard(interaction.guild.id, position, user.id);
     await refreshLeaderboard(interaction.guild).catch(() => upsertLeaderboard(interaction.guild));
-    return interaction.reply({ embeds: [updatedEmbed(position, user)] });
+    await interaction.reply({ embeds: [updatedEmbed(position, user)] });
+    const reply = await interaction.fetchReply().catch(() => null);
+    deleteSoon(reply);
+    return reply;
   },
 };

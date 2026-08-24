@@ -58,10 +58,24 @@ async function clearGlobalCommands(client = null) {
   await rest.put(Routes.applicationCommands(clientId), { body: [] });
 }
 
+async function bodyForGuild(guildId) {
+  const body = collectSlash().map((cmd) => JSON.parse(JSON.stringify(cmd)));
+  try {
+    const { getGuildConfig, normalizeCommandName } = require("./systems/tsb/ranking/config");
+    const cfg = await getGuildConfig(guildId);
+    const name = normalizeCommandName(cfg.commandName);
+    if (name && name !== "stage" && !body.some((cmd) => cmd.name === name)) {
+      const stage = body.find((cmd) => cmd.name === "stage");
+      if (stage) body.push({ ...stage, name });
+    }
+  } catch {}
+  return body;
+}
+
 /** Register slash commands for one guild only. */
 async function deployGuildCommands(guildId, client = null) {
-  const body = collectSlash();
   const gid = String(guildId || "").trim();
+  const body = gid ? await bodyForGuild(gid) : collectSlash();
   if (!gid || !body.length) return 0;
 
   if (client?.guilds?.cache?.has(gid)) {
@@ -91,7 +105,8 @@ async function deployCommands(client = null) {
     let guilds = 0;
     for (const guild of client.guilds.cache.values()) {
       try {
-        await guild.commands.set(body);
+        const guildBody = await bodyForGuild(guild.id);
+        await guild.commands.set(guildBody);
         guilds += 1;
       } catch (err) {
         console.warn(`Guild slash deploy failed for ${guild.name}:`, err.message);

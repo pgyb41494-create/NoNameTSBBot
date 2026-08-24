@@ -38,7 +38,7 @@ function helpEmbed() {
       "**Boards**",
       `\`${p}tsbtop\` / \`/tsbtop\` (aliases: \`${p}top\`, \`${p}lbset\`)`,
       `\`${p}lineup add <region> <pos> @user\` / \`/lineup\` — add · replace · remove · sub · publish`,
-      `\`${p}phase @user 2 high strong\` / \`/phase\` (aliases: stage, tier, rank)`,
+      `\`${p}stage @user 2 high strong\` / \`/stage\` (name can be changed in server setup)`,
       `\`/score\` — 1v1 / clan match (prefix not used; same options as Obscura)`,
       `\`${p}cd @user\` / \`/cd\` — cooldown and autowin strikes`,
       `\`${p}removecd @user\` / \`/removecd\` — clear 1v1 cooldown (score staff)`,

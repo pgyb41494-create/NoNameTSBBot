@@ -118,7 +118,15 @@ module.exports = {
     }
 
     if (interaction.isChatInputCommand()) {
-      const command = client.commands.get(interaction.commandName);
+      let command = client.commands.get(interaction.commandName);
+      if (!command?.executeSlash && interaction.guild) {
+        try {
+          const { rankingCommandMatches } = require("../systems/tsb/ranking/config");
+          if (await rankingCommandMatches(interaction.guild.id, interaction.commandName)) {
+            command = client.commands.get("stage");
+          }
+        } catch {}
+      }
       if (!command?.executeSlash) {
         return interaction.reply({ content: "Unknown command.", flags: MessageFlags.Ephemeral });
       }

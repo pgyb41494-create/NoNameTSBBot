@@ -200,7 +200,7 @@ function parsePhaseInput(raw) {
 
 function stageUsageLines(prefix, commandName, data = {}) {
     const pfx = String(prefix || "!").trim() || "!";
-    const cmd = String(commandName || "phase").replace(/^[-/>!.]+/, "").trim().toLowerCase() || "phase";
+    const cmd = String(commandName || "stage").replace(/^[-/>!.]+/, "").trim().toLowerCase() || "stage";
     const sub = (data.subranksSkipped || !(data.subranks || []).length)
         ? "high"
         : String(data.subranks[0]).toLowerCase();

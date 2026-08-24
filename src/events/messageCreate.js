@@ -23,7 +23,15 @@ module.exports = {
         if (message.content.startsWith(prefix)) {
           const parts = message.content.slice(prefix.length).trim().split(/\s+/);
           const name = (parts.shift() || "").toLowerCase();
-          const command = client.commands.get(name);
+          let command = client.commands.get(name);
+          if (!command?.executePrefix) {
+            try {
+              const { rankingCommandMatches } = require("../systems/tsb/ranking/config");
+              if (await rankingCommandMatches(message.guild.id, name)) {
+                command = client.commands.get("stage");
+              }
+            } catch {}
+          }
           if (command?.executePrefix) {
             try {
               await command.executePrefix(message, parts, client);

@@ -1,6 +1,7 @@
 const {
     setGuildConfig,
-    getGuildConfig
+    getGuildConfig,
+    normalizeCommandName,
 } = require("./config");
 const { resolveGuildPrefix } = require("../shared/guildPrefix");
 const { findPhaseRole, findRoleByKeyword, placeApplicantBetweenStage1And2 } = require("./applyStage");
@@ -31,10 +32,6 @@ function parseRoleTokenList(value, expectedLength = 0) {
         return parts.slice(0, expectedLength);
     }
     return parts.filter((part) => part.length > 0);
-}
-
-function normalizeCommandName(value) {
-    return String(value || "tier").replace(/^[-/>!.]+/, "").trim().toLowerCase() || "tier";
 }
 
 function extractRoleIdToken(value) {
@@ -284,7 +281,7 @@ async function autoDetectAndCreateRankingRoles(guild, data) {
 
 function defaultData() {
     return {
-        commandName: "phase",
+        commandName: "stage",
         tierLabel: "Phase",
         tierCount: 5,
         applicantEnabled: true,
@@ -310,36 +307,52 @@ function defaultData() {
     };
 }
 
+async function hydrateSession(guildId) {
+    if (sessions.has(guildId)) return sessions.get(guildId);
+    let saved = {};
+    try {
+        saved = await getGuildConfig(guildId);
+    } catch {
+        saved = {};
+    }
+    sessions.set(guildId, sessionFromSaved(saved));
+    return sessions.get(guildId);
+}
+
+function sessionFromSaved(saved) {
+    return {
+        step: 1,
+        fromSetup: false,
+        data: {
+            ...defaultData(),
+            commandName: normalizeCommandName(saved.commandName || "stage"),
+            tierLabel: saved.tierLabel || "Phase",
+            tierCount: saved.tierCount ?? 5,
+            applicantEnabled: saved.applicantEnabled !== false,
+            leaderboardIntegration: saved.leaderboardIntegration !== false,
+            authorizedRoles: saved.authorizedRoles || [],
+            subranks: saved.subranks || saved.subtiers || ["High", "Mid", "Low"],
+            powerRanks: saved.powerRanks?.length ? saved.powerRanks : ["Strong", "Stable", "Weak"],
+            tierRoleIds: saved.tierRoleIds || [],
+            subrankRoleIds: saved.subrankRoleIds || [],
+            powerRoleIds: saved.powerRoleIds || [],
+            applicantRoleId: saved.applicantRoleId || null,
+            colorMode: saved.colorMode || "fixed",
+            fixedColors: saved.fixedColors || ["0xFFD700", "0x9B59B6", "0x4EDBFA"],
+            regionRequired: false,
+            tryoutCooldownDays: saved.tryoutCooldownDays ?? 0,
+            tryoutCooldownRoleId: saved.tryoutCooldownRoleId || null,
+            autoCreateRoles: saved.autoCreateRoles !== false,
+            tierEmojis: saved.tierEmojis || [],
+            useRoleEmojis: !!saved.useRoleEmojis,
+            logChannelId: saved.logChannelId || null
+        }
+    };
+}
+
 function getSession(guildId) {
     if (!sessions.has(guildId)) {
-        const saved = getGuildConfig(guildId);
-        sessions.set(guildId, {
-            step: 1,
-            data: {
-                ...defaultData(),
-                commandName: normalizeCommandName(saved.commandName || "phase"),
-                tierLabel: saved.tierLabel || "Phase",
-                tierCount: saved.tierCount ?? 5,
-                applicantEnabled: saved.applicantEnabled !== false,
-                leaderboardIntegration: saved.leaderboardIntegration !== false,
-                authorizedRoles: saved.authorizedRoles || [],
-                subranks: saved.subranks || saved.subtiers || ["High", "Mid", "Low"],
-                powerRanks: saved.powerRanks?.length ? saved.powerRanks : ["Strong", "Stable", "Weak"],
-                tierRoleIds: saved.tierRoleIds || [],
-                subrankRoleIds: saved.subrankRoleIds || [],
-                powerRoleIds: saved.powerRoleIds || [],
-                applicantRoleId: saved.applicantRoleId || null,
-                colorMode: saved.colorMode || "fixed",
-                fixedColors: saved.fixedColors || ["0xFFD700", "0x9B59B6", "0x4EDBFA"],
-                regionRequired: false,
-                tryoutCooldownDays: saved.tryoutCooldownDays ?? 0,
-                tryoutCooldownRoleId: saved.tryoutCooldownRoleId || null,
-                autoCreateRoles: saved.autoCreateRoles !== false,
-                tierEmojis: saved.tierEmojis || [],
-                useRoleEmojis: !!saved.useRoleEmojis,
-                logChannelId: saved.logChannelId || null
-            }
-        });
+        sessions.set(guildId, sessionFromSaved({}));
     }
     return sessions.get(guildId);
 }
@@ -364,7 +377,7 @@ function configSummary(data, prefix = "!") {
     const cooldown = data.tryoutCooldownDays > 0
         ? `${data.tryoutCooldownDays}d`
         : "off";
-    const cmd = normalizeCommandName(data.commandName || "phase");
+    const cmd = normalizeCommandName(data.commandName || "stage");
     const pfx = String(prefix || "!").trim() || "!";
 
     return (
@@ -537,7 +550,7 @@ function stepPayload(interaction) {
     }
 
     // step 9
-    const cmd = normalizeCommandName(data.commandName || "phase");
+    const cmd = normalizeCommandName(data.commandName || "stage");
     const usage = require("./parseStageInput").stageUsageLines(prefix, cmd, data);
     return {
         embeds: [{
@@ -600,10 +613,11 @@ function openRankingModule(interaction) {
         });
     }
 
-    const session = getSession(interaction.guild.id);
-    session.step = 1;
-    session.fromSetup = true;
-    return renderStep(interaction);
+    return hydrateSession(interaction.guild.id).then((session) => {
+        session.step = 1;
+        session.fromSetup = true;
+        return renderStep(interaction);
+    });
 }
 
 function showModal(interaction, modal) {
@@ -625,7 +639,7 @@ function openBasicModal(interaction) {
                     style: 1,
                     required: true,
                     value: normalizeCommandName(data.commandName),
-                    placeholder: "tier",
+                    placeholder: "stage",
                     max_length: 32
                 }]
             },
@@ -1073,7 +1087,7 @@ async function finishAndSave(interaction) {
         phases.push(`${data.tierLabel}${i}`);
     }
 
-    setGuildConfig(interaction.guild.id, {
+    await setGuildConfig(interaction.guild.id, {
         ...data,
         commandName: normalizeCommandName(data.commandName),
         regionRequired: false,
@@ -1086,8 +1100,15 @@ async function finishAndSave(interaction) {
 
     sessions.delete(interaction.guild.id);
 
+    try {
+        const { deployGuildCommands } = require("../../../deploy-commands");
+        await deployGuildCommands(interaction.guild.id, interaction.client);
+    } catch (err) {
+        console.warn("ranking slash deploy:", err.message);
+    }
+
     const prefix = resolveGuildPrefix(interaction.guild.id);
-    const cmd = normalizeCommandName(data.commandName || "phase");
+    const cmd = normalizeCommandName(data.commandName || "stage");
     const { stageUsageLines } = require("./parseStageInput");
     const usage = stageUsageLines(prefix, cmd, { ...data, regionRequired: false });
 

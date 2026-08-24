@@ -25,7 +25,7 @@ function rankingNotReadyPayload() {
   };
 }
 
-function canAssignStage(member, guild) {
+async function canAssignStage(member, guild) {
   if (isAdminOrOwner(member, guild)) return true;
   if (member?.permissions?.has?.(PermissionFlagsBits.ManageRoles)) return true;
   return canUseRanking(member, guild);
@@ -33,7 +33,7 @@ function canAssignStage(member, guild) {
 
 function invokedFromPrefix(message) {
   const prefix = brand.prefix || "'";
-  const name = message.content.slice(prefix.length).trim().split(/\s+/)[0] || "phase";
+  const name = message.content.slice(prefix.length).trim().split(/\s+/)[0] || "stage";
   return name.toLowerCase();
 }
 
@@ -49,20 +49,20 @@ function slashCommand(name) {
 
 module.exports = {
   name: "stage",
-  aliases: ["tier", "rank", "phase"],
-  slash: () => [slashCommand("stage"), slashCommand("phase")],
+  aliases: ["tier", "rank"],
+  slash: () => slashCommand("stage"),
 
   async executePrefix(message, args) {
-    if (!isSetupCompleted(message.guild.id)) {
+    if (!(await isSetupCompleted(message.guild.id))) {
       return message.reply({ ...rankingNotReadyPayload(), allowedMentions: { repliedUser: false } });
     }
-    if (!canAssignStage(message.member, message.guild)) {
+    if (!(await canAssignStage(message.member, message.guild))) {
       return message.reply({ embeds: [danger("Missing permissions", "Staff only.")] });
     }
     const user = message.mentions.users.first();
     const stage = args.filter((a) => !a.startsWith("<@")).join(" ");
     if (!user || !stage) {
-      return message.reply({ embeds: [danger("Usage", "`'phase @user 2 High Weak`")] });
+      return message.reply({ embeds: [danger("Usage", "`'stage @user 2 High Weak`")] });
     }
     return applyStageCommand(
       message,
@@ -77,10 +77,10 @@ module.exports = {
   },
 
   async executeSlash(interaction) {
-    if (!isSetupCompleted(interaction.guild.id)) {
+    if (!(await isSetupCompleted(interaction.guild.id))) {
       return interaction.reply({ ...rankingNotReadyPayload(), ephemeral: true });
     }
-    if (!canAssignStage(interaction.member, interaction.guild)) {
+    if (!(await canAssignStage(interaction.member, interaction.guild))) {
       return interaction.reply({ embeds: [danger("Missing permissions", "Staff only.")], ephemeral: true });
     }
     const user = interaction.options.getUser("user");
@@ -124,7 +124,7 @@ async function applyStageCommand(ctx, guild, user, stageInput, actor, actorMembe
     return reply(ctx, danger("Not in server", "That user is not in this server."));
   }
 
-  const tsbRanking = getSafeGuildConfig(guild.id);
+  const tsbRanking = await getSafeGuildConfig(guild.id);
   if (!tsbRanking) {
     return reply(
       ctx,

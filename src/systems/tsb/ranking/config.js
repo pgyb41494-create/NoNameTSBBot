@@ -6,23 +6,23 @@ const { resolveMaybe } = require("../../../utils/resolveMaybe");
 function normalizeCommandName(value) {
   return api.ranking.normalizeCommandName
     ? api.ranking.normalizeCommandName(value)
-    : String(value || "phase").replace(/^[-/>!.]+/, "").trim().toLowerCase() || "phase";
+    : String(value || "stage")
+      .replace(/^[-/>!.]+/, "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "")
+      .slice(0, 32) || "stage";
 }
 
 function defaultGuildConfig() {
   return api.ranking.defaultConfig ? api.ranking.defaultConfig() : {};
 }
 
-function remapPhaseDefaults(cfg) {
-  if (!cfg || typeof cfg !== "object") return cfg;
-  if (cfg.commandName === "stage") cfg.commandName = "phase";
-  if (String(cfg.tierLabel || "") === "Stage") cfg.tierLabel = "Phase";
-  return cfg;
-}
-
 async function getGuildConfig(guildId) {
   const cfg = await resolveMaybe(api.ranking.getConfig(guildId));
-  return remapPhaseDefaults(cfg && typeof cfg === "object" ? { ...cfg } : {});
+  const next = cfg && typeof cfg === "object" ? { ...cfg } : {};
+  next.commandName = normalizeCommandName(next.commandName || "stage");
+  return next;
 }
 
 function setGuildConfig(guildId, config) {
@@ -91,4 +91,12 @@ module.exports = {
   canUseRanking,
   normalizeCommandName,
   defaultGuildConfig,
+  rankingCommandMatches,
 };
+
+async function rankingCommandMatches(guildId, invoked) {
+  const want = normalizeCommandName(invoked);
+  if (!want) return false;
+  const cfg = await getGuildConfig(guildId);
+  return normalizeCommandName(cfg.commandName) === want;
+}

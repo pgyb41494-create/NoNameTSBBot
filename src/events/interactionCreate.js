@@ -1,3 +1,4 @@
+const { MessageFlags } = require("discord.js");
 const { handleProfileInteraction } = require("../systems/profileUI");
 const { handleRulesInteraction } = require("../commands/rules");
 const { handleHubSelect, HUB_CUSTOM_ID } = require("../systems/tsb/hub");
@@ -114,7 +115,7 @@ module.exports = {
     if (interaction.isChatInputCommand()) {
       const command = client.commands.get(interaction.commandName);
       if (!command?.executeSlash) {
-        return interaction.reply({ content: "Unknown command.", ephemeral: true });
+        return interaction.reply({ content: "Unknown command.", flags: MessageFlags.Ephemeral });
       }
       return command.executeSlash(interaction, client);
     }

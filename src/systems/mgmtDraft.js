@@ -171,9 +171,10 @@ function parseLineupDraft(content, cfg) {
   return { regionKey, board, start, end, slots };
 }
 
-function applyLeaderboardDraft(guildId, parsed) {
-  api.leaderboard.ensureSlots(guildId, Math.max(parsed.end, 10));
-  const cfg = api.leaderboard.getConfig(guildId);
+async function applyLeaderboardDraft(guildId, parsed) {
+  const { ensureSlots, getLeaderboardConfig, updateLeaderboardConfig } = require("./tsb/leaderboard/config");
+  await ensureSlots(guildId, Math.max(parsed.end, 10));
+  const cfg = await getLeaderboardConfig(guildId);
   const slots = [...(cfg.slots || [])];
   while (slots.length < parsed.end) {
     slots.push({ position: slots.length + 1, discordId: null });
@@ -186,7 +187,7 @@ function applyLeaderboardDraft(guildId, parsed) {
   for (const s of parsed.slots) {
     slots[s.position - 1] = { position: s.position, discordId: s.discordId };
   }
-  return api.leaderboard.updateConfig(guildId, { slots, setupCompleted: true });
+  return updateLeaderboardConfig(guildId, { slots, setupCompleted: true });
 }
 
 function applyLineupDraft(guildId, parsed) {
@@ -319,7 +320,7 @@ async function handleManagementDraft(message) {
 
     const parsed = parseLeaderboardDraft(content);
     if (parsed) {
-      applyLeaderboardDraft(message.guild.id, parsed);
+      await applyLeaderboardDraft(message.guild.id, parsed);
       await message.react("✅").catch(() => {});
       return { managed: true, handled: true };
     }

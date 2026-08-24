@@ -112,8 +112,16 @@ async function updateLeaderboardConfig(guildId, patch) {
   return resolveMaybe(api.leaderboard.updateConfig(guildId, { ...current, ...nextPatch }));
 }
 
-function ensureSlots(guildId, count) {
-  return api.leaderboard.ensureSlots(guildId, count);
+async function ensureSlots(guildId, count) {
+  if (typeof api.leaderboard.ensureSlots === "function") {
+    return resolveMaybe(api.leaderboard.ensureSlots(guildId, count));
+  }
+  const cfg = await getLeaderboardConfig(guildId);
+  const n = Math.max(1, Math.min(50, count || cfg.slotCount || cfg.topPerChannel || 10));
+  const slots = [...(cfg.slots || [])];
+  while (slots.length < n) slots.push({ position: slots.length + 1, discordId: null });
+  const next = slots.slice(0, n).map((s, i) => ({ position: i + 1, discordId: s.discordId || null }));
+  return updateLeaderboardConfig(guildId, { slots: next, slotCount: n, topPerChannel: n });
 }
 
 module.exports = {

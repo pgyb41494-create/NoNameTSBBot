@@ -140,14 +140,14 @@ function parseLeaderboardDraft(content) {
 }
 
 async function applyDraftSlots(guild, parsed) {
-    const cfg = getLeaderboardConfig(guild.id);
+    const cfg = await getLeaderboardConfig(guild.id);
     const count = Math.max(
         cfg.topPerChannel || 10,
         Math.min(MAX_TOP, parsed.end)
     );
-    ensureSlots(guild.id, count);
+    await ensureSlots(guild.id, count);
 
-    const fresh = getLeaderboardConfig(guild.id);
+    const fresh = await getLeaderboardConfig(guild.id);
     const slots = [...(fresh.slots || [])];
 
     while (slots.length < count) {

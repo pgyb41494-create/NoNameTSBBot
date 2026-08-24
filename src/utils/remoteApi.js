@@ -101,6 +101,8 @@ module.exports = {
     updateConfig: (guildId, body) => req(`/api/bot/leaderboard/${guildId}`, { method: "POST", body }),
     place: (guildId, position, userId) =>
       req(`/api/bot/leaderboard/${guildId}/place`, { method: "POST", body: { position, userId } }),
+    ensureSlots: (guildId, count) =>
+      req(`/api/bot/leaderboard/${guildId}/ensure-slots`, { method: "POST", body: { count } }),
   },
   lineup: {
     getConfig: (guildId) => req(`/api/bot/lineup/${guildId}`),

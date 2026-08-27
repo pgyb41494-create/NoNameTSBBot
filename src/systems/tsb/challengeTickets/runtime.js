@@ -18,6 +18,7 @@ const { getOrCreateNamedChannel } = require("../shared/channelReuse");
 const { applyMatchResult, canUseScore, parseScore } = require("../score/system");
 const { getScoreConfig } = require("../score/config");
 const { setTicket, getTicket, setPending, findOpenTicket } = require("./store");
+const { buildTicketTranscript, transcriptAuditEmbed } = require("../shared/transcript");
 
 const START_ID = "tsb:chaltix:start";
 const PICK_ID = "tsb:chaltix:pick";
@@ -863,16 +864,46 @@ async function closeTicket(interaction) {
     setPending(interaction.guild.id, userId, null);
   }
   setTicket(interaction.guild.id, interaction.channel.id, { status: "closed" });
-  await refreshBoard(interaction.guild);
 
   await interaction.reply({
     embeds: [challengeCard({
       title: "Ticket closed",
       color: COLOR_DANGER,
-      description: "This channel will be deleted shortly.",
+      description: "Saving transcript, then this channel will be deleted.",
       footer: "Closing in 5 seconds",
     })],
   });
+
+  const history = await buildTicketTranscript(interaction.channel, {
+    openerId: userId,
+    closedById: interaction.user.id,
+    panelName: "challenge-tickets",
+  }).catch(() => null);
+
+  const logId = cfg.managementChannelId;
+  if (logId && history?.file) {
+    const logChannel = await interaction.guild.channels.fetch(logId).catch(() => null);
+    if (logChannel?.isTextBased?.()) {
+      await logChannel.send({
+        embeds: [
+          transcriptAuditEmbed({
+            title: "Challenge ticket closed",
+            channel: interaction.channel,
+            closedBy: interaction.user,
+            openerId: userId,
+            panelName: "challenge",
+            history,
+            extraFields: ticket?.targetId
+              ? [{ name: "Target", value: `<@${ticket.targetId}>`, inline: true }]
+              : [],
+          }),
+        ],
+        files: [history.file],
+      }).catch(() => {});
+    }
+  }
+
+  await refreshBoard(interaction.guild);
   setTimeout(() => interaction.channel.delete("Challenge ticket closed").catch(() => {}), 5000);
 }
 

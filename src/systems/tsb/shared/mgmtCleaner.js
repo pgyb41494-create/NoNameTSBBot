@@ -34,6 +34,7 @@ function buildLineupTips(guildId) {
         `${p}lineup list\n` +
         "```\n" +
         "Slash works too: `/lineup …`\n" +
+        `1-click refresh: \`${p}republish lineups\` / \`/republish\`\n` +
         "Users must have a `/profile`."
     );
 }
@@ -46,7 +47,8 @@ function buildLeaderboardTips(slotCount = 10, guildId = null) {
         "```\n" +
         buildDraftTemplate(slotCount) +
         "\n```\n\n" +
-        `Or place one spot: \`${p}tsbtop <pos> @user\` (also \`/tsbtop\`).`
+        `Or place one spot: \`${p}tsbtop <pos> @user\` (also \`/tsbtop\`).\n` +
+        `1-click refresh anytime: \`${p}republish\` / \`/republish\`.`
     );
 }
 

@@ -1,6 +1,5 @@
 const {
   ActionRowBuilder,
-  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   ChannelSelectMenuBuilder,
@@ -210,12 +209,35 @@ function homePayload(guildId) {
       )
     );
   }
-  rows.push(
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("tsb:tix:create").setLabel("Create panel").setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId("tsb:tix:import").setLabel("Import message").setStyle(ButtonStyle.Secondary)
-    )
-  );
+  const homeButtons = [
+    new ButtonBuilder().setCustomId("tsb:tix:create").setLabel("Create panel").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("tsb:tix:import").setLabel("Import message").setStyle(ButtonStyle.Secondary),
+  ];
+  if (panels.some((p) => p.sendChannelId)) {
+    homeButtons.push(
+      new ButtonBuilder().setCustomId("tsb:tix:republish_all").setLabel("Republish all").setStyle(ButtonStyle.Primary)
+    );
+  }
+  rows.push(new ActionRowBuilder().addComponents(homeButtons));
+  if (panels.some((p) => p.sendChannelId)) {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("tsb:tix:republish_one")
+          .setPlaceholder("1-click republish one panel")
+          .addOptions(
+            panels
+              .filter((p) => p.sendChannelId)
+              .slice(0, 25)
+              .map((panel) => ({
+                label: `Republish: ${(panel.title || panel.name)}`.slice(0, 100),
+                value: panel.name,
+                description: panel.sendChannelId ? `→ #channel` : "not posted",
+              }))
+          )
+      )
+    );
+  }
   return { embeds: [embed], components: rows };
 }
 
@@ -229,7 +251,8 @@ function wizardNav(panel, step) {
     );
   } else {
     row.addComponents(
-      new ButtonBuilder().setCustomId(`tsb:tix:post:${panel.name}`).setLabel("Publish panel").setStyle(ButtonStyle.Success)
+      new ButtonBuilder().setCustomId(`tsb:tix:post:${panel.name}`).setLabel("Publish panel").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`tsb:tix:preview:${panel.name}`).setLabel("Live preview").setStyle(ButtonStyle.Secondary)
     );
   }
   row.addComponents(
@@ -434,56 +457,26 @@ function menuModal(panel) {
     .addComponents(new ActionRowBuilder().addComponents(field("placeholder", "Placeholder", TextInputStyle.Short, panel.dropdownPlaceholder, 150)));
 }
 
+const { buildTicketTranscript, transcriptAuditEmbed } = require("../shared/transcript");
+
 async function sendAudit(guild, panel, options) {
   if (!panel?.auditLogChannelId) return;
   const channel = await guild.channels.fetch(panel.auditLogChannelId).catch(() => null);
   if (!channel?.isTextBased()) return;
   const payload = {
-    embeds: [
-      new EmbedBuilder()
-        .setColor(options.color || COLOR)
-        .setTitle(options.title || "Tickets")
-        .setDescription((options.description || "").slice(0, 4096))
-        .addFields((options.fields || []).slice(0, 25))
-        .setTimestamp(),
-    ],
+    embeds: options.embeds?.length
+      ? options.embeds
+      : [
+        new EmbedBuilder()
+          .setColor(options.color || COLOR)
+          .setTitle(options.title || "Tickets")
+          .setDescription((options.description || "").slice(0, 4096))
+          .addFields((options.fields || []).slice(0, 25))
+          .setTimestamp(),
+      ],
   };
   if (options.files?.length) payload.files = options.files;
   await channel.send(payload).catch(() => {});
-}
-
-async function fetchHistory(channel) {
-  const collected = [];
-  let before;
-  for (let i = 0; i < 8; i += 1) {
-    const batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
-    if (!batch.size) break;
-    const list = [...batch.values()];
-    collected.push(...list);
-    before = list[list.length - 1].id;
-    if (batch.size < 100) break;
-  }
-  collected.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-  const lines = collected.map((message) => {
-    const time = message.createdAt.toISOString().replace("T", " ").slice(0, 19);
-    const author = message.author?.tag || message.author?.username || "Unknown";
-    const bits = [];
-    if (message.content) bits.push(message.content);
-    if (message.attachments.size) bits.push([...message.attachments.values()].map((f) => f.url).join(" "));
-    return `[${time}] ${author}: ${bits.join(" ") || "(embed)"}`;
-  });
-  return {
-    count: collected.length,
-    participants: [...new Set(collected.map((m) => m.author?.tag).filter(Boolean))],
-    transcript: lines.join("\n") || "(empty)",
-  };
-}
-
-function duration(startMs) {
-  const minutes = Math.floor(Math.max(0, Date.now() - startMs) / 60000);
-  const hours = Math.floor(minutes / 60);
-  if (hours) return `${hours}h ${minutes % 60}m`;
-  return `${Math.max(1, minutes)}m`;
 }
 
 async function ensureCategory(guild, panel) {
@@ -668,24 +661,24 @@ async function closeTicket(interaction, panel) {
     return interaction.reply({ content: "You can't close this ticket.", ephemeral: true });
   }
 
-  await interaction.reply("Closing this ticket…");
-  const history = await fetchHistory(interaction.channel).catch(() => ({ count: 0, participants: [], transcript: "" }));
-  const files = history.transcript
-    ? [new AttachmentBuilder(Buffer.from(history.transcript, "utf8"), { name: `${interaction.channel.name}.txt` })]
-    : [];
+  await interaction.reply("Closing this ticket — saving transcript…");
+  const history = await buildTicketTranscript(interaction.channel, {
+    openerId,
+    closedById: interaction.user.id,
+    panelName: panel?.name,
+  }).catch(() => null);
   if (panel) {
     await sendAudit(interaction.guild, panel, {
-      title: "Ticket closed",
-      color: 0xed4245,
-      description: `${interaction.channel} was closed.`,
-      fields: [
-        { name: "Closed by", value: `${interaction.user}`, inline: true },
-        { name: "Opened by", value: openerId ? `<@${openerId}>` : "unknown", inline: true },
-        { name: "Duration", value: duration(interaction.channel.createdTimestamp), inline: true },
-        { name: "Messages", value: String(history.count), inline: true },
-        { name: "Participants", value: (history.participants.join("\n") || "—").slice(0, 1024), inline: true },
+      embeds: [
+        transcriptAuditEmbed({
+          channel: interaction.channel,
+          closedBy: interaction.user,
+          openerId,
+          panelName: panel.name,
+          history: history || { count: 0, participants: [], duration: "—" },
+        }),
       ],
-      files,
+      files: history?.file ? [history.file] : [],
     });
   }
   setTimeout(() => interaction.channel.delete("Ticket closed").catch(() => {}), 4000);
@@ -748,6 +741,33 @@ async function handleTickets(interaction) {
   }
   if (interaction.isButton() && id === "tsb:tix:import") {
     await interaction.showModal(importModal());
+    return true;
+  }
+  if (interaction.isButton() && id === "tsb:tix:republish_all") {
+    const panels = listPanels(interaction.guildId).filter((p) => p.sendChannelId);
+    if (!panels.length) {
+      return interaction.reply({ content: "No panels are posted yet.", ephemeral: true });
+    }
+    await interaction.deferReply({ ephemeral: true });
+    const lines = [];
+    for (const panel of panels) {
+      const result = await publishPanel(interaction.guild, panel);
+      lines.push(result.error
+        ? `• \`${panel.name}\` — ${result.error}`
+        : `• \`${panel.name}\` ${result.updated ? "updated" : "posted"} in ${result.channel}`);
+    }
+    await interaction.editReply({ content: `**Republished ${panels.length} panel(s)**\n${lines.join("\n")}` });
+    return true;
+  }
+  if (interaction.isStringSelectMenu() && id === "tsb:tix:republish_one") {
+    const panel = getPanel(interaction.guildId, interaction.values[0]);
+    if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
+    const result = await publishPanel(interaction.guild, panel);
+    if (result.error) return interaction.reply({ content: result.error, ephemeral: true });
+    await interaction.reply({
+      content: `Panel **${panel.title || panel.name}** ${result.updated ? "updated" : "posted"} in ${result.channel}.`,
+      ephemeral: true,
+    });
     return true;
   }
   if (interaction.isStringSelectMenu() && id === "tsb:tix:pick") {
@@ -880,6 +900,18 @@ async function handleTickets(interaction) {
     await interaction.showModal(menuModal(getPanel(interaction.guildId, id.split(":")[3])));
     return true;
   }
+  if (interaction.isButton() && id.startsWith("tsb:tix:preview:")) {
+    const panel = getPanel(interaction.guildId, id.split(":")[3]);
+    if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
+    const ctx = { guild: interaction.guild, panelName: panel.name, user: interaction.user };
+    await interaction.reply({
+      content: "Live preview (same embed + buttons/menu members will see):",
+      embeds: [panelEmbed(panel, ctx)],
+      components: panelComponents(panel, ctx),
+      ephemeral: true,
+    });
+    return true;
+  }
   if (interaction.isButton() && id.startsWith("tsb:tix:post:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[3]);
     const result = await publishPanel(interaction.guild, panel);
@@ -964,4 +996,5 @@ module.exports = {
   homePayload,
   handleTickets,
   canSetup,
+  publishPanel,
 };

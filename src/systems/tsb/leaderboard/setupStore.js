@@ -341,6 +341,23 @@ async function stepPayload(interaction) {
 
     // step 9 confirm
     const chal = challengeTicketsOf({ challengeTickets: data.challengeTickets });
+    const { cardEmbed } = require("../../boardPublish");
+    const { brand } = require("../../../utils/loadApi");
+    const previewCard = cardEmbed({
+      empty: false,
+      name: "Preview Player",
+      discordTag: "@player",
+      position: 1,
+      stage: data.rankLabel ? `${data.rankLabel} 2` : "Phase 2",
+      region: "Miami",
+      robloxUsername: "example",
+      wins: 12,
+      losses: 3,
+      gifUrl: brand.defaultGif,
+      avatarUrl: null,
+    }, { mode: "leaderboard" });
+    previewCard.setFooter({ text: "Live preview · what a board card looks like" });
+
     return {
         embeds: [{
             title,
@@ -355,9 +372,9 @@ async function stepPayload(interaction) {
                 `**Verified-rank requirements:** ${data.rankRequirements?.length || 0} segment(s)\n` +
                 `**Challenge tickets:** ${chal.enabled ? (chal.channelId ? `<#${chal.channelId}>` : "create on confirm") : "off"} · ${formatChallengeRules(chal)}\n` +
                 `**Challenge support:** ${chal.supportRoleIds?.length ? chal.supportRoleIds.map((id) => `<@&${id}>`).join(", ") : "board staff"}\n\n` +
-                "Confirm to create/update **top-1-10**, **top-11-20**, … channels and publish profile-linked boards.",
+                "Confirm to create/update board channels and publish. After that use `/republish` anytime.",
             color: COLOR
-        }],
+        }, previewCard],
         components: navButtons(
             [
                 { type: 2, style: 3, label: "Confirm", custom_id: "tsb:lb:confirm" },

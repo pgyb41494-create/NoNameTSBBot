@@ -10,6 +10,7 @@ const {
 } = require("./config");
 
 const { upsertLeaderboard } = require("./renderer");
+const { listThemes, resolveTheme } = require("../../leaderboardThemes");
 
 const TOTAL_STEPS = 9;
 const COLOR = 0x2B2D31;
@@ -30,6 +31,7 @@ function defaultData() {
         requireRobloxVerification: true,
         topPlayerRoleId: null,
         rankRequirements: [],
+        theme: "classic",
         challengeTickets: defaultChallengeTickets()
     };
 }
@@ -50,6 +52,7 @@ async function getSession(guildId) {
                 requireRobloxVerification: saved.requireRobloxVerification !== false,
                 topPlayerRoleId: saved.topPlayerRoleId || null,
                 rankRequirements: saved.rankRequirements || [],
+                theme: resolveTheme(saved.theme).id,
                 challengeTickets: challengeTicketsOf(saved)
             }
         });
@@ -86,8 +89,29 @@ function configSummary(data) {
         `> **Current suffix:** \`${data.suffix || "default"}\`\n` +
         `> **Current rank label:** \`${data.rankLabel}\`\n` +
         `> **Current verification:** \`${data.requireRobloxVerification ? "required" : "optional"}\`\n` +
-        `> **Top player role:** ${data.topPlayerRoleId ? `<@&${data.topPlayerRoleId}>` : "none"}`
+        `> **Top player role:** ${data.topPlayerRoleId ? `<@&${data.topPlayerRoleId}>` : "none"}\n` +
+        `> **Theme:** ${resolveTheme(data.theme).label}`
     );
+}
+
+function themeSelectRow(themeId) {
+    const current = resolveTheme(themeId);
+    return {
+        type: 1,
+        components: [{
+            type: 3,
+            custom_id: "tsb:lb:theme",
+            placeholder: `Theme: ${current.label}`,
+            min_values: 1,
+            max_values: 1,
+            options: listThemes().map((theme) => ({
+                label: theme.label,
+                value: theme.id,
+                description: theme.description,
+                default: theme.id === current.id
+            }))
+        }]
+    };
 }
 
 async function stepPayload(interaction) {
@@ -341,6 +365,7 @@ async function stepPayload(interaction) {
 
     // step 9 confirm
     const chal = challengeTicketsOf({ challengeTickets: data.challengeTickets });
+    const theme = resolveTheme(data.theme);
     const { cardEmbed } = require("../../boardPublish");
     const { brand } = require("../../../utils/loadApi");
     const previewCard = cardEmbed({
@@ -369,19 +394,23 @@ async function stepPayload(interaction) {
                 `**Rank Label:** ${data.rankLabel}\n` +
                 `**Roblox verification:** ${data.requireRobloxVerification ? "required" : "optional"}\n` +
                 `**Top player role:** ${data.topPlayerRoleId ? `<@&${data.topPlayerRoleId}>` : "none"}\n` +
+                `**Theme:** ${theme.label}\n` +
                 `**Verified-rank requirements:** ${data.rankRequirements?.length || 0} segment(s)\n` +
                 `**Challenge tickets:** ${chal.enabled ? (chal.channelId ? `<#${chal.channelId}>` : "create on confirm") : "off"} · ${formatChallengeRules(chal)}\n` +
                 `**Challenge support:** ${chal.supportRoleIds?.length ? chal.supportRoleIds.map((id) => `<@&${id}>`).join(", ") : "board staff"}\n\n` +
                 "Confirm to create/update board channels and publish. After that use `/republish` anytime.",
             color: COLOR
         }, previewCard],
-        components: navButtons(
-            [
-                { type: 2, style: 3, label: "Confirm", custom_id: "tsb:lb:confirm" },
-                { type: 2, style: 4, label: "Cancel", custom_id: "tsb:lb:cancel" }
-            ],
-            { disableNext: true }
-        )
+        components: [
+            themeSelectRow(data.theme),
+            ...navButtons(
+                [
+                    { type: 2, style: 3, label: "Confirm", custom_id: "tsb:lb:confirm" },
+                    { type: 2, style: 4, label: "Cancel", custom_id: "tsb:lb:cancel" }
+                ],
+                { disableNext: true }
+            )
+        ]
     };
 }
 
@@ -810,6 +839,11 @@ async function handleLeaderboardSelect(interaction) {
             ...challengeTicketsOf({ challengeTickets: session.data.challengeTickets }),
             supportRoleIds: interaction.values || [],
         };
+        return renderStep(interaction);
+    }
+
+    if (interaction.customId === "tsb:lb:theme") {
+        session.data.theme = resolveTheme(interaction.values[0]).id;
         return renderStep(interaction);
     }
 

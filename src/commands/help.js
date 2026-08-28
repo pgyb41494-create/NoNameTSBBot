@@ -32,6 +32,7 @@ function helpEmbed() {
       "",
       "**Profile & coach**",
       `\`/profile\` · \`${p}profile\``,
+      `\`/profile-create\` · \`${p}createprofile @user RobloxName\` — admins create profiles without a bio code`,
       `\`/tsbcoach\` · \`${p}tsbcoach\` (aliases: coach, vod)`,
       `\`${p}ask\` / \`/ask\` — chat (can also answer TSBCC rules)`,
       `\`${p}rules\` / \`/rules\` — TSBCC rulebook (blacklist, bail, wars, FAQ)`,

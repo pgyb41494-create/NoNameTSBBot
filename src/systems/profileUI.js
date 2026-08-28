@@ -11,7 +11,7 @@ const {
 } = require("discord.js");
 const api = require("../utils/loadApi");
 const { surface, danger, ok, brand } = require("../utils/embeds");
-const { isOwner } = require("../utils/permissions");
+const { isOwner, isAdminOrOwner } = require("../utils/permissions");
 const { REGIONS } = api.regions;
 const { CHARACTERS } = api.characters;
 const { profileDividerAttachment } = require("./profileDivider");
@@ -138,6 +138,15 @@ function manageRow(userId, admin = false) {
   );
 }
 
+function adminCreateRow(userId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`asc:profile:admin_start:${userId}`)
+      .setLabel("Create profile for this user")
+      .setStyle(ButtonStyle.Success)
+  );
+}
+
 async function payloadFor(guild, userId) {
   const profile = await maybe(api.profiles.getProfile(guild.id, userId));
   if (!profile) return null;
@@ -202,6 +211,109 @@ function createModal() {
           .setMaxLength(32)
       )
     );
+}
+
+function adminCreateModal(targetId) {
+  return new ModalBuilder()
+    .setCustomId(`asc:profile:admin_create:${targetId}`)
+    .setTitle("Create member profile")
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("display_name")
+          .setLabel("Display name (optional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(32)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("roblox_username")
+          .setLabel("Roblox username or profile URL")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(200)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("region")
+          .setLabel("Region value or name (optional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setPlaceholder("miami, virginia, London")
+          .setMaxLength(40)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("country")
+          .setLabel("Country (optional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setPlaceholder("United States, Brazil, US")
+          .setMaxLength(40)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("character")
+          .setLabel("Main character (optional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setPlaceholder("Saitama, Garou, Genos")
+          .setMaxLength(40)
+      )
+    );
+}
+
+function resolveAdminRegion(input) {
+  const value = String(input || "").trim().toLowerCase();
+  if (!value) return null;
+  const found = REGIONS.find(
+    (region) => region.value.toLowerCase() === value || region.label.toLowerCase() === value
+  );
+  return found?.value || null;
+}
+
+function resolveAdminCharacter(input) {
+  const value = String(input || "").trim().toLowerCase();
+  if (!value) return null;
+  return CHARACTERS.find((character) => character.toLowerCase() === value) || null;
+}
+
+async function createAdminProfile({ guild, actor, member, targetUser, displayName, robloxUsername, region, country, character }) {
+  if (!isAdminOrOwner(member, guild)) {
+    throw new Error("Only server administrators can create profiles for other members.");
+  }
+  if (!targetUser?.id) throw new Error("Choose a Discord member first.");
+
+  const roblox = await api.roblox.resolveRobloxUser(String(robloxUsername || "").trim());
+  const resolvedRegion = resolveAdminRegion(region);
+  if (region && !resolvedRegion) {
+    throw new Error("Unknown region. Use a region value like `miami` or `virginia`.");
+  }
+  const resolvedCountry = country ? resolveCountry(country) : null;
+  if (country && !resolvedCountry) {
+    throw new Error("Unknown country. Use a full country name or a two-letter code.");
+  }
+  const resolvedCharacter = character ? resolveAdminCharacter(character) : null;
+  if (character && !resolvedCharacter) {
+    throw new Error(`Unknown character. Choose one of: ${CHARACTERS.join(", ")}.`);
+  }
+
+  await maybe(api.profiles.saveProfile(guild.id, targetUser.id, {
+    display_name: String(displayName || "").trim() || targetUser.globalName || targetUser.username || roblox.displayName,
+    roblox_username: roblox.name,
+    roblox_display_name: roblox.displayName,
+    roblox_id: roblox.id,
+    roblox_avatar_url: roblox.avatarUrl,
+    region: resolvedRegion,
+    country: resolvedCountry?.name || null,
+    country_flag: resolvedCountry?.flag || null,
+    main_character: resolvedCharacter,
+    verified_at: new Date().toISOString(),
+  }));
+  rememberGuild(targetUser.id, guild.id);
+  refreshBoards(guild, targetUser.id);
+  return payloadFor(guild, targetUser.id);
 }
 
 function countryModal() {
@@ -373,7 +485,11 @@ async function handleProfileCommand({ guild, actor, targetUser, query, member })
 
   if (!profile) {
     if (userId !== actor.id) {
-      return { embeds: [danger("No profile", "That player has not created a profile.")] };
+      const admin = isAdminOrOwner(member, guild);
+      return {
+        embeds: [danger("No profile", "That player has not created a profile.")],
+        ...(admin ? { components: [adminCreateRow(userId)] } : {}),
+      };
     }
     return registerPrompt(actor.id);
   }
@@ -417,6 +533,17 @@ async function handleProfileInteraction(interaction) {
     return interaction.showModal(createModal());
   }
 
+  if (id.startsWith("asc:profile:admin_start:")) {
+    const targetId = id.slice("asc:profile:admin_start:".length);
+    if (!interaction.guild || !isAdminOrOwner(interaction.member, interaction.guild)) {
+      return interaction.reply(withEphemeral(interaction, {
+        content: "Only server administrators can create profiles for other members.",
+        ephemeral: true,
+      }));
+    }
+    return interaction.showModal(adminCreateModal(targetId));
+  }
+
   if (id === "asc:profile:start") {
     return interaction.showModal(createModal());
   }
@@ -457,6 +584,46 @@ async function handleProfileInteraction(interaction) {
       embeds: [surface({ title: "Profile setup", description: "Select your primary region." })],
       components: [regionRow()],
     }));
+  }
+
+  if (id.startsWith("asc:profile:admin_create:") && interaction.isModalSubmit()) {
+    const targetId = id.slice("asc:profile:admin_create:".length);
+    if (!interaction.guild || !isAdminOrOwner(interaction.member, interaction.guild)) {
+      return interaction.reply(withEphemeral(interaction, {
+        content: "Only server administrators can create profiles for other members.",
+        ephemeral: true,
+      }));
+    }
+    const targetUser = await interaction.client.users.fetch(targetId).catch(() => null);
+    if (!targetUser) {
+      return interaction.reply(withEphemeral(interaction, {
+        embeds: [danger("Member not found", "That Discord member could not be fetched.")],
+        ephemeral: true,
+      }));
+    }
+    try {
+      const payload = await createAdminProfile({
+        guild: interaction.guild,
+        actor: interaction.user,
+        member: interaction.member,
+        targetUser,
+        displayName: interaction.fields.getTextInputValue("display_name"),
+        robloxUsername: interaction.fields.getTextInputValue("roblox_username"),
+        region: interaction.fields.getTextInputValue("region"),
+        country: interaction.fields.getTextInputValue("country"),
+        character: interaction.fields.getTextInputValue("character"),
+      });
+      return interaction.reply(withEphemeral(interaction, {
+        ...payload,
+        content: `Profile created for ${targetUser}. No Roblox bio code was required.`,
+        ephemeral: true,
+      }));
+    } catch (err) {
+      return interaction.reply(withEphemeral(interaction, {
+        embeds: [danger("Could not create profile", err.message || "Profile creation failed.")],
+        ephemeral: true,
+      }));
+    }
   }
 
   if (id === "asc:profile:region" && interaction.isStringSelectMenu()) {
@@ -716,4 +883,5 @@ module.exports = {
   registerPrompt,
   rememberGuild,
   sendProfileToUser,
+  createAdminProfile,
 };

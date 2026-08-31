@@ -13,7 +13,7 @@ const api = require("../utils/loadApi");
 const { surface, danger, ok, brand } = require("../utils/embeds");
 const { isOwner, isAdminOrOwner } = require("../utils/permissions");
 const { REGIONS } = api.regions;
-const { CHARACTERS } = api.characters;
+const { CHARACTERS, getCharacterLabel } = api.characters;
 const { profileDividerAttachment } = require("./profileDivider");
 const { resolveCountry } = require("./profileCountries");
 
@@ -258,7 +258,7 @@ function adminCreateModal(targetId) {
           .setLabel("Main character (optional)")
           .setStyle(TextInputStyle.Short)
           .setRequired(false)
-          .setPlaceholder("Saitama, Garou, Genos")
+          .setPlaceholder("The Strongest Hero, Hero Hunter, Tech Prodigy")
           .setMaxLength(40)
       )
     );
@@ -276,7 +276,8 @@ function resolveAdminRegion(input) {
 function resolveAdminCharacter(input) {
   const value = String(input || "").trim().toLowerCase();
   if (!value) return null;
-  return CHARACTERS.find((character) => character.toLowerCase() === value) || null;
+  const label = getCharacterLabel(value);
+  return CHARACTERS.find((character) => character.toLowerCase() === label.toLowerCase()) || null;
 }
 
 async function createAdminProfile({ guild, actor, member, targetUser, displayName, robloxUsername, region, country, character }) {

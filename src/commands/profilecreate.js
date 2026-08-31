@@ -2,6 +2,7 @@ const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 const { danger } = require("../utils/embeds");
 const { isAdminOrOwner } = require("../utils/permissions");
 const { createAdminProfile } = require("../systems/profileUI");
+const { CHARACTERS } = require("../utils/loadApi").characters;
 
 function usage() {
   return "Use `/profile-create` with a Discord member and their Roblox username.";
@@ -48,7 +49,8 @@ module.exports = {
       .addStringOption((option) =>
         option
           .setName("character")
-          .setDescription("Main character (optional)")
+          .setDescription("TSB moveset name (optional)")
+          .addChoices(...CHARACTERS.map((character) => ({ name: character, value: character })))
           .setRequired(false)
       ),
 

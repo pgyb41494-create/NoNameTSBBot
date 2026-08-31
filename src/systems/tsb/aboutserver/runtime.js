@@ -97,6 +97,46 @@ function fill(text, vars, max) {
   return interpolate(text, vars).slice(0, max);
 }
 
+function memberMatches(member, handle) {
+  const wanted = String(handle || "").toLowerCase();
+  return [member.user?.username, member.user?.globalName, member.displayName, member.nickname]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase() === wanted);
+}
+
+async function resolveMention(guild, handle) {
+  const wanted = String(handle || "").toLowerCase();
+  if (!wanted || wanted === "everyone" || wanted === "here") return `@${handle}`;
+
+  const cachedMember = guild.members.cache.find((member) => memberMatches(member, wanted));
+  if (cachedMember) return `<@${cachedMember.id}>`;
+
+  try {
+    const fetched = await guild.members.fetch({ query: handle, limit: 10 });
+    const member = fetched.find((candidate) => memberMatches(candidate, wanted));
+    if (member) return `<@${member.id}>`;
+  } catch {}
+
+  const role = guild.roles.cache.find((candidate) => String(candidate.name).toLowerCase() === wanted);
+  return role ? `<@&${role.id}>` : `@${handle}`;
+}
+
+async function resolveTextMentions(guild, text) {
+  const source = String(text || "");
+  const pattern = /@([a-z0-9_.-]{2,32})/gi;
+  let output = "";
+  let cursor = 0;
+  let match;
+
+  while ((match = pattern.exec(source))) {
+    output += source.slice(cursor, match.index);
+    output += await resolveMention(guild, match[1]);
+    cursor = pattern.lastIndex;
+  }
+
+  return output + source.slice(cursor);
+}
+
 function addText(container, content, thumbnail) {
   const sliced = String(content || "").trim();
   if (!sliced) return false;
@@ -211,7 +251,7 @@ function varsHelp() {
     "Vanir text",
     "```",
     "`{server}` `{members}` `{owner}` `{created}`",
-    "Mentions: paste a Discord user mention like `<@USER_ID>` or role mention like `<@&ROLE_ID>`.",
+    "Mentions: paste a Discord mention or type `@username` / `@role-name`; matching server members and roles are converted automatically when saved.",
   ].join("\n");
 }
 
@@ -592,10 +632,15 @@ async function handleAboutInteraction(interaction) {
     if (action === "modal_gif") {
       updateConfig(interaction.guild.id, { gif: safeUrl(interaction.fields.getTextInputValue("gif")) }, name);
     } else if (action === "modal_content") {
+      const [title, body, footer] = await Promise.all([
+        resolveTextMentions(interaction.guild, interaction.fields.getTextInputValue("title")),
+        resolveTextMentions(interaction.guild, interaction.fields.getTextInputValue("body")),
+        resolveTextMentions(interaction.guild, interaction.fields.getTextInputValue("footer")),
+      ]);
       updateConfig(interaction.guild.id, {
-        title: safeText(interaction.fields.getTextInputValue("title"), 256),
-        body: safeText(interaction.fields.getTextInputValue("body"), 3900),
-        footer: safeText(interaction.fields.getTextInputValue("footer"), 500),
+        title: safeText(title, 256),
+        body: safeText(body, 3900),
+        footer: safeText(footer, 500),
       }, name);
     } else if (action === "modal_style") {
       const colorRaw = String(interaction.fields.getTextInputValue("color") || "")
@@ -633,6 +678,7 @@ module.exports = {
   parseEditorId,
   parseHubId,
   interpolate,
+  resolveTextMentions,
   buildVars,
   splitV2Line,
   buildPayload,

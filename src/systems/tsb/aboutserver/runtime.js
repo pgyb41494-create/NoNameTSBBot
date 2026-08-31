@@ -168,6 +168,9 @@ async function buildPayload(guild, cfg = getConfig(guild.id)) {
   return {
     flags: MessageFlags.IsComponentsV2,
     components: [container],
+    allowedMentions: {
+      parse: ["users", "roles", "everyone"],
+    },
   };
 }
 
@@ -208,6 +211,7 @@ function varsHelp() {
     "Vanir text",
     "```",
     "`{server}` `{members}` `{owner}` `{created}`",
+    "Mentions: paste a Discord user mention like `<@USER_ID>` or role mention like `<@&ROLE_ID>`.",
   ].join("\n");
 }
 

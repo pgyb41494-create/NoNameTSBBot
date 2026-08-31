@@ -121,7 +121,6 @@ function deleteConfig(guildId, name) {
 function renameConfig(guildId, name, nextName) {
   const from = normalizeName(name);
   const to = normalizeName(nextName);
-  if (from === "default") return { ok: false, reason: "The default embed cannot be renamed." };
   if (from === to) return { ok: true, name: to };
 
   let result = { ok: false, reason: "Embed not found." };
@@ -135,6 +134,7 @@ function renameConfig(guildId, name, nextName) {
     }
     embeds[to] = { ...embeds[from], name: to };
     delete embeds[from];
+    if (from === "default") embeds.default = defaultConfig("default");
     db[String(guildId)] = { embeds };
     result = { ok: true, name: to };
     return db;

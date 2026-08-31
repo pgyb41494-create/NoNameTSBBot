@@ -242,7 +242,8 @@ function editorPayload(guildId, name = "default") {
         new ButtonBuilder().setCustomId(editorId("post", key)).setLabel("Post / update here").setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(editorId("refresh", key)).setLabel("Refresh posted").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(editorId("rename", key)).setLabel("Rename").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(editorId("vars", key)).setLabel("Variables").setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId(editorId("vars", key)).setLabel("Variables").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(editorId("hub", key)).setLabel("Embed Hub").setStyle(ButtonStyle.Secondary)
       ),
     ],
   };
@@ -332,12 +333,6 @@ async function handleEmbedHubInteraction(interaction, context) {
   if (context.action === "edit") return openEditor(interaction, name);
 
   if (context.action === "rename") {
-    if (name === "default") {
-      return interaction.reply({
-        embeds: [danger("Cannot rename default", "Create a named embed first.")],
-        ephemeral: true,
-      });
-    }
     return interaction.showModal(
       modal(`tsb:embed:modal_hub_rename:${name}`, "Rename embed", [
         {
@@ -524,13 +519,8 @@ async function handleAboutInteraction(interaction) {
       );
       return true;
     }
+    if (action === "hub") return openEmbedHub(interaction, name);
     if (action === "rename") {
-      if (name === "default") {
-        return interaction.reply({
-          embeds: [danger("Cannot rename default", "Create a named embed first.")],
-          ephemeral: true,
-        });
-      }
       await interaction.showModal(
         modal(editorId("modal_rename", name), "Rename embed", [
           {

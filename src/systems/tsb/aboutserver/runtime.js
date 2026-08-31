@@ -13,7 +13,7 @@ const {
 } = require("discord.js");
 const { isAdminOrOwner } = require("../shared/permissions");
 const { tsbEmbed, COLOR_PRIMARY } = require("../shared/embeds");
-const { danger, ok } = require("../../../utils/embeds");
+const { danger } = require("../../../utils/embeds");
 const {
   getConfig,
   updateConfig,
@@ -393,12 +393,8 @@ async function handleEmbedHubInteraction(interaction, context) {
 
   if (context.action === "post") {
     try {
-      const sent = await postOrEdit(interaction.channel, interaction.guild, cfg);
-      await interaction.update(embedHubPayload(interaction.guild.id, name));
-      return interaction.followUp({
-        embeds: [ok("Posted", `Embed \`${name}\` is live in ${sent.channel}.`)],
-        ephemeral: true,
-      }).catch(() => {});
+      await postOrEdit(interaction.channel, interaction.guild, cfg);
+      return interaction.update(embedHubPayload(interaction.guild.id, name));
     } catch (err) {
       return interaction.reply({
         embeds: [danger("Post failed", err.message || "Could not post that embed.")],
@@ -408,14 +404,8 @@ async function handleEmbedHubInteraction(interaction, context) {
   }
 
   if (context.action === "refresh") {
-    const msg = await refreshPosted(interaction.guild, name);
-    await interaction.update(embedHubPayload(interaction.guild.id, name));
-    return interaction.followUp({
-      embeds: msg
-        ? [ok("Refreshed", `The posted embed \`${name}\` was updated.`)]
-        : [danger("Nothing posted", `Post embed \`${name}\` first.`)],
-      ephemeral: true,
-    }).catch(() => {});
+    await refreshPosted(interaction.guild, name);
+    return interaction.update(embedHubPayload(interaction.guild.id, name));
   }
 
   if (context.action === "delete") {
@@ -425,11 +415,7 @@ async function handleEmbedHubInteraction(interaction, context) {
     if (!deleteConfig(interaction.guild.id, name)) {
       return interaction.reply({ embeds: [danger("Not found", `No embed named \`${name}\` exists.`)], ephemeral: true });
     }
-    await interaction.update(embedHubPayload(interaction.guild.id, "default"));
-    return interaction.followUp({
-      embeds: [ok("Deleted", `Embed \`${name}\` was deleted.`)],
-      ephemeral: true,
-    }).catch(() => {});
+    return interaction.update(embedHubPayload(interaction.guild.id, "default"));
   }
 
   return false;
@@ -437,6 +423,14 @@ async function handleEmbedHubInteraction(interaction, context) {
 
 function requireStaff(interaction) {
   return isAdminOrOwner(interaction.member, interaction.guild);
+}
+
+async function updateEditorView(interaction, name) {
+  const payload = editorPayload(interaction.guild.id, name);
+  if (interaction.message && typeof interaction.update === "function") {
+    return interaction.update(payload);
+  }
+  return interaction.reply({ ...payload, ephemeral: true });
 }
 
 async function openEditor(interaction, name = "default") {
@@ -581,12 +575,8 @@ async function handleAboutInteraction(interaction) {
     }
     if (action === "post") {
       try {
-        const sent = await postOrEdit(interaction.channel, interaction.guild, cfg);
-        await interaction.update(editorPayload(interaction.guild.id, name));
-        await interaction.followUp({
-          embeds: [ok("Posted", `Embed \`${name}\` is live in ${sent.channel}.`)],
-          ephemeral: true,
-        }).catch(() => {});
+        await postOrEdit(interaction.channel, interaction.guild, cfg);
+        return interaction.update(editorPayload(interaction.guild.id, name));
       } catch (err) {
         await interaction.reply({
           embeds: [danger("Post failed", err.message || "Could not post that message.")],
@@ -596,14 +586,8 @@ async function handleAboutInteraction(interaction) {
       return true;
     }
     if (action === "refresh") {
-      const msg = await refreshPosted(interaction.guild, name);
-      await interaction.reply({
-        embeds: msg
-          ? [ok("Refreshed", `The posted embed \`${name}\` was updated.`)]
-          : [danger("Nothing posted", "Use **Post / update here** first.")],
-        ephemeral: true,
-      });
-      return true;
+      await refreshPosted(interaction.guild, name);
+      return interaction.update(editorPayload(interaction.guild.id, name));
     }
     if (action === "vars") {
       await interaction.reply({
@@ -663,11 +647,7 @@ async function handleAboutInteraction(interaction) {
       return false;
     }
     await refreshPosted(interaction.guild, name).catch(() => null);
-    await interaction.reply({
-      embeds: [ok("Saved", `Embed \`${name}\` updated. Posted message refreshed if it exists.`)],
-      ephemeral: true,
-    });
-    return true;
+    return updateEditorView(interaction, name);
   }
 
   return false;

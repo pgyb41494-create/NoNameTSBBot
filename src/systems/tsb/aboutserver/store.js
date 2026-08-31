@@ -18,8 +18,20 @@ function parseColor(value) {
   return parseInt(raw, 16);
 }
 
-function defaultConfig() {
+function normalizeName(value) {
+  return (
+    String(value || "default")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9_-]/g, "")
+      .slice(0, 32) || "default"
+  );
+}
+
+function defaultConfig(name = "default") {
   return {
+    name: normalizeName(name),
     gif: "",
     thumbnail: "",
     title: "",
@@ -39,10 +51,11 @@ function isStockTemplate(cfg) {
   );
 }
 
-function getConfig(guildId) {
-  const db = store.load();
-  const current = db[String(guildId)] || {};
-  const merged = { ...defaultConfig(), ...current };
+function configFromRaw(raw, name) {
+  const key = normalizeName(name);
+  const embeds = raw?.embeds && typeof raw.embeds === "object" ? raw.embeds : null;
+  const current = embeds ? embeds[key] || {} : key === "default" ? raw || {} : {};
+  const merged = { ...defaultConfig(key), ...current, name: key };
   if (isStockTemplate(current) && !current.clearedStock) {
     merged.title = "";
     merged.body = "";
@@ -51,26 +64,67 @@ function getConfig(guildId) {
   return merged;
 }
 
-function updateConfig(guildId, patch) {
+function getConfig(guildId, name = "default") {
+  const db = store.load();
+  return configFromRaw(db[String(guildId)] || {}, name);
+}
+
+function updateConfig(guildId, patch, name = "default") {
+  const key = normalizeName(name);
   let next = null;
   store.updateSync((db) => {
-    next = { ...getConfig(guildId), ...patch, clearedStock: true };
+    const raw = db[String(guildId)] || {};
+    next = { ...configFromRaw(raw, key), ...patch, name: key, clearedStock: true };
     delete next.records;
     delete next.v2;
     delete next.recordCount;
     delete next.scorePoints;
     delete next.mvps;
-    db[String(guildId)] = next;
+    const embeds = raw.embeds && typeof raw.embeds === "object"
+      ? { ...raw.embeds }
+      : { default: configFromRaw(raw, "default") };
+    embeds[key] = next;
+    db[String(guildId)] = { embeds };
     return db;
   });
   return next;
+}
+
+function listConfigs(guildId) {
+  const db = store.load();
+  const raw = db[String(guildId)] || {};
+  if (raw.embeds && typeof raw.embeds === "object") {
+    const names = Object.keys(raw.embeds).map(normalizeName).filter(Boolean);
+    return [...new Set(names.length ? names : ["default"])];
+  }
+  return ["default"];
+}
+
+function deleteConfig(guildId, name) {
+  const key = normalizeName(name);
+  if (key === "default") return false;
+  let deleted = false;
+  store.updateSync((db) => {
+    const raw = db[String(guildId)] || {};
+    const embeds = raw.embeds && typeof raw.embeds === "object" ? { ...raw.embeds } : {};
+    if (embeds[key]) {
+      delete embeds[key];
+      deleted = true;
+      db[String(guildId)] = { embeds };
+    }
+    return db;
+  });
+  return deleted;
 }
 
 module.exports = {
   safeText,
   safeUrl,
   parseColor,
+  normalizeName,
   defaultConfig,
   getConfig,
   updateConfig,
+  listConfigs,
+  deleteConfig,
 };

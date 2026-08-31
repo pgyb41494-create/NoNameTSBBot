@@ -19,19 +19,24 @@ const {
   safeText,
   safeUrl,
   parseColor,
+  normalizeName,
+  listConfigs,
+  deleteConfig,
 } = require("./store");
 
-const ID = {
-  gif: "tsb:about:gif",
-  content: "tsb:about:content",
-  style: "tsb:about:style",
-  post: "tsb:about:post",
-  refresh: "tsb:about:refresh",
-  vars: "tsb:about:vars",
-  modalGif: "tsb:about:modal_gif",
-  modalContent: "tsb:about:modal_content",
-  modalStyle: "tsb:about:modal_style",
-};
+function editorId(action, name = "default") {
+  const key = normalizeName(name);
+  return key === "default" ? `tsb:about:${action}` : `tsb:embed:${action}:${key}`;
+}
+
+function parseEditorId(id) {
+  const parts = String(id || "").split(":");
+  if (parts[0] !== "tsb" || !["about", "embed"].includes(parts[1])) return null;
+  return {
+    action: parts[2] || "",
+    name: parts[1] === "about" ? "default" : normalizeName(parts.slice(3).join(":")),
+  };
+}
 
 function interpolate(template, vars) {
   return String(template || "").replace(/\{([a-z0-9_]+)\}/gi, (full, key) => {
@@ -141,12 +146,12 @@ async function postOrEdit(channel, guild, cfg = getConfig(guild.id)) {
     }
   }
   const sent = await channel.send(payload);
-  updateConfig(guild.id, { channelId: channel.id, messageId: sent.id });
+  updateConfig(guild.id, { channelId: channel.id, messageId: sent.id }, cfg.name);
   return sent;
 }
 
-async function refreshPosted(guild) {
-  const cfg = getConfig(guild.id);
+async function refreshPosted(guild, name = "default") {
+  const cfg = getConfig(guild.id, name);
   if (!cfg.channelId || !cfg.messageId) return null;
   const channel = await guild.channels.fetch(cfg.channelId).catch(() => null);
   if (!channel?.isTextBased?.()) return null;
@@ -170,16 +175,18 @@ function varsHelp() {
   ].join("\n");
 }
 
-function editorPayload(guildId) {
-  const cfg = getConfig(guildId);
+function editorPayload(guildId, name = "default") {
+  const key = normalizeName(name);
+  const cfg = getConfig(guildId, key);
   const posted = cfg.channelId && cfg.messageId ? `<#${cfg.channelId}>` : "`not posted yet`";
   return {
     embeds: [
       tsbEmbed({
-        title: "About server",
+        title: `Embed editor · ${key}`,
         color: COLOR_PRIMARY,
         description:
           "Editable v2 card: GIF, title, body, footer, thumbnail, color.\n\n" +
+          `> **Name:** \`${key}\`\n` +
           `> **Title:** ${cfg.title ? `\`${String(cfg.title).slice(0, 40)}\`` : "`none`"}\n` +
           `> **GIF:** ${cfg.gif ? "`set`" : "`none`"}\n` +
           `> **Footer:** ${cfg.footer ? "`set`" : "`none`"}\n` +
@@ -189,14 +196,14 @@ function editorPayload(guildId) {
     ],
     components: [
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(ID.gif).setLabel("GIF").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(ID.content).setLabel("Title / body / footer").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(ID.style).setLabel("Color / thumbnail").setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId(editorId("gif", key)).setLabel("GIF").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(editorId("content", key)).setLabel("Title / body / footer").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(editorId("style", key)).setLabel("Color / thumbnail").setStyle(ButtonStyle.Secondary)
       ),
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(ID.post).setLabel("Post / update here").setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(ID.refresh).setLabel("Refresh posted").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(ID.vars).setLabel("Variables").setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId(editorId("post", key)).setLabel("Post / update here").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(editorId("refresh", key)).setLabel("Refresh posted").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(editorId("vars", key)).setLabel("Variables").setStyle(ButtonStyle.Secondary)
       ),
     ],
   };
@@ -206,8 +213,8 @@ function requireStaff(interaction) {
   return isAdminOrOwner(interaction.member, interaction.guild);
 }
 
-async function openEditor(interaction) {
-  const payload = editorPayload(interaction.guild.id);
+async function openEditor(interaction, name = "default") {
+  const payload = editorPayload(interaction.guild.id, name);
   if (interaction.replied || interaction.deferred) return interaction.editReply({ ...payload, ephemeral: true });
   if (interaction.isButton?.() && interaction.message) return interaction.update(payload);
   return interaction.reply({ ...payload, ephemeral: true });
@@ -232,18 +239,20 @@ function modal(customId, title, fields) {
 
 async function handleAboutInteraction(interaction) {
   const id = interaction.customId || "";
-  if (!id.startsWith("tsb:about:")) return false;
+  const context = parseEditorId(id);
+  if (!context) return false;
+  const { action, name } = context;
   if (!requireStaff(interaction)) {
-    await interaction.reply({ content: "You need **Administrator** to edit About server.", ephemeral: true });
+    await interaction.reply({ content: "You need **Administrator** to edit embeds.", ephemeral: true });
     return true;
   }
 
-  const cfg = getConfig(interaction.guild.id);
+  const cfg = getConfig(interaction.guild.id, name);
 
   if (interaction.isButton?.()) {
-    if (id === ID.gif) {
+    if (action === "gif") {
       await interaction.showModal(
-        modal(ID.modalGif, "About GIF", [
+        modal(editorId("modal_gif", name), "Embed GIF", [
           {
             id: "gif",
             label: "GIF / image URL",
@@ -255,9 +264,9 @@ async function handleAboutInteraction(interaction) {
       );
       return true;
     }
-    if (id === ID.content) {
+    if (action === "content") {
       await interaction.showModal(
-        modal(ID.modalContent, "Title, body, footer", [
+        modal(editorId("modal_content", name), "Title, body, footer", [
           {
             id: "title",
             label: "Title",
@@ -285,9 +294,9 @@ async function handleAboutInteraction(interaction) {
       );
       return true;
     }
-    if (id === ID.style) {
+    if (action === "style") {
       await interaction.showModal(
-        modal(ID.modalStyle, "Color & thumbnail", [
+        modal(editorId("modal_style", name), "Color & thumbnail", [
           {
             id: "color",
             label: "Accent color hex",
@@ -306,12 +315,12 @@ async function handleAboutInteraction(interaction) {
       );
       return true;
     }
-    if (id === ID.post) {
+    if (action === "post") {
       try {
-        const sent = await postOrEdit(interaction.channel, interaction.guild);
-        await interaction.update(editorPayload(interaction.guild.id));
+        const sent = await postOrEdit(interaction.channel, interaction.guild, cfg);
+        await interaction.update(editorPayload(interaction.guild.id, name));
         await interaction.followUp({
-          embeds: [ok("Posted", `About server is live in ${sent.channel}.`)],
+          embeds: [ok("Posted", `Embed \`${name}\` is live in ${sent.channel}.`)],
           ephemeral: true,
         }).catch(() => {});
       } catch (err) {
@@ -322,17 +331,17 @@ async function handleAboutInteraction(interaction) {
       }
       return true;
     }
-    if (id === ID.refresh) {
-      const msg = await refreshPosted(interaction.guild);
+    if (action === "refresh") {
+      const msg = await refreshPosted(interaction.guild, name);
       await interaction.reply({
         embeds: msg
-          ? [ok("Refreshed", "The posted About server message was updated.")]
+          ? [ok("Refreshed", `The posted embed \`${name}\` was updated.`)]
           : [danger("Nothing posted", "Use **Post / update here** first.")],
         ephemeral: true,
       });
       return true;
     }
-    if (id === ID.vars) {
+    if (action === "vars") {
       await interaction.reply({
         embeds: [tsbEmbed({ title: "Variables", color: COLOR_PRIMARY, description: varsHelp() })],
         ephemeral: true,
@@ -342,15 +351,15 @@ async function handleAboutInteraction(interaction) {
   }
 
   if (interaction.isModalSubmit?.()) {
-    if (id === ID.modalGif) {
-      updateConfig(interaction.guild.id, { gif: safeUrl(interaction.fields.getTextInputValue("gif")) });
-    } else if (id === ID.modalContent) {
+    if (action === "modal_gif") {
+      updateConfig(interaction.guild.id, { gif: safeUrl(interaction.fields.getTextInputValue("gif")) }, name);
+    } else if (action === "modal_content") {
       updateConfig(interaction.guild.id, {
         title: safeText(interaction.fields.getTextInputValue("title"), 256),
         body: safeText(interaction.fields.getTextInputValue("body"), 3900),
         footer: safeText(interaction.fields.getTextInputValue("footer"), 500),
-      });
-    } else if (id === ID.modalStyle) {
+      }, name);
+    } else if (action === "modal_style") {
       const colorRaw = String(interaction.fields.getTextInputValue("color") || "")
         .replace(/^#/, "")
         .trim()
@@ -358,13 +367,13 @@ async function handleAboutInteraction(interaction) {
       updateConfig(interaction.guild.id, {
         color: /^[0-9A-F]{6}$/.test(colorRaw) ? colorRaw : "2B2D31",
         thumbnail: safeUrl(interaction.fields.getTextInputValue("thumbnail")),
-      });
+      }, name);
     } else {
       return false;
     }
-    await refreshPosted(interaction.guild).catch(() => null);
+    await refreshPosted(interaction.guild, name).catch(() => null);
     await interaction.reply({
-      embeds: [ok("Saved", "About server updated. Posted message refreshed if it exists.")],
+      embeds: [ok("Saved", `Embed \`${name}\` updated. Posted message refreshed if it exists.`)],
       ephemeral: true,
     });
     return true;
@@ -374,7 +383,8 @@ async function handleAboutInteraction(interaction) {
 }
 
 module.exports = {
-  ID,
+  editorId,
+  parseEditorId,
   interpolate,
   buildVars,
   buildPayload,

@@ -28,7 +28,7 @@ function helpEmbed() {
       `\`${p}panel <key>\` / \`/panel\` — send a saved dashboard panel (roles / reply / link buttons)`,
       `\`${p}ticketsetup\` / \`/ticketsetup\` — support ticket panels (buttons or menu, staff, transcripts)`,
       `\`${p}republish\` / \`/republish\` — 1-click refresh boards, lineups, challenge + ticket panels`,
-      `\`${p}aboutserver\` / \`/aboutserver\` — editable GIF card; \`{v2line}\` adds a divider`,
+      `\`${p}embed edit [name]\` / \`/embed edit\` — create multiple editable GIF cards; \`{v2line}\` adds a divider`,
       "",
       "**Profile & coach**",
       `\`/profile\` · \`${p}profile\``,

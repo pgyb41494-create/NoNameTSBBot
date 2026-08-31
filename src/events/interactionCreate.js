@@ -91,7 +91,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:chaltix:")) return handleChallengeTickets(interaction);
     if (id.startsWith("tsb:tix:")) return handleTickets(interaction);
     if (id.startsWith("panel_btn_") || id.startsWith("pannel_btn_")) return handlePanelButton(interaction);
-    if (id.startsWith("tsb:about:")) return handleAboutInteraction(interaction);
+    if (id.startsWith("tsb:about:") || id.startsWith("tsb:embed:")) return handleAboutInteraction(interaction);
   }
 
   if (interaction.isModalSubmit?.()) {
@@ -103,7 +103,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:tryout:")) return handleTryoutModal(interaction);
     if (id.startsWith("tsb:chaltix:")) return handleChallengeTickets(interaction);
     if (id.startsWith("tsb:tix:")) return handleTickets(interaction);
-    if (id.startsWith("tsb:about:")) return handleAboutInteraction(interaction);
+    if (id.startsWith("tsb:about:") || id.startsWith("tsb:embed:")) return handleAboutInteraction(interaction);
   }
 
   return false;

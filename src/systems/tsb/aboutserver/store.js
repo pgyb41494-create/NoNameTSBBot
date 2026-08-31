@@ -37,6 +37,7 @@ function defaultConfig(name = "default") {
     title: "",
     body: "",
     footer: "",
+    sectionThumbnails: [],
     color: "2B2D31",
     channelId: "",
     messageId: "",
@@ -117,6 +118,30 @@ function deleteConfig(guildId, name) {
   return deleted;
 }
 
+function renameConfig(guildId, name, nextName) {
+  const from = normalizeName(name);
+  const to = normalizeName(nextName);
+  if (from === "default") return { ok: false, reason: "The default embed cannot be renamed." };
+  if (from === to) return { ok: true, name: to };
+
+  let result = { ok: false, reason: "Embed not found." };
+  store.updateSync((db) => {
+    const raw = db[String(guildId)] || {};
+    const embeds = raw.embeds && typeof raw.embeds === "object" ? { ...raw.embeds } : {};
+    if (!embeds[from]) return db;
+    if (embeds[to]) {
+      result = { ok: false, reason: `An embed named \`${to}\` already exists.` };
+      return db;
+    }
+    embeds[to] = { ...embeds[from], name: to };
+    delete embeds[from];
+    db[String(guildId)] = { embeds };
+    result = { ok: true, name: to };
+    return db;
+  });
+  return result;
+}
+
 module.exports = {
   safeText,
   safeUrl,
@@ -127,4 +152,5 @@ module.exports = {
   updateConfig,
   listConfigs,
   deleteConfig,
+  renameConfig,
 };

@@ -23,6 +23,7 @@ const {
   normalizeName,
   listConfigs,
   deleteConfig,
+  renameConfig,
 } = require("./store");
 
 function editorId(action, name = "default") {
@@ -40,7 +41,7 @@ function parseEditorId(id) {
 }
 
 function parseHubId(id) {
-  const match = String(id || "").match(/^tsb:embed:hub_(select|list|new|edit|post|refresh|delete)(?::([a-z0-9_-]+))?$/i);
+  const match = String(id || "").match(/^tsb:embed:hub_(select|list|new|edit|rename|post|refresh|delete)(?::([a-z0-9_-]+))?$/i);
   if (!match) return null;
   return {
     action: match[1].toLowerCase(),
@@ -125,6 +126,9 @@ async function buildPayload(guild, cfg = getConfig(guild.id)) {
   const footer = fill(cfg.footer || "", vars, 500).trim();
   const gif = safeUrl(cfg.gif);
   const thumbnail = safeUrl(cfg.thumbnail);
+  const sectionThumbnails = Array.isArray(cfg.sectionThumbnails)
+    ? cfg.sectionThumbnails.map((url) => safeUrl(url))
+    : [];
   const color = parseColor(cfg.color);
   const container = new ContainerBuilder().setAccentColor(color);
 
@@ -145,7 +149,10 @@ async function buildPayload(guild, cfg = getConfig(guild.id)) {
     if (index > 0) addDivider(container);
     const text = String(chunk.text || "").trim();
     if (!text) return;
-    const chunkThumbnail = chunk.thumbnail || (!title && index === 0 ? thumbnail : "");
+    const chunkThumbnail =
+      chunk.thumbnail
+      || sectionThumbnails[index]
+      || (!title && index === 0 ? thumbnail : "");
     wrote = addText(container, text, chunkThumbnail) || wrote;
   });
 
@@ -193,10 +200,11 @@ function varsHelp() {
   return [
     "Title, body, and footer start empty — write them yourself.",
     "",
-    "`{v2line}` — divider; `{v2line:https://...}` — divider + thumbnail for the next block:",
+    "`{v2line}` — divider between two body sections.",
+    "Use the **Section thumbnails** button to add one image URL per body section, in order:",
     "```",
     "Aesir text",
-    "{v2line:https://example.com/aesir.png}",
+    "{v2line}",
     "Vanir text",
     "```",
     "`{server}` `{members}` `{owner}` `{created}`",
@@ -217,6 +225,7 @@ function editorPayload(guildId, name = "default") {
           `> **Name:** \`${key}\`\n` +
           `> **Title:** ${cfg.title ? `\`${String(cfg.title).slice(0, 40)}\`` : "`none`"}\n` +
           `> **GIF:** ${cfg.gif ? "`set`" : "`none`"}\n` +
+          `> **Section thumbnails:** \`${Array.isArray(cfg.sectionThumbnails) ? cfg.sectionThumbnails.filter(Boolean).length : 0}\`\n` +
           `> **Footer:** ${cfg.footer ? "`set`" : "`none`"}\n` +
           `> **Posted:** ${posted}\n\n` +
           varsHelp(),
@@ -226,11 +235,13 @@ function editorPayload(guildId, name = "default") {
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(editorId("gif", key)).setLabel("GIF").setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId(editorId("content", key)).setLabel("Title / body / footer").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(editorId("style", key)).setLabel("Color / thumbnail").setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId(editorId("style", key)).setLabel("Color / thumbnail").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(editorId("sections", key)).setLabel("Section thumbnails").setStyle(ButtonStyle.Secondary)
       ),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(editorId("post", key)).setLabel("Post / update here").setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(editorId("refresh", key)).setLabel("Refresh posted").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(editorId("rename", key)).setLabel("Rename").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(editorId("vars", key)).setLabel("Variables").setStyle(ButtonStyle.Secondary)
       ),
     ],
@@ -275,6 +286,7 @@ function embedHubPayload(guildId, selected = "default") {
         new ButtonBuilder().setCustomId(`tsb:embed:hub_refresh:${chosen}`).setLabel("Refresh").setStyle(ButtonStyle.Secondary)
       ),
       new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`tsb:embed:hub_rename:${chosen}`).setLabel("Rename").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(`tsb:embed:hub_delete:${chosen}`).setLabel("Delete").setStyle(ButtonStyle.Danger)
       ),
     ],
@@ -318,6 +330,27 @@ async function handleEmbedHubInteraction(interaction, context) {
   const cfg = getConfig(interaction.guild.id, name);
 
   if (context.action === "edit") return openEditor(interaction, name);
+
+  if (context.action === "rename") {
+    if (name === "default") {
+      return interaction.reply({
+        embeds: [danger("Cannot rename default", "Create a named embed first.")],
+        ephemeral: true,
+      });
+    }
+    return interaction.showModal(
+      modal(`tsb:embed:modal_hub_rename:${name}`, "Rename embed", [
+        {
+          id: "name",
+          label: "New embed name",
+          style: TextInputStyle.Short,
+          max: 32,
+          required: true,
+          value: name,
+        },
+      ])
+    );
+  }
 
   if (context.action === "post") {
     try {
@@ -439,10 +472,10 @@ async function handleAboutInteraction(interaction) {
           },
           {
             id: "body",
-            label: "Body — use {v2line} or {v2line:URL}",
+            label: "Body — use {v2line} for dividers",
             max: 3900,
             value: cfg.body,
-            placeholder: "Aesir text\n{v2line:https://...}\nVanir text",
+            placeholder: "Aesir text\n{v2line}\nVanir text",
           },
           {
             id: "footer",
@@ -472,6 +505,41 @@ async function handleAboutInteraction(interaction) {
             style: TextInputStyle.Short,
             max: 500,
             value: cfg.thumbnail,
+          },
+        ])
+      );
+      return true;
+    }
+    if (action === "sections") {
+      await interaction.showModal(
+        modal(editorId("modal_sections", name), "Section thumbnails", [
+          {
+            id: "thumbnails",
+            label: "One image URL per body section",
+            max: 3900,
+            value: Array.isArray(cfg.sectionThumbnails) ? cfg.sectionThumbnails.join("\n") : "",
+            placeholder: "https://.../aesir.png\nhttps://.../vanir.png",
+          },
+        ])
+      );
+      return true;
+    }
+    if (action === "rename") {
+      if (name === "default") {
+        return interaction.reply({
+          embeds: [danger("Cannot rename default", "Create a named embed first.")],
+          ephemeral: true,
+        });
+      }
+      await interaction.showModal(
+        modal(editorId("modal_rename", name), "Rename embed", [
+          {
+            id: "name",
+            label: "New embed name",
+            style: TextInputStyle.Short,
+            max: 32,
+            required: true,
+            value: name,
           },
         ])
       );
@@ -517,6 +585,16 @@ async function handleAboutInteraction(interaction) {
       const name = normalizeName(interaction.fields.getTextInputValue("name"));
       return openEditor(interaction, name);
     }
+    if (action === "modal_hub_rename" || action === "modal_rename") {
+      const nextName = normalizeName(interaction.fields.getTextInputValue("name"));
+      const renamed = renameConfig(interaction.guild.id, name, nextName);
+      if (!renamed.ok) {
+        return interaction.reply({ embeds: [danger("Rename failed", renamed.reason)], ephemeral: true });
+      }
+      return action === "modal_hub_rename"
+        ? openEmbedHub(interaction, renamed.name)
+        : openEditor(interaction, renamed.name);
+    }
     if (action === "modal_gif") {
       updateConfig(interaction.guild.id, { gif: safeUrl(interaction.fields.getTextInputValue("gif")) }, name);
     } else if (action === "modal_content") {
@@ -533,6 +611,14 @@ async function handleAboutInteraction(interaction) {
       updateConfig(interaction.guild.id, {
         color: /^[0-9A-F]{6}$/.test(colorRaw) ? colorRaw : "2B2D31",
         thumbnail: safeUrl(interaction.fields.getTextInputValue("thumbnail")),
+      }, name);
+    } else if (action === "modal_sections") {
+      const thumbnails = interaction.fields.getTextInputValue("thumbnails") || "";
+      updateConfig(interaction.guild.id, {
+        sectionThumbnails: thumbnails
+          .split(/\r?\n/)
+          .map((value) => safeUrl(value))
+          .slice(0, 25),
       }, name);
     } else {
       return false;

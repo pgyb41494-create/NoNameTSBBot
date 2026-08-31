@@ -6,6 +6,7 @@ const {
   MediaGalleryBuilder,
   MessageFlags,
   ModalBuilder,
+  StringSelectMenuBuilder,
   SeparatorSpacingSize,
   TextInputBuilder,
   TextInputStyle,
@@ -35,6 +36,15 @@ function parseEditorId(id) {
   return {
     action: parts[2] || "",
     name: parts[1] === "about" ? "default" : normalizeName(parts.slice(3).join(":")),
+  };
+}
+
+function parseHubId(id) {
+  const match = String(id || "").match(/^tsb:embed:hub_(select|new|edit|post|refresh|delete)(?::([a-z0-9_-]+))?$/i);
+  if (!match) return null;
+  return {
+    action: match[1].toLowerCase(),
+    name: normalizeName(match[2] || "default"),
   };
 }
 
@@ -227,6 +237,125 @@ function editorPayload(guildId, name = "default") {
   };
 }
 
+function embedHubPayload(guildId, selected = "default") {
+  const names = listConfigs(guildId);
+  const current = normalizeName(selected);
+  const options = names.slice(0, 25).map((name) => ({
+    label: name,
+    value: name,
+    description: name === "default" ? "Main embed" : "Saved named embed",
+    default: name === current,
+  }));
+  if (!options.some((option) => option.default)) options[0].default = true;
+  const chosen = options.find((option) => option.default)?.value || "default";
+
+  return {
+    embeds: [
+      tsbEmbed({
+        title: "Embeds",
+        color: COLOR_PRIMARY,
+        description:
+          "Choose an embed below, then use the buttons. You can create as many named embeds as you need.\n\n" +
+          `> **Selected:** \`${chosen}\`\n` +
+          `> **Saved embeds:** \`${names.length}\``,
+      }),
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("tsb:embed:hub_select")
+          .setPlaceholder(`Selected: ${chosen}`)
+          .addOptions(options)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("tsb:embed:hub_new").setLabel("New embed").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`tsb:embed:hub_edit:${chosen}`).setLabel("Edit").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`tsb:embed:hub_post:${chosen}`).setLabel("Post").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`tsb:embed:hub_refresh:${chosen}`).setLabel("Refresh").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`tsb:embed:hub_delete:${chosen}`).setLabel("Delete").setStyle(ButtonStyle.Danger)
+      ),
+    ],
+  };
+}
+
+async function openEmbedHub(interaction, selected = "default") {
+  const payload = embedHubPayload(interaction.guild.id, selected);
+  if (interaction.replied || interaction.deferred) return interaction.editReply({ ...payload, ephemeral: true });
+  if ((interaction.isButton?.() || interaction.isStringSelectMenu?.()) && interaction.message) {
+    return interaction.update(payload);
+  }
+  return interaction.reply({ ...payload, ephemeral: true });
+}
+
+async function handleEmbedHubInteraction(interaction, context) {
+  if (context.action === "select") {
+    return openEmbedHub(interaction, interaction.values?.[0] || "default");
+  }
+
+  if (context.action === "new") {
+    return interaction.showModal(
+      modal("tsb:embed:modal_new", "New embed", [
+        {
+          id: "name",
+          label: "Embed name",
+          style: TextInputStyle.Short,
+          max: 32,
+          required: true,
+          placeholder: "welcome, rules, announcements",
+        },
+      ])
+    );
+  }
+
+  const name = context.name;
+  const cfg = getConfig(interaction.guild.id, name);
+
+  if (context.action === "edit") return openEditor(interaction, name);
+
+  if (context.action === "post") {
+    try {
+      const sent = await postOrEdit(interaction.channel, interaction.guild, cfg);
+      await interaction.update(embedHubPayload(interaction.guild.id, name));
+      return interaction.followUp({
+        embeds: [ok("Posted", `Embed \`${name}\` is live in ${sent.channel}.`)],
+        ephemeral: true,
+      }).catch(() => {});
+    } catch (err) {
+      return interaction.reply({
+        embeds: [danger("Post failed", err.message || "Could not post that embed.")],
+        ephemeral: true,
+      }).catch(() => {});
+    }
+  }
+
+  if (context.action === "refresh") {
+    const msg = await refreshPosted(interaction.guild, name);
+    await interaction.update(embedHubPayload(interaction.guild.id, name));
+    return interaction.followUp({
+      embeds: msg
+        ? [ok("Refreshed", `The posted embed \`${name}\` was updated.`)]
+        : [danger("Nothing posted", `Post embed \`${name}\` first.`)],
+      ephemeral: true,
+    }).catch(() => {});
+  }
+
+  if (context.action === "delete") {
+    if (name === "default") {
+      return interaction.reply({ embeds: [danger("Cannot delete default", "Choose a named embed instead.")], ephemeral: true });
+    }
+    if (!deleteConfig(interaction.guild.id, name)) {
+      return interaction.reply({ embeds: [danger("Not found", `No embed named \`${name}\` exists.`)], ephemeral: true });
+    }
+    await interaction.update(embedHubPayload(interaction.guild.id, "default"));
+    return interaction.followUp({
+      embeds: [ok("Deleted", `Embed \`${name}\` was deleted.`)],
+      ephemeral: true,
+    }).catch(() => {});
+  }
+
+  return false;
+}
+
 function requireStaff(interaction) {
   return isAdminOrOwner(interaction.member, interaction.guild);
 }
@@ -257,6 +386,14 @@ function modal(customId, title, fields) {
 
 async function handleAboutInteraction(interaction) {
   const id = interaction.customId || "";
+  const hubContext = parseHubId(id);
+  if (hubContext) {
+    if (!requireStaff(interaction)) {
+      await interaction.reply({ content: "You need **Administrator** to manage embeds.", ephemeral: true });
+      return true;
+    }
+    return handleEmbedHubInteraction(interaction, hubContext);
+  }
   const context = parseEditorId(id);
   if (!context) return false;
   const { action, name } = context;
@@ -369,6 +506,10 @@ async function handleAboutInteraction(interaction) {
   }
 
   if (interaction.isModalSubmit?.()) {
+    if (action === "modal_new") {
+      const name = normalizeName(interaction.fields.getTextInputValue("name"));
+      return openEditor(interaction, name);
+    }
     if (action === "modal_gif") {
       updateConfig(interaction.guild.id, { gif: safeUrl(interaction.fields.getTextInputValue("gif")) }, name);
     } else if (action === "modal_content") {
@@ -403,6 +544,7 @@ async function handleAboutInteraction(interaction) {
 module.exports = {
   editorId,
   parseEditorId,
+  parseHubId,
   interpolate,
   buildVars,
   splitV2Line,
@@ -410,6 +552,8 @@ module.exports = {
   postOrEdit,
   refreshPosted,
   editorPayload,
+  embedHubPayload,
+  openEmbedHub,
   openEditor,
   handleAboutInteraction,
   varsHelp,

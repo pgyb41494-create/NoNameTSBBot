@@ -14,6 +14,8 @@ const {
   postOrEdit,
   refreshPosted,
   openEditor,
+  openEmbedHub,
+  embedHubPayload,
   editorPayload,
   varsHelp,
 } = require("../systems/tsb/aboutserver/runtime");
@@ -56,7 +58,12 @@ async function run(member, guild, channel, args, reply, interaction) {
   const sub = String(args[0] || "").toLowerCase();
   const name = normalizeName(args[1] || "default");
 
-  if (!sub || sub === "edit" || sub === "setup") {
+  if (!sub) {
+    if (interaction) return openEmbedHub(interaction);
+    return reply({ ...embedHubPayload(guild.id), allowedMentions: { repliedUser: false } });
+  }
+
+  if (sub === "edit" || sub === "setup") {
     if (interaction) return openEditor(interaction, name);
     return reply({ ...editorPayload(guild.id, name), allowedMentions: { repliedUser: false } });
   }
@@ -116,40 +123,8 @@ module.exports = {
   slash: () =>
     new SlashCommandBuilder()
       .setName("embed")
-      .setDescription("Create and post editable server embeds")
-      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-      .addSubcommand((s) =>
-        s
-          .setName("edit")
-          .setDescription("Open an embed editor")
-          .addStringOption((o) => o.setName("name").setDescription("Embed name").setRequired(false))
-      )
-      .addSubcommand((s) =>
-        s
-          .setName("post")
-          .setDescription("Post or update an embed in this channel")
-          .addStringOption((o) => o.setName("name").setDescription("Embed name").setRequired(false))
-      )
-      .addSubcommand((s) =>
-        s
-          .setName("refresh")
-          .setDescription("Refresh a posted embed")
-          .addStringOption((o) => o.setName("name").setDescription("Embed name").setRequired(false))
-      )
-      .addSubcommand((s) =>
-        s
-          .setName("gif")
-          .setDescription("Set the top GIF / image")
-          .addStringOption((o) => o.setName("url").setDescription("https image or GIF URL").setRequired(true))
-          .addStringOption((o) => o.setName("name").setDescription("Embed name").setRequired(false))
-      )
-      .addSubcommand((s) => s.setName("list").setDescription("List saved embeds"))
-      .addSubcommand((s) =>
-        s
-          .setName("delete")
-          .setDescription("Delete a named embed")
-          .addStringOption((o) => o.setName("name").setDescription("Embed name").setRequired(true))
-      ),
+      .setDescription("Manage server embeds with buttons")
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async executePrefix(message, args) {
     return run(message.member, message.guild, message.channel, args, (payload) =>
@@ -158,12 +133,7 @@ module.exports = {
   },
 
   async executeSlash(interaction) {
-    const sub = interaction.options.getSubcommand();
-    const selectedName = interaction.options.getString("name") || "default";
-    const args = sub === "gif"
-      ? ["gif", selectedName, interaction.options.getString("url")]
-      : [sub, selectedName];
-    return run(interaction.member, interaction.guild, interaction.channel, args, (payload) => {
+    return run(interaction.member, interaction.guild, interaction.channel, [], (payload) => {
       if (interaction.replied || interaction.deferred) return interaction.followUp({ ...payload, ephemeral: true });
       return interaction.reply({ ...payload, ephemeral: true });
     }, interaction);

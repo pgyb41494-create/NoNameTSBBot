@@ -75,6 +75,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:alerts:")) return handleAlertsSetupSelect(interaction);
     if (id.startsWith("tsb:tryout:")) return handleTryoutSelect(interaction);
     if (id.startsWith("tsb:chaltix:")) return handleChallengeTickets(interaction);
+    if (id.startsWith("tsb:about:") || id.startsWith("tsb:embed:")) return handleAboutInteraction(interaction);
   }
 
   if (interaction.isButton?.()) {

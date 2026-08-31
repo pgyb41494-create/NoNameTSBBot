@@ -59,7 +59,27 @@ function buildVars(guild) {
 }
 
 function splitV2Line(text) {
-  return String(text || "").split(/\{v2line\}|\{v2_line\}/gi);
+  const source = String(text || "");
+  const chunks = [];
+  const marker = /\{v2(?:line|_line)(?:\s*[:|]\s*(https?:\/\/[^}\s]+))?\}/gi;
+  let cursor = 0;
+  let pendingThumbnail = "";
+  let match;
+
+  while ((match = marker.exec(source))) {
+    chunks.push({
+      text: source.slice(cursor, match.index),
+      thumbnail: pendingThumbnail,
+    });
+    pendingThumbnail = safeUrl(match[1]);
+    cursor = marker.lastIndex;
+  }
+
+  chunks.push({
+    text: source.slice(cursor),
+    thumbnail: pendingThumbnail,
+  });
+  return chunks;
 }
 
 function fill(text, vars, max) {
@@ -97,7 +117,6 @@ async function buildPayload(guild, cfg = getConfig(guild.id)) {
   const thumbnail = safeUrl(cfg.thumbnail);
   const color = parseColor(cfg.color);
   const container = new ContainerBuilder().setAccentColor(color);
-  let usedThumb = false;
 
   if (gif) {
     container.addMediaGalleryComponents(
@@ -110,15 +129,14 @@ async function buildPayload(guild, cfg = getConfig(guild.id)) {
 
   if (title) {
     wrote = addText(container, `# ${title}`, thumbnail) || wrote;
-    usedThumb = !!thumbnail;
   }
 
   chunks.forEach((chunk, index) => {
     if (index > 0) addDivider(container);
-    const text = String(chunk || "").trim();
+    const text = String(chunk.text || "").trim();
     if (!text) return;
-    wrote = addText(container, text, !usedThumb && thumbnail ? thumbnail : "") || wrote;
-    if (!usedThumb && thumbnail) usedThumb = true;
+    const chunkThumbnail = chunk.thumbnail || (!title && index === 0 ? thumbnail : "");
+    wrote = addText(container, text, chunkThumbnail) || wrote;
   });
 
   if (footer) {
@@ -165,11 +183,11 @@ function varsHelp() {
   return [
     "Title, body, and footer start empty — write them yourself.",
     "",
-    "`{v2line}` — Discord divider between two text blocks:",
+    "`{v2line}` — divider; `{v2line:https://...}` — divider + thumbnail for the next block:",
     "```",
-    "Message above",
-    "{v2line}",
-    "Message below",
+    "Aesir text",
+    "{v2line:https://example.com/aesir.png}",
+    "Vanir text",
     "```",
     "`{server}` `{members}` `{owner}` `{created}`",
   ].join("\n");
@@ -277,10 +295,10 @@ async function handleAboutInteraction(interaction) {
           },
           {
             id: "body",
-            label: "Body — use {v2line} for a divider",
+            label: "Body — use {v2line} or {v2line:URL}",
             max: 3900,
             value: cfg.body,
-            placeholder: "Message above\n{v2line}\nMessage below",
+            placeholder: "Aesir text\n{v2line:https://...}\nVanir text",
           },
           {
             id: "footer",
@@ -387,6 +405,7 @@ module.exports = {
   parseEditorId,
   interpolate,
   buildVars,
+  splitV2Line,
   buildPayload,
   postOrEdit,
   refreshPosted,

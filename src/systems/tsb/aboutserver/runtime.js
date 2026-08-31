@@ -190,14 +190,14 @@ async function resolveMention(guild, handle) {
 
 async function resolveTextMentions(guild, text) {
   const source = String(text || "");
-  const pattern = /@([a-z0-9_.-]{2,32})/gi;
+  const pattern = /<@!?[0-9]+>|<@&[0-9]+>|@([a-z0-9_.-]{2,32})/gi;
   let output = "";
   let cursor = 0;
   let match;
 
   while ((match = pattern.exec(source))) {
     output += source.slice(cursor, match.index);
-    output += await resolveMention(guild, match[1]);
+    output += match[1] ? await resolveMention(guild, match[1]) : match[0];
     cursor = pattern.lastIndex;
   }
 

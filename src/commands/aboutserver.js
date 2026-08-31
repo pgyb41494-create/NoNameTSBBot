@@ -7,6 +7,8 @@ const {
   getConfig,
   safeUrl,
   normalizeName,
+  hasConfig,
+  createConfig,
   listConfigs,
   deleteConfig,
 } = require("../systems/tsb/aboutserver/store");
@@ -32,10 +34,8 @@ function usage() {
     description: [
       `Create and post multiple editable v2 cards (GIF, title, body, footer).`,
       "",
-      `\`${p}embed edit [name]\` — open an editor (default: default)`,
-      `\`${p}embed post [name]\` — post / update that embed here`,
-      `\`${p}embed refresh [name]\` — rewrite the posted message`,
-      `\`${p}embed gif <url>\` — set the default embed GIF`,
+      `Use \`${p}embed\` to open the button-based builder.`,
+      `Create an embed, then edit its title, sections, media, style, and posting channel.`,
       `\`${p}embed list\` — list saved embeds`,
       `\`${p}embed delete <name>\` — delete a named embed`,
       "",
@@ -49,14 +49,14 @@ function listPayload(guildId) {
   return tsbEmbed({
     title: "Saved embeds",
     color: COLOR_PRIMARY,
-    description: names.map((name) => `• \`${name}\``).join("\n"),
+    description: names.length ? names.map((name) => `• \`${name}\``).join("\n") : "No embeds have been created yet.",
   });
 }
 
 async function run(member, guild, channel, args, reply, interaction) {
   if (!isAdminOrOwner(member, guild)) return reply({ ...denied(), ephemeral: true });
   const sub = String(args[0] || "").toLowerCase();
-  const name = normalizeName(args[1] || "default");
+  const name = normalizeName(args[1] || "");
 
   if (!sub) {
     if (interaction) return openEmbedHub(interaction);
@@ -64,8 +64,13 @@ async function run(member, guild, channel, args, reply, interaction) {
   }
 
   if (sub === "edit" || sub === "setup") {
+    if (!name) return interaction ? openEmbedHub(interaction) : reply({ ...embedHubPayload(guild.id), allowedMentions: { repliedUser: false } });
+    if (!hasConfig(guild.id, name)) {
+      const created = createConfig(guild.id, name);
+      if (!created.ok) return reply({ embeds: [danger("Could not create embed", created.reason)], ephemeral: true });
+    }
     if (interaction) return openEditor(interaction, name);
-    return reply({ ...editorPayload(guild.id, name), allowedMentions: { repliedUser: false } });
+    return reply({ ...editorPayload(guild.id, name, guild), allowedMentions: { repliedUser: false } });
   }
 
   if (sub === "help" || sub === "vars") {
@@ -77,9 +82,7 @@ async function run(member, guild, channel, args, reply, interaction) {
   }
 
   if (sub === "delete" || sub === "remove") {
-    if (name === "default") {
-      return reply({ embeds: [danger("Cannot delete default", "Use a named embed instead.")], ephemeral: true });
-    }
+    if (!name) return reply({ embeds: [danger("Missing embed name", "Choose the embed you want to delete.")], ephemeral: true });
     if (!deleteConfig(guild.id, name)) {
       return reply({ embeds: [danger("Not found", `No embed named \`${name}\` exists.`)], ephemeral: true });
     }
@@ -87,22 +90,24 @@ async function run(member, guild, channel, args, reply, interaction) {
   }
 
   if (sub === "gif") {
-    const namedUrl = safeUrl(args[2]);
-    const targetName = namedUrl ? name : "default";
-    const url = namedUrl || safeUrl(args.slice(1).join(" "));
-    if (!url) return reply({ embeds: [danger("GIF", "Paste an https image/GIF URL.")], ephemeral: true });
-    updateConfig(guild.id, { gif: url }, targetName);
-    await refreshPosted(guild, targetName).catch(() => null);
-    return reply({ embeds: [ok("GIF set", `Top media for \`${targetName}\` updated.`)], ephemeral: true });
+    const url = safeUrl(args[2]);
+    if (!name || !url) return reply({ embeds: [danger("GIF", "Use `embed gif <name> <https image/GIF URL>`.")], ephemeral: true });
+    if (!hasConfig(guild.id, name)) return reply({ embeds: [danger("Not found", `No embed named \`${name}\` exists.`)], ephemeral: true });
+    updateConfig(guild.id, { gif: url }, name);
+    await refreshPosted(guild, name).catch(() => null);
+    return reply({ embeds: [ok("GIF set", `Top media for \`${name}\` updated.`)], ephemeral: true });
   }
 
   if (sub === "refresh") {
+    if (!name) return reply({ embeds: [danger("Missing embed name", "Choose the embed you want to refresh.")], ephemeral: true });
     const msg = await refreshPosted(guild, name);
     if (!msg) return reply({ embeds: [danger("Nothing posted", `Use \`'embed post ${name}\` first.`)], ephemeral: true });
     return reply({ embeds: [ok("Refreshed", `Embed \`${name}\` was updated.`)], ephemeral: true });
   }
 
   if (sub === "post" || sub === "send") {
+    if (!name) return reply({ embeds: [danger("Missing embed name", "Choose the embed you want to post.")], ephemeral: true });
+    if (!hasConfig(guild.id, name)) return reply({ embeds: [danger("Not found", `No embed named \`${name}\` exists.`)], ephemeral: true });
     try {
       const sent = await postOrEdit(channel, guild, getConfig(guild.id, name));
       return reply({ embeds: [ok("Posted", `Embed \`${name}\` is live in ${sent.channel}.`)], ephemeral: true });

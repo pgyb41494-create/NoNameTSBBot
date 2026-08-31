@@ -40,7 +40,7 @@ function parseEditorId(id) {
 }
 
 function parseHubId(id) {
-  const match = String(id || "").match(/^tsb:embed:hub_(select|new|edit|post|refresh|delete)(?::([a-z0-9_-]+))?$/i);
+  const match = String(id || "").match(/^tsb:embed:hub_(select|list|new|edit|post|refresh|delete)(?::([a-z0-9_-]+))?$/i);
   if (!match) return null;
   return {
     action: match[1].toLowerCase(),
@@ -268,10 +268,13 @@ function embedHubPayload(guildId, selected = "default") {
           .addOptions(options)
       ),
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("tsb:embed:hub_new").setLabel("New embed").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`tsb:embed:hub_list:${chosen}`).setLabel("List").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId("tsb:embed:hub_new").setLabel("Create").setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId(`tsb:embed:hub_edit:${chosen}`).setLabel("Edit").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(`tsb:embed:hub_post:${chosen}`).setLabel("Post").setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`tsb:embed:hub_refresh:${chosen}`).setLabel("Refresh").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`tsb:embed:hub_refresh:${chosen}`).setLabel("Refresh").setStyle(ButtonStyle.Secondary)
+      ),
+      new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`tsb:embed:hub_delete:${chosen}`).setLabel("Delete").setStyle(ButtonStyle.Danger)
       ),
     ],
@@ -305,6 +308,10 @@ async function handleEmbedHubInteraction(interaction, context) {
         },
       ])
     );
+  }
+
+  if (context.action === "list") {
+    return openEmbedHub(interaction, context.name);
   }
 
   const name = context.name;

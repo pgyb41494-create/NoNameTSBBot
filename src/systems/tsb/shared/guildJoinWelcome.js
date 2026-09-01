@@ -71,15 +71,11 @@ function welcomeEmbed(guild, owner) {
     color: COLOR_PRIMARY,
     description:
       `Hey ${ownerMention} — thanks for inviting **${botName}** to **${guild.name}**.\n\n` +
-      `# Get staff access set up\n` +
-      `> Use **\`${prefix}access\`** to give permissions to people who should run TSB tools.\n` +
-      `> Example: **\`${prefix}access @mod PHASE SCORE LINEUPS\`**\n\n` +
       `# Quick next steps\n` +
-      `> **1.** Run **\`${prefix}access @user\`** and pick what they can manage\n` +
-      `> **2.** Open **\`${prefix}serversetup\`** to finish boards, ranks, and channels\n` +
-      `> **3.** Need help? Use **\`${prefix}help\`**\n\n` +
-      `> Without **\`${prefix}access\`**, only admins / the owner can configure the bot.`,
-    footer: `${guild.name} · ${prefix}access`,
+      `> **1.** Run **\`${prefix}serversetup\`** to finish boards, ranks, and channels\n` +
+      `> **2.** Use **\`${prefix}help\`** for commands\n` +
+      `> **3.** Give trusted staff **Administrator** if they should manage TSB tools`,
+    footer: `${guild.name} · ${prefix}serversetup`,
     timestamp: true,
   });
 }

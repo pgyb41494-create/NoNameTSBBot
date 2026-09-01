@@ -22,7 +22,6 @@ function helpEmbed() {
       "",
       "**Setup**",
       `\`${p}tsbsetup\` / \`/tsbsetup\` (alias \`${p}serversetup\` / \`/serversetup\`) — leaderboard, ranking, score, lineups, tryouts, verification`,
-      `\`${p}access @user\` / \`/access\` — grant TSB staff access (phase, boards, lineups, score, tryouts, verify)`,
       `\`${p}verify\` / \`/verify\` — staff posts the panel · members get \`/profile\` in DMs`,
       `\`${p}invitetracker on|off\` / \`/invitetracker\` — join tracking · channel + message on the dashboard`,
       `\`${p}panel <key>\` / \`/panel\` — send a saved dashboard panel (roles / reply / link buttons)`,

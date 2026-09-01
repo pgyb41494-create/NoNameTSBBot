@@ -4,10 +4,20 @@ const { resolveMaybe } = require("../utils/resolveMaybe");
 const { formatCardDescription, cardTitle, sanitizeThumbnail, CARD_COLOR, VACANT_COLOR } = api.cards;
 const { brand } = api;
 const { generateLeaderboardBanner } = require("./bannerGenerate");
-const { resolveTheme, metallicComponentsV2, entryBody } = require("./leaderboardThemes");
+const { resolveTheme, metallicComponentsV2, entryBody, top10EntryBody, top10CardTitle } = require("./leaderboardThemes");
 
-function cardEmbed(card, { mode = "leaderboard" } = {}) {
+function cardEmbed(card, { mode = "leaderboard", themeId = "classic" } = {}) {
   const thumb = sanitizeThumbnail(card.avatarUrl);
+
+  if (mode === "leaderboard" && themeId === "top10") {
+    const embed = new EmbedBuilder()
+      .setColor(card.empty ? VACANT_COLOR : CARD_COLOR)
+      .setAuthor({ name: top10CardTitle(card) })
+      .setDescription(top10EntryBody(card))
+      .setImage(card.gifUrl || brand.defaultGif);
+    if (!card.empty && thumb) embed.setThumbnail(thumb);
+    return embed;
+  }
 
   if (mode === "leaderboard") {
     const embed = new EmbedBuilder()
@@ -190,6 +200,11 @@ async function publishLeaderboard(guild) {
         hasBanner: Boolean(bannerBuffer),
       });
       payload = { ...v2, files };
+    } else if (theme.id === "top10") {
+      payload = {
+        content: `# ${guild.name} Leaderboard`,
+        embeds: slice.map((card) => cardEmbed(card, { mode: "leaderboard", themeId: "top10" })),
+      };
     } else {
       payload = {
         content: `# ${guild.name} Leaderboard`,

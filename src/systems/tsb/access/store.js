@@ -2,7 +2,7 @@ const { createJsonStore } = require("../../../../api/store/jsonStore");
 const { isAdminOrOwner } = require("../../../utils/permissions");
 
 const PERM_CATEGORIES = [
-  { id: "GIVEACCESS", emoji: "🔑", desc: "Grant TSB access to others", hint: "`'access` `/access`" },
+  { id: "GIVEACCESS", emoji: "🔑", desc: "Legacy staff permission flag", hint: "deprecated" },
   { id: "PHASE", emoji: "🧬", desc: "Assign stage / rank", hint: "`'stage` `/stage`" },
   { id: "LEADERBOARD", emoji: "🏆", desc: "Edit top boards and drafts", hint: "`'tsbtop` · board drafts" },
   { id: "LINEUPS", emoji: "📋", desc: "Edit lineups and drafts", hint: "`'lineup` · lineup drafts" },

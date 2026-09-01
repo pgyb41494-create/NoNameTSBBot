@@ -20,6 +20,12 @@ const THEMES = {
     description: "Banner + big-text player cards (no divider lines)",
     pageSize: 10,
   },
+  top10: {
+    id: "top10",
+    label: "Top 10 cards",
+    description: "Discohook-style rank cards with mention, Roblox tag, region, and stage",
+    pageSize: 10,
+  },
 };
 
 function listThemes() {
@@ -76,6 +82,34 @@ function entryBody(card) {
   ].join("\n");
 }
 
+function top10RobloxTag(card) {
+  if (card.empty) return "Vacant";
+  return card.robloxUsername || card.name || "???";
+}
+
+/** Discohook top-10 card body (mention pipes + decorative Roblox tag). */
+function top10EntryBody(card) {
+  if (card.empty) {
+    return [
+      "| Vacant |",
+      "≪≪ | ・Vacant・ | ≫≫",
+      "Region: -",
+      "Stage: -",
+    ].join("\n");
+  }
+  const mention = card.discordTag || "`empty`";
+  return [
+    `| ${mention} |`,
+    `≪≪ | ・${top10RobloxTag(card)}・ | ≫≫`,
+    `Region: ${card.region || "—"}`,
+    `Stage: ${card.stage || "Unranked"}`,
+  ].join("\n");
+}
+
+function top10CardTitle(card) {
+  return `#${card.position} ${card.empty ? "Vacant" : card.name}`;
+}
+
 /**
  * Banner + title + player cards. Spacing only — no Type 14 divider lines.
  */
@@ -128,4 +162,6 @@ module.exports = {
   resolveTheme,
   metallicComponentsV2,
   entryBody,
+  top10EntryBody,
+  top10CardTitle,
 };

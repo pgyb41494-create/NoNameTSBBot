@@ -40,7 +40,7 @@ function hubPayload(guildId) {
         title: `${brand.name} server setup`,
         description:
           "Pick a module. This is the clan setup hub (`'serversetup` / `/serversetup`).\n\n" +
-          "> **Leaderboard** — themes: Classic cards or Metallic v2 (server banner)\n" +
+          "> **Leaderboard** — themes: Classic cards, Top 10 cards, or Metallic v2 (server banner)\n" +
           "> **Ranking** — `'stage @user 0 Low Weak`\n" +
           "> **Score** — `/score` records W/L on cards\n" +
           "> **Line Up** — regional boards\n" +
@@ -90,6 +90,7 @@ async function openModule(interaction, key) {
       "In the boards channel, paste the **draft text block**, edit slots, then type `send`.\n" +
       "Pick a **theme**, then **Publish / refresh** if needed.\n\n" +
       "**Classic cards** — separate GIF card embeds\n" +
+      "**Top 10 cards** — Discohook rank cards with mention + Roblox tag\n" +
       "**Metallic v2** — one message, generated banner, Discord separator lines",
     ranking:
       "Enables `'stage @user 0 Low Weak` (or `/stage`). Stages print on leaderboard and lineup cards.",

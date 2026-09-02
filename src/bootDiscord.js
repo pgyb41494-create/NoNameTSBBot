@@ -188,6 +188,14 @@ module.exports = function bootDiscord(setClient) {
     } catch (err) {
       console.warn("Invite cache skipped:", err.message);
     }
+    try {
+      console.log("Republishing boards, panels, and embeds after deploy…");
+      const { republishAllGuilds } = require("./commands/republish");
+      await republishAllGuilds(client);
+      console.log("Boot republish finished.");
+    } catch (err) {
+      console.warn("Boot republish skipped:", err.message);
+    }
   };
 
   client.once("clientReady", onReady);

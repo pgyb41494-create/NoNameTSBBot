@@ -83,13 +83,77 @@ async function runRepublish(guild, target) {
     }
   }
 
+  if (want === "all" || want === "embeds" || want === "embed") {
+    try {
+      const { listConfigs } = require("../systems/tsb/aboutserver/store");
+      const { refreshPosted } = require("../systems/tsb/aboutserver/runtime");
+      const names = listConfigs(guild.id);
+      let refreshed = 0;
+      for (const name of names) {
+        const msg = await refreshPosted(guild, name).catch(() => null);
+        if (msg) refreshed += 1;
+      }
+      if (refreshed) lines.push(`• **Embeds** refreshed (${refreshed})`);
+      else if (want !== "all") lines.push("• Embeds — none posted yet");
+    } catch (err) {
+      lines.push(`• Embeds failed: ${err.message}`);
+    }
+  }
+
+  if (want === "all" || want === "verify") {
+    try {
+      const { getConfig } = require("../systems/tsb/verify/store");
+      const { upsertPanel } = require("../systems/tsb/verify/runtime");
+      const cfg = getConfig(guild.id);
+      if (cfg?.panelChannelId) {
+        const channel = await guild.channels.fetch(cfg.panelChannelId).catch(() => null);
+        if (channel) {
+          await upsertPanel(channel, guild);
+          lines.push(`• **Verify panel** updated in ${channel}`);
+        } else if (want !== "all") {
+          lines.push("• Verify panel — channel missing");
+        }
+      } else if (want !== "all") {
+        lines.push("• Verify panel — not posted");
+      }
+    } catch (err) {
+      if (want !== "all") lines.push(`• Verify panel failed: ${err.message}`);
+    }
+  }
+
   if (!lines.length) lines.push("Nothing to republish yet. Finish setup first.");
   return lines;
+}
+
+async function republishGuildQuiet(guild) {
+  try {
+    return await runRepublish(guild, "all");
+  } catch (err) {
+    return [`• Failed: ${err.message}`];
+  }
+}
+
+async function republishAllGuilds(client) {
+  const results = [];
+  for (const guild of client.guilds.cache.values()) {
+    try {
+      const lines = await republishGuildQuiet(guild);
+      results.push({ guildId: guild.id, name: guild.name, lines });
+      console.log(`[republish] ${guild.name}: ${lines.join(" | ")}`);
+    } catch (err) {
+      console.warn(`[republish] ${guild.name} failed:`, err.message);
+      results.push({ guildId: guild.id, name: guild.name, error: err.message });
+    }
+  }
+  return results;
 }
 
 module.exports = {
   name: "republish",
   aliases: ["refreshboards", "repost"],
+  runRepublish,
+  republishGuildQuiet,
+  republishAllGuilds,
   slash: () =>
     new SlashCommandBuilder()
       .setName("republish")
@@ -105,7 +169,8 @@ module.exports = {
             { name: "Top boards", value: "boards" },
             { name: "Lineups", value: "lineups" },
             { name: "Challenge panel", value: "challenge" },
-            { name: "Ticket panels", value: "tickets" }
+            { name: "Ticket panels", value: "tickets" },
+            { name: "Custom embeds", value: "embeds" }
           )
       ),
 

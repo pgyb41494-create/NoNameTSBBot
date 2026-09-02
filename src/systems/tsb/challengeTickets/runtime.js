@@ -99,17 +99,10 @@ async function panelPayload(guild) {
       challengeCard({
         title: "Challenge tickets",
         color: COLOR_PRIMARY,
-        description:
-          "On the board and want to move up? Open a ticket, pick **one** player ahead of you, and wait for them to accept.\n\n" +
-          "**How it works**\n" +
-          "1. Click **Challenge**\n" +
-          "2. Pick who you want to fight\n" +
-          "3. They tap **Yes** (or **No** to dodge)\n" +
-          "4. Staff records the result when the set is done",
+        description: "On the board and want to move up? Open a ticket, pick **one** player ahead of you, and wait for them to accept.",
         fields: [
           fv("Challenge range", formatChallengeRules(tickets), false),
           fv("Dodges", "2 per player — after that they must accept"),
-          fv("Blocked", "People behind you, yourself, or anyone already in a challenge"),
         ],
         footer: "Only leaderboard players can open a ticket",
       }),

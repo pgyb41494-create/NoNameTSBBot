@@ -7,6 +7,7 @@ function defaultChallengeTickets() {
     channelId: "",
     categoryId: "",
     panelMessageId: "",
+    auditLogChannelId: "",
     spotsAhead: 3,
     ranges: [],
     supportRoleIds: [],
@@ -39,6 +40,7 @@ function challengeTicketsOf(cfg = {}) {
     channelId: String(raw.channelId || ""),
     categoryId: String(raw.categoryId || ""),
     panelMessageId: String(raw.panelMessageId || ""),
+    auditLogChannelId: String(raw.auditLogChannelId || ""),
     spotsAhead,
     ranges: Array.isArray(raw.ranges) ? raw.ranges.filter((r) => r && r.from && r.to && r.spots) : [],
     supportRoleIds: Array.isArray(raw.supportRoleIds)

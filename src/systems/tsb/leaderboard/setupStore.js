@@ -309,10 +309,15 @@ async function stepPayload(interaction) {
             embeds: [{
                 title,
                 description:
-                    "Challenge tickets: a public panel with a **Challenge** button. Clicking it opens a private ticket with a short leaderboard and a select menu (one player).\n\n" +
-                    "Players can only challenge people **ahead** of them, within the spots-ahead rule, and not anyone already challenged.\n\n" +
+                    "Challenge tickets open a private channel so a player can challenge **one** person ahead of them.\n\n" +
+                    "**Quick flow**\n" +
+                    "1. Player clicks **Challenge** on the panel\n" +
+                    "2. They pick who to challenge\n" +
+                    "3. Defender taps **Yes** / **No**\n" +
+                    "4. Staff records format, host, winner, and score in the ticket\n\n" +
                     `> **Enabled:** \`${chal.enabled ? "yes" : "no"}\`\n` +
-                    `> **Channel:** ${chal.channelId ? `<#${chal.channelId}>` : "not set"}\n` +
+                    `> **Panel channel:** ${chal.channelId ? `<#${chal.channelId}>` : "not set"}\n` +
+                    `> **Audit log:** ${chal.auditLogChannelId ? `<#${chal.auditLogChannelId}>` : "not set"}\n` +
                     `> **Support team:** ${chal.supportRoleIds?.length ? chal.supportRoleIds.map((id) => `<@&${id}>`).join(", ") : "board staff roles"}\n` +
                     `> **Rules:** ${formatChallengeRules(chal)}`,
                 color: COLOR
@@ -323,7 +328,18 @@ async function stepPayload(interaction) {
                     components: [{
                         type: 8,
                         custom_id: "tsb:lb:chal_channel",
-                        placeholder: "Select a challenge tickets channel",
+                        placeholder: "Panel channel (where Challenge button posts)",
+                        min_values: 0,
+                        max_values: 1,
+                        channel_types: [0, 5]
+                    }]
+                },
+                {
+                    type: 1,
+                    components: [{
+                        type: 8,
+                        custom_id: "tsb:lb:chal_audit",
+                        placeholder: "Audit log channel (transcripts on close)",
                         min_values: 0,
                         max_values: 1,
                         channel_types: [0, 5]
@@ -397,7 +413,8 @@ async function stepPayload(interaction) {
                 `**Theme:** ${theme.label}\n` +
                 `**Verified-rank requirements:** ${data.rankRequirements?.length || 0} segment(s)\n` +
                 `**Challenge tickets:** ${chal.enabled ? (chal.channelId ? `<#${chal.channelId}>` : "create on confirm") : "off"} · ${formatChallengeRules(chal)}\n` +
-                `**Challenge support:** ${chal.supportRoleIds?.length ? chal.supportRoleIds.map((id) => `<@&${id}>`).join(", ") : "board staff"}\n\n` +
+                `**Challenge support:** ${chal.supportRoleIds?.length ? chal.supportRoleIds.map((id) => `<@&${id}>`).join(", ") : "board staff"}\n` +
+                `**Challenge audit log:** ${chal.auditLogChannelId ? `<#${chal.auditLogChannelId}>` : "management channel"}\n\n` +
                 "Confirm to create/update board channels and publish. After that use `/republish` anytime.",
             color: COLOR
         }, previewCard],
@@ -830,6 +847,15 @@ async function handleLeaderboardSelect(interaction) {
             ...challengeTicketsOf({ challengeTickets: session.data.challengeTickets }),
             enabled: !!channelId,
             channelId,
+        };
+        return renderStep(interaction);
+    }
+
+    if (interaction.customId === "tsb:lb:chal_audit") {
+        const channelId = interaction.values[0] || "";
+        session.data.challengeTickets = {
+            ...challengeTicketsOf({ challengeTickets: session.data.challengeTickets }),
+            auditLogChannelId: channelId,
         };
         return renderStep(interaction);
     }

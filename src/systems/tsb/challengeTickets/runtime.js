@@ -99,13 +99,19 @@ async function panelPayload(guild) {
       challengeCard({
         title: "Challenge tickets",
         color: COLOR_PRIMARY,
-        description: "Open a private ticket and challenge **one** player ahead of you.",
+        description:
+          "On the board and want to move up? Open a ticket, pick **one** player ahead of you, and wait for them to accept.\n\n" +
+          "**How it works**\n" +
+          "1. Click **Challenge**\n" +
+          "2. Pick who you want to fight\n" +
+          "3. They tap **Yes** (or **No** to dodge)\n" +
+          "4. Staff records the result when the set is done",
         fields: [
-          fv("Rules", formatChallengeRules(tickets), false),
-          fv("Dodges", "2 per player — after that they have to accept"),
+          fv("Challenge range", formatChallengeRules(tickets), false),
+          fv("Dodges", "2 per player — after that they must accept"),
           fv("Blocked", "People behind you, yourself, or anyone already in a challenge"),
         ],
-        footer: "Click Challenge to open a ticket",
+        footer: "Only leaderboard players can open a ticket",
       }),
     ],
     components: [
@@ -400,20 +406,27 @@ function setupPayload(ticket) {
       challengeCard({
         title: "Ready to play",
         color: COLOR_PRIMARY,
-        description: "Queue up and play. Staff will lock in host, format, and the result when you're done.",
+        description:
+          "Queue up and play the set.\n\n" +
+          "When you're finished, staff taps **Record result** and fills format, host, winner, and score.",
         fields: [
           fv("Challenger", `<@${ticket.userId}>`),
           fv("Defender", `<@${ticket.targetId}>`),
         ],
-        footer: "Staff: press Done after the set",
+        footer: "Staff: Record result after the set",
       }),
     ],
     components: [
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(DONE_ID).setLabel("Done").setStyle(ButtonStyle.Success)
+        new ButtonBuilder().setCustomId(DONE_ID).setLabel("Record result").setStyle(ButtonStyle.Success)
       ),
+      closeRow(),
     ],
   };
+}
+
+function mark(done, label) {
+  return `${done ? "✅" : "⬜"} ${label}`;
 }
 
 function scoringPayload(ticket, names) {
@@ -432,8 +445,17 @@ function scoringPayload(ticket, names) {
     try { channelSelect.setDefaultChannels(ticket.resultChannelId); } catch {}
   }
 
+  const checklist = [
+    mark(Boolean(ticket.format), "Format"),
+    mark(hasHost(ticket), "Host"),
+    mark(Boolean(ticket.winnerId), "Winner"),
+    mark(Boolean(ticket.scoreDisplay), "Score"),
+    mark(Boolean(ticket.resultChannelId), "Channel"),
+  ].join(" · ");
+
   const fields = [
     fv("Match", `<@${ticket.userId}> vs <@${ticket.targetId}>`, false),
+    fv("Progress", checklist, false),
     fv("Format", formatLabel(ticket.format)),
     fv("Host", hostLabel(ticket)),
     fv("Winner", ticket.winnerId ? `<@${ticket.winnerId}>` : "Not set"),
@@ -450,12 +472,12 @@ function scoringPayload(ticket, names) {
     embeds: [
       challengeCard({
         title: "Record result",
-        color: COLOR_PRIMARY,
+        color: ready ? COLOR_SUCCESS : COLOR_PRIMARY,
         description: isCrossRegion(ticket)
-          ? "Cross-region totals from the two region scores. Winner's games first, like `Chicago 5-3`."
-          : "Pick format, host, winner, score, and the channel to announce it.",
+          ? "Cross-region totals from the two region scores. Winner's games first, like `Chicago 5-3`.\n\nFill each button below — **Post result** unlocks when everything is set."
+          : "Fill each step below. **Post result** unlocks when format, host, winner, score, and channel are set.",
         fields,
-        footer: "Same result /score posts — already filled from this ticket",
+        footer: ready ? "Ready to post" : "Tap buttons to fill the result",
         thumbnail: winnerAvatar,
       }),
     ],
@@ -523,15 +545,19 @@ async function ticketPayload(guild, userId) {
   }
 
   const embed = challengeCard({
-    title: "Pick a challenge",
+    title: "Pick who to challenge",
     color: COLOR_PRIMARY,
-    description: shortBoardLines(slots, busy),
+    description:
+      `${shortBoardLines(slots, busy)}\n\n` +
+      (targets.length
+        ? "Use the menu below to challenge **one** player in your range."
+        : emptyNote),
     fields: [
       fv("Your spot", myPos ? `#${myPos}` : "—"),
-      fv("Range", `up to ${ahead} ahead (${range})`),
+      fv("Your range", `up to ${ahead} ahead (${range})`),
       fv("Available", `${targets.length} player${targets.length === 1 ? "" : "s"}`),
     ],
-    footer: emptyNote,
+    footer: targets.length ? "Select one player · Close ticket anytime" : emptyNote,
   });
 
   const components = [];
@@ -550,7 +576,7 @@ async function ticketPayload(guild, userId) {
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId(PICK_ID)
-          .setPlaceholder("Select one player to challenge")
+          .setPlaceholder("Choose 1 player ahead of you")
           .setMinValues(1)
           .setMaxValues(1)
           .addOptions(options)
@@ -752,7 +778,8 @@ async function handleAccept(interaction) {
       challengeCard({
         title: "Challenge accepted",
         color: COLOR_SUCCESS,
-        description: "Play the set. Staff will pick host, format, and post the result.",
+        description:
+          "Play the set now.\n\nWhen finished, staff taps **Record result** to set format, host, winner, score, and post it.",
         fields: [
           fv("Challenger", `<@${challengerId}>`),
           fv("Defender", `<@${targetId}>`),
@@ -880,7 +907,8 @@ async function closeTicket(interaction) {
     panelName: "challenge-tickets",
   }).catch(() => null);
 
-  const logId = cfg.managementChannelId;
+  const ticketsCfg = challengeTicketsOf(cfg);
+  const logId = ticketsCfg.auditLogChannelId || cfg.managementChannelId;
   if (logId && history?.file) {
     const logChannel = await interaction.guild.channels.fetch(logId).catch(() => null);
     if (logChannel?.isTextBased?.()) {
@@ -920,7 +948,7 @@ async function handleFormat(interaction, format) {
     return interaction.reply({ content: "Only staff picks the format.", ephemeral: true });
   }
   if (ticket.status !== "scoring") {
-    return interaction.reply({ content: "Press Done first, then pick FT5 or FT10.", ephemeral: true });
+    return interaction.reply({ content: "Tap **Record result** first, then pick FT5 or FT10.", ephemeral: true });
   }
   const next = { ...ticket, format };
   setTicket(interaction.guild.id, interaction.channel.id, next);
@@ -936,7 +964,7 @@ async function handleHost(interaction, who) {
     return interaction.reply({ content: "Only staff picks the host.", ephemeral: true });
   }
   if (ticket.status !== "scoring") {
-    return interaction.reply({ content: "Press Done first, then pick the host.", ephemeral: true });
+    return interaction.reply({ content: "Tap **Record result** first, then pick the host.", ephemeral: true });
   }
   const next = {
     ...ticket,
@@ -970,7 +998,7 @@ async function handleWinner(interaction, who) {
     return interaction.reply({ content: "Only staff can pick the winner.", ephemeral: true });
   }
   if (ticket?.status !== "scoring") {
-    return interaction.reply({ content: "Press Done first.", ephemeral: true });
+    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
   }
   const winnerId = who === "chal" ? ticket.userId : ticket.targetId;
   const next = { ...ticket, winnerId };
@@ -984,7 +1012,7 @@ async function handleChannelPick(interaction) {
     return interaction.reply({ content: "Only staff can choose the channel.", ephemeral: true });
   }
   if (ticket?.status !== "scoring") {
-    return interaction.reply({ content: "Press Done first.", ephemeral: true });
+    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
   }
   const resultChannelId = interaction.values?.[0];
   const next = { ...ticket, resultChannelId };
@@ -998,7 +1026,7 @@ async function handleEnterScore(interaction) {
     return interaction.reply({ content: "Only staff can enter the score.", ephemeral: true });
   }
   if (ticket?.status !== "scoring") {
-    return interaction.reply({ content: "Press Done first.", ephemeral: true });
+    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
   }
 
   const fields = [];
@@ -1058,7 +1086,7 @@ async function handleScoreModal(interaction) {
     return interaction.reply({ content: "Only staff can enter the score.", ephemeral: true });
   }
   if (ticket?.status !== "scoring") {
-    return interaction.reply({ content: "Press Done first.", ephemeral: true });
+    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
   }
 
   let scoreNotes = "";
@@ -1114,7 +1142,7 @@ async function handlePost(interaction) {
     return interaction.reply({ content: "Only staff can post the result.", ephemeral: true });
   }
   if (ticket?.status !== "scoring") {
-    return interaction.reply({ content: "Press Done first.", ephemeral: true });
+    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
   }
   if (!ticket.winnerId || !ticket.scoreDisplay || !ticket.resultChannelId || !ticket.format || !hasHost(ticket)) {
     return interaction.reply({ content: "Set format, host, winner, score, and channel first.", ephemeral: true });

@@ -478,13 +478,55 @@ async function handleProfileCommand({ guild, actor, targetUser, query, member })
       profile = await maybe(api.profiles.getProfile(guild.id, userId));
     } else {
       profile = await maybe(api.profiles.findByRoblox(guild.id, query));
-      if (profile) userId = profile.discord_id;
+      if (!profile && api.profiles.searchProfiles) {
+        const matches = await maybe(api.profiles.searchProfiles(guild.id, query, 8));
+        if (Array.isArray(matches) && matches.length > 1) {
+          const lines = matches.slice(0, 8).map((p) => {
+            const name = p.roblox_username || p.robloxUsername || "?";
+            const code = p.profile_id || p.profileId || "—";
+            return `• **@${name}** · code \`${code}\` · <@${p.discord_id || p.discordId}>`;
+          });
+          return {
+            embeds: [
+              danger(
+                "Multiple profiles matched",
+                `Several profiles match **${query}**. Pick one:\n\n${lines.join("\n")}\n\n` +
+                  "Tip: use the exact Roblox username, profile code, or `/profile user:@member`."
+              ),
+            ],
+          };
+        }
+        if (Array.isArray(matches) && matches.length === 1) profile = matches[0];
+      }
+      // Username changed on Roblox but we still have the old roblox_id linked
+      if (!profile) {
+        try {
+          const roblox = await api.roblox.resolveRobloxUser(String(query).trim());
+          if (roblox?.id) {
+            profile = await maybe(api.profiles.findByRoblox(guild.id, String(roblox.id)));
+          }
+        } catch {
+          /* ignore resolve failures */
+        }
+      }
+      if (profile) userId = profile.discord_id || profile.discordId;
     }
   } else {
     profile = await maybe(api.profiles.getProfile(guild.id, actor.id));
   }
 
   if (!profile) {
+    if (query && !targetUser) {
+      return {
+        embeds: [
+          danger(
+            "No profile",
+            `No linked profile found for **${query}**.\n` +
+              "Try Roblox username, profile URL, profile code (e.g. `ACD`), Discord ID, or `/profile user:@member`."
+          ),
+        ],
+      };
+    }
     if (userId !== actor.id) {
       const admin = isAdminOrOwner(member, guild);
       return {
@@ -502,6 +544,21 @@ async function handleProfileCommand({ guild, actor, targetUser, query, member })
   const data = await payloadFor(guild, userId);
   if (!canManage) data.components = [];
   return data;
+}
+
+async function autocompleteProfileQuery(guildId, focusedValue = "") {
+  if (!guildId || !api.profiles.searchProfiles) return [];
+  const matches = await maybe(api.profiles.searchProfiles(guildId, focusedValue, 25));
+  if (!Array.isArray(matches)) return [];
+  return matches.slice(0, 25).map((p) => {
+    const username = p.roblox_username || p.robloxUsername || "unknown";
+    const code = p.profile_id || p.profileId || "";
+    const label = code ? `@${username} (${code})` : `@${username}`;
+    return {
+      name: label.slice(0, 100),
+      value: String(username).slice(0, 100),
+    };
+  });
 }
 
 function getSession(interaction) {
@@ -879,6 +936,7 @@ async function handleProfileInteraction(interaction) {
 module.exports = {
   handleProfileCommand,
   handleProfileInteraction,
+  autocompleteProfileQuery,
   profileEmbed,
   payloadFor,
   registerPrompt,

@@ -85,6 +85,8 @@ module.exports = {
     saveProfile: (guildId, userId, body) => req(`/api/bot/profiles/${guildId}/${userId}`, { method: "POST", body }),
     deleteProfile: (guildId, userId) => req(`/api/bot/profiles/${guildId}/${userId}`, { method: "DELETE" }),
     findByRoblox: (guildId, q) => req(`/api/bot/profiles/lookup/${guildId}?q=${encodeURIComponent(q)}`, { allowNull: true }),
+    searchProfiles: (guildId, q, limit = 25) =>
+      req(`/api/bot/profiles/search/${guildId}?q=${encodeURIComponent(q || "")}&limit=${encodeURIComponent(limit)}`).catch(() => []),
     findDuplicateRoblox: (guildId, robloxId, excludeDiscordId) =>
       req(
         `/api/bot/profiles/${guildId}/duplicates?robloxId=${encodeURIComponent(robloxId || "")}&exclude=${encodeURIComponent(excludeDiscordId || "")}`

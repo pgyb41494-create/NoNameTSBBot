@@ -30,7 +30,7 @@ function helpEmbed() {
       `\`${p}embed\` / \`/embed\` — manage multiple editable embeds with buttons`,
       "",
       "**Profile & coach**",
-      `\`/profile\` · \`${p}profile\``,
+      `\`/profile\` · \`${p}profile\` — view yours, or look up by Roblox name / code / @user`,
       `\`/profile-create\` · \`${p}createprofile @user RobloxName\` — admins create profiles without a bio code`,
       `\`/tsbcoach\` · \`${p}tsbcoach\` (aliases: coach, vod)`,
       `\`${p}ask\` / \`/ask\` — chat (can also answer TSBCC rules)`,

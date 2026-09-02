@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require("discord.js");
-const { handleProfileCommand } = require("../systems/profileUI");
+const { handleProfileCommand, autocompleteProfileQuery } = require("../systems/profileUI");
 
 module.exports = {
   name: "profile",
@@ -8,7 +8,22 @@ module.exports = {
       .setName("profile")
       .setDescription("View or create your TSB profile")
       .addUserOption((o) => o.setName("user").setDescription("Discord user").setRequired(false))
-      .addStringOption((o) => o.setName("query").setDescription("Roblox username, Discord ID, or code (ACD)").setRequired(false)),
+      .addStringOption((o) =>
+        o
+          .setName("query")
+          .setDescription("Roblox username, URL, profile code, or Discord ID")
+          .setRequired(false)
+          .setAutocomplete(true)
+      ),
+
+  async autocomplete(interaction) {
+    const focused = interaction.options.getFocused(true);
+    if (focused?.name !== "query") {
+      return interaction.respond([]);
+    }
+    const choices = await autocompleteProfileQuery(interaction.guildId, focused.value);
+    return interaction.respond(choices);
+  },
 
   async executePrefix(message, args) {
     const payload = await handleProfileCommand({
@@ -16,7 +31,7 @@ module.exports = {
       actor: message.author,
       member: message.member,
       targetUser: message.mentions.users.first() || null,
-      query: args.join(" "),
+      query: args.filter((a) => !/^<@!?\d+>$/.test(a)).join(" "),
     });
     return message.reply({ ...payload, allowedMentions: { repliedUser: false } });
   },

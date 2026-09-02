@@ -619,7 +619,12 @@ async function confirmAndPublish(interaction) {
                 `Or use \`${require("../shared/guildPrefix").resolveGuildPrefix(guild.id)}tsbtop <pos> @user\` / \`/tsbtop\`.`,
             color: 0x57F287
         }],
-        components: []
+        components: [{
+            type: 1,
+            components: [
+                { type: 2, style: 2, label: "Back", custom_id: "tsb:lb:main_menu" }
+            ]
+        }]
     });
 }
 

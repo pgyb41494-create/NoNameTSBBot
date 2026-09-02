@@ -343,7 +343,12 @@ async function applySetup(interaction) {
                 `\`${p}lineup add <region> <pos> @user\` / \`/lineup\`.`,
             color: 0x57F287
         }],
-        components: []
+        components: [{
+            type: 1,
+            components: [
+                { type: 2, style: 2, label: "Back", custom_id: "tsb:lu:main_menu" }
+            ]
+        }]
     });
 }
 

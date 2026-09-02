@@ -1135,7 +1135,12 @@ async function finishAndSave(interaction) {
                 "\n\nRefreshing boards / lineups in the background…",
             color: 0x57F287
         }],
-        components: []
+        components: [{
+            type: 1,
+            components: [
+                { type: 2, style: 2, label: "Back", custom_id: "tsb:rank:main_menu" }
+            ]
+        }]
     });
 }
 

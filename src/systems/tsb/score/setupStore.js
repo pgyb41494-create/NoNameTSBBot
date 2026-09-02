@@ -295,7 +295,12 @@ async function applyConfig(interaction) {
                 "Use `/score` to record 1v1 results. Wins against a higher (or on-board) spot **auto-bump** the top leaderboard.",
             color: 0x57F287
         }],
-        components: []
+        components: [{
+            type: 1,
+            components: [
+                { type: 2, style: 2, label: "Back", custom_id: "tsb:score:main_menu" }
+            ]
+        }]
     });
 }
 

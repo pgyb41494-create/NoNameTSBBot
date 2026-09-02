@@ -10,6 +10,7 @@ const {
   maybeRefreshBoards,
 } = require("../systems/tsb/ranking/applyStage");
 const { getSafeGuildConfig, canUseRanking, isSetupCompleted } = require("../systems/tsb/ranking/config");
+const { splitStageNotes } = require("../systems/tsb/ranking/parseStageInput");
 const { brand } = require("../utils/loadApi");
 const { tsbEmbed, COLOR_DANGER } = require("../systems/tsb/shared/embeds");
 
@@ -60,9 +61,12 @@ module.exports = {
       return message.reply({ embeds: [danger("Missing permissions", "Staff only.")] });
     }
     const user = message.mentions.users.first();
-    const stage = args.filter((a) => !a.startsWith("<@")).join(" ");
+    const rawStage = args.filter((a) => !a.startsWith("<@")).join(" ");
+    const { body: stage, notes } = splitStageNotes(rawStage);
     if (!user || !stage) {
-      return message.reply({ embeds: [danger("Usage", "`'stage @user 2 High Weak`")] });
+      return message.reply({
+        embeds: [danger("Usage", "`'stage @user 2 High Weak` or `'stage @user 1 Low Weak \"notes\"`")],
+      });
     }
     return applyStageCommand(
       message,
@@ -71,7 +75,7 @@ module.exports = {
       stage,
       message.author,
       message.member,
-      null,
+      notes,
       invokedFromPrefix(message)
     );
   },

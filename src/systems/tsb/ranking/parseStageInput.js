@@ -148,10 +148,15 @@ function peelRegion(tokens) {
 
 /**
  * Pull trailing quoted notes: `2 high strong "good fight"`
+ * Also accepts curly quotes from Discord mobile.
  */
 function splitStageNotes(raw) {
     const text = String(raw || "");
-    const match = text.match(/\s+"([^"]*)"\s*$/) || text.match(/\s+'([^']*)'\s*$/);
+    const match =
+        text.match(/\s+"([^"]*)"\s*$/) ||
+        text.match(/\s+'([^']*)'\s*$/) ||
+        text.match(/\s+[“”]([^“”]*)[“”]\s*$/) ||
+        text.match(/\s+[‘’]([^‘’]*)[‘’]\s*$/);
     if (!match) return { body: text.trim(), notes: null };
     return {
         body: text.slice(0, match.index).trim(),

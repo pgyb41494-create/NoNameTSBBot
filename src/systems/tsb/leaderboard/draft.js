@@ -85,6 +85,29 @@ function buildDraftTemplate(count = 10) {
     return lines.join("\n");
 }
 
+function formatDraftRange(slots, start, end) {
+    const byPos = new Map(
+        (slots || []).map((slot) => [Number(slot.position), slot])
+    );
+    const lines = [`${start}-${end}`];
+    for (let pos = start; pos <= end; pos += 1) {
+        const id = byPos.get(pos)?.discordId || null;
+        lines.push(id ? `${pos}. <@${id}>` : `${pos}. none`);
+    }
+    return lines.join("\n");
+}
+
+/** Current board as draft pages (1–10, 11–20, …). */
+function buildCurrentDraftPages(cfg) {
+    const total = Math.max(1, Math.min(MAX_TOP, Number(cfg.topPerChannel || cfg.slotCount || 10)));
+    const slots = cfg.slots || [];
+    return getPageRanges(total).map((range) => ({
+        start: range.start,
+        end: range.end,
+        text: formatDraftRange(slots, range.start, range.end),
+    }));
+}
+
 function parseLeaderboardDraft(content) {
     const text = String(content || "")
         .replace(/\r/g, "")
@@ -101,7 +124,7 @@ function parseLeaderboardDraft(content) {
 
     const start = Number(header[1]);
     const end = Number(header[2]);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start || end > 25) {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start || end > MAX_TOP) {
         return null;
     }
 
@@ -207,6 +230,54 @@ async function handleLeaderboardDraftMessage(message) {
 
     const content = message.content.trim();
 
+    // Dump current board as editable draft pages (1–10, 11–20, …)
+    const draftCmd = content.match(/^draft(?:\s+(\d+)\s*[-–—]\s*(\d+))?$/i);
+    if (draftCmd) {
+        await ensureSlots(message.guild.id, Math.max(1, Math.min(MAX_TOP, cfg.topPerChannel || 10)));
+        const fresh = await getLeaderboardConfig(message.guild.id);
+        let pages = buildCurrentDraftPages(fresh);
+
+        if (draftCmd[1] && draftCmd[2]) {
+            const start = Number(draftCmd[1]);
+            const end = Number(draftCmd[2]);
+            if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start || end > MAX_TOP) {
+                await message.reply({
+                    content: `Use \`draft\` or \`draft 1-10\` (max ${MAX_TOP}).`,
+                    allowedMentions: { repliedUser: false },
+                });
+                return true;
+            }
+            pages = [{
+                start,
+                end,
+                text: formatDraftRange(fresh.slots || [], start, end),
+            }];
+        }
+
+        await message.reply({
+            content:
+                `Current board draft${pages.length > 1 ? "s" : ""} — copy a block, edit, paste back, then type \`send\`.`,
+            allowedMentions: { repliedUser: false },
+        });
+
+        for (const page of pages) {
+            // Code fence keeps this from looking like a live post; copy the inner text to update.
+            const block = `\`\`\`\n${page.text}\n\`\`\``;
+            if (block.length > 1900) {
+                await message.channel.send({
+                    content: `**Top ${page.start}–${page.end}** (too long — split manually)\n${page.text.slice(0, 1800)}`,
+                    allowedMentions: { parse: [] },
+                });
+            } else {
+                await message.channel.send({
+                    content: `**Top ${page.start}–${page.end}**\n${block}`,
+                    allowedMentions: { parse: [] },
+                });
+            }
+        }
+        return true;
+    }
+
     // Always require button confirmation for publish
     if (/^send$/i.test(content)) {
         await message.reply({
@@ -305,6 +376,8 @@ async function publishLiveLeaderboard(interaction) {
 
 module.exports = {
     buildDraftTemplate,
+    buildCurrentDraftPages,
+    formatDraftRange,
     parseLeaderboardDraft,
     applyDraftSlots,
     handleLeaderboardDraftMessage,

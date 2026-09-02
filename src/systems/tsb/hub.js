@@ -77,7 +77,7 @@ async function hubPayload(guildId = null) {
         description:
           "Configure **The Strongest Battlegrounds** modules for this server.\n\n" +
           "Pick a module below. Wizards require **Administrator** or server owner.\n\n" +
-          "> **Leaderboard:** draft in `#tsb-boards`, type `send`, then **Confirm**\n" +
+          "> **Leaderboard:** type `draft` in `#tsb-boards`, edit, then `send` → **Confirm**\n" +
           "> **Ranking:** tier roles on boards and lineups (`'stage` / `/stage` — name is set in Ranking Setup)\n" +
           "> **Score:** `/score` records matches and auto-bumps the board\n" +
           "> **Lineups:** `#tsb-lineups` management + `#lineup-{region}` boards\n" +

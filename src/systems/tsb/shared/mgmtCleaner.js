@@ -47,6 +47,7 @@ function buildLeaderboardTips(slotCount = 10, guildId = null) {
         "```\n" +
         buildDraftTemplate(slotCount) +
         "\n```\n\n" +
+        "Type `draft` to dump the **current** board (1–10, 11–20, …) ready to copy/edit.\n" +
         `Or place one spot: \`${p}tsbtop <pos> @user\` (also \`/tsbtop\`).\n` +
         `1-click refresh anytime: \`${p}republish\` / \`/republish\`.`
     );

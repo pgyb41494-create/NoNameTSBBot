@@ -613,7 +613,7 @@ async function confirmAndPublish(interaction) {
                 `${channelList || "No live boards"}\n` +
                 `Channels: ${describeLeaderboardChannels(data)}\n` +
                 `${challengeLine}\n\n` +
-                "In the management channel, post drafts like:\n" +
+                "In the management channel, type `draft` for the current board, or post drafts like:\n" +
                 "```\n1-20\n1. @user\n2. none\n...\n```\n" +
                 "Then type `send` and press **Confirm** to publish (1–10, 11–20, … each get their own channel).\n" +
                 `Or use \`${require("../shared/guildPrefix").resolveGuildPrefix(guild.id)}tsbtop <pos> @user\` / \`/tsbtop\`.`,

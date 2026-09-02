@@ -189,8 +189,6 @@ async function bumpLeaderboard(guild, winnerId, loserId) {
         console.warn("[Score] leaderboard refresh failed:", err.message);
     });
 
-    await syncTopPlayerRole(guild, slots[0]?.discordId).catch(() => {});
-
     return {
         bumped: true,
         swapped: true,
@@ -211,25 +209,12 @@ async function swapLeaderboardSlots(guild, winnerId, loserId) {
     };
 }
 
-async function syncTopPlayerRole(guild, topDiscordId) {
-    const cfg = getLeaderboardConfig(guild.id);
-    const roleId = cfg.topPlayerRoleId;
-    if (!roleId || !topDiscordId) return;
-
-    const role = await guild.roles.fetch(roleId).catch(() => null);
-    if (!role) return;
-
-    const topId = String(topDiscordId);
-    for (const member of guild.members.cache.values()) {
-        if (member.roles.cache.has(roleId) && member.id !== topId) {
-            await member.roles.remove(role).catch(() => {});
-        }
-    }
-
-    const topMember = await guild.members.fetch(topId).catch(() => null);
-    if (topMember && !topMember.roles.cache.has(roleId)) {
-        await topMember.roles.add(role).catch(() => {});
-    }
+/**
+ * @deprecated Prefer syncBoardRangeRoles — kept for any old callers.
+ */
+async function syncTopPlayerRole(guild) {
+    const { syncBoardRangeRoles } = require("../leaderboard/boardRoles");
+    return syncBoardRangeRoles(guild);
 }
 
 /**

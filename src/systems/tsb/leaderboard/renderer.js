@@ -95,6 +95,10 @@ async function upsertLeaderboard(guild, { createChannels = true } = {}) {
   );
 
   await publishLeaderboard(guild);
+  const { syncBoardRangeRoles } = require("./boardRoles");
+  await syncBoardRangeRoles(guild).catch((err) => {
+    console.warn("[Leaderboard] board role sync failed:", err.message);
+  });
   const latest = await getLeaderboardConfigAsync(guild.id);
   return {
     channelId: publicChannelIds[0] || null,
@@ -111,6 +115,10 @@ async function refreshLeaderboard(guild) {
     return { skipped: true, boardPages: [], channelId: null, messageIds: {} };
   }
   await publishLeaderboard(guild);
+  const { syncBoardRangeRoles } = require("./boardRoles");
+  await syncBoardRangeRoles(guild).catch((err) => {
+    console.warn("[Leaderboard] board role sync failed:", err.message);
+  });
   return {
     channelId: cfg.leaderboardChannelId || cfg.publicChannelIds?.[0] || null,
     boardPages: cfg.boardPages || [],

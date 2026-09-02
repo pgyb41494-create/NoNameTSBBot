@@ -11,6 +11,7 @@ const {
 
 const { upsertLeaderboard } = require("./renderer");
 const { listThemes, resolveTheme } = require("../../leaderboardThemes");
+const { pageRangesFor, normalizeTopBoardRoles, formatTopBoardRoles } = require("./boardRoles");
 
 const TOTAL_STEPS = 9;
 const COLOR = 0x2B2D31;
@@ -30,6 +31,8 @@ function defaultData() {
         rankLabel: "Phase",
         requireRobloxVerification: true,
         topPlayerRoleId: null,
+        topBoardRoles: [],
+        editingTopRoleRange: null,
         rankRequirements: [],
         theme: "classic",
         challengeTickets: defaultChallengeTickets()
@@ -51,6 +54,12 @@ async function getSession(guildId) {
                 rankLabel: saved.rankLabel || "Phase",
                 requireRobloxVerification: saved.requireRobloxVerification !== false,
                 topPlayerRoleId: saved.topPlayerRoleId || null,
+                topBoardRoles: normalizeTopBoardRoles(
+                    saved.topBoardRoles,
+                    saved.topPlayerRoleId,
+                    saved.topPerChannel || saved.slotCount || 10
+                ),
+                editingTopRoleRange: null,
                 rankRequirements: saved.rankRequirements || [],
                 theme: resolveTheme(saved.theme).id,
                 challengeTickets: challengeTicketsOf(saved)
@@ -89,7 +98,7 @@ function configSummary(data) {
         `> **Current suffix:** \`${data.suffix || "default"}\`\n` +
         `> **Current rank label:** \`${data.rankLabel}\`\n` +
         `> **Current verification:** \`${data.requireRobloxVerification ? "required" : "optional"}\`\n` +
-        `> **Top player role:** ${data.topPlayerRoleId ? `<@&${data.topPlayerRoleId}>` : "none"}\n` +
+        `> **Top board roles:**\n${formatTopBoardRoles(data.topBoardRoles).split("\n").map((line) => `> ${line}`).join("\n")}\n` +
         `> **Theme:** ${resolveTheme(data.theme).label}`
     );
 }
@@ -248,21 +257,52 @@ async function stepPayload(interaction) {
     }
 
     if (step === 6) {
+        const pages = pageRangesFor(data.topPerChannel || 10);
+        const roles = normalizeTopBoardRoles(data.topBoardRoles, null, data.topPerChannel || 10);
+        if (!data.editingTopRoleRange && pages[0]) {
+            data.editingTopRoleRange = { start: pages[0].start, end: pages[0].end };
+        }
+        const selected = data.editingTopRoleRange || pages[0] || { start: 1, end: 10 };
+        const selectedRole = roles.find((entry) => entry.start === selected.start && entry.end === selected.end);
+
         return {
             embeds: [{
                 title,
                 description:
-                    "Select a role to give to players on the leaderboard (optional).\n\n" +
-                    `Current: ${data.topPlayerRoleId ? `<@&${data.topPlayerRoleId}>` : "`none`"}`,
+                    "Give a different Discord role to each board page (optional).\n\n" +
+                    "Example:\n" +
+                    "> **1–10** → Top 10\n" +
+                    "> **11–20** → Top 20\n" +
+                    "> **21–30** → Top 30\n\n" +
+                    `**Configured**\n${formatTopBoardRoles(roles)}\n\n` +
+                    `> **Editing:** \`#${selected.start}–#${selected.end}\`\n` +
+                    `> **Role:** ${selectedRole ? `<@&${selectedRole.roleId}>` : "`none`"}`,
                 color: COLOR
             }],
             components: [
                 {
                     type: 1,
                     components: [{
+                        type: 3,
+                        custom_id: "tsb:lb:top_role_range",
+                        placeholder: `Editing #${selected.start}–#${selected.end}`,
+                        options: pages.map((page) => {
+                            const assigned = roles.find((entry) => entry.start === page.start && entry.end === page.end);
+                            return {
+                                label: `#${page.start}–#${page.end}`,
+                                value: `${page.start}-${page.end}`,
+                                description: assigned ? "Role set" : "No role yet",
+                                default: page.start === selected.start && page.end === selected.end,
+                            };
+                        })
+                    }]
+                },
+                {
+                    type: 1,
+                    components: [{
                         type: 6,
                         custom_id: "tsb:lb:top_role",
-                        placeholder: "Select top player role",
+                        placeholder: `Role for #${selected.start}–#${selected.end}`,
                         min_values: 0,
                         max_values: 1
                     }]
@@ -271,8 +311,14 @@ async function stepPayload(interaction) {
                     {
                         type: 2,
                         style: 2,
-                        label: "No top player role",
+                        label: "Clear this range",
                         custom_id: "tsb:lb:no_top_role"
+                    },
+                    {
+                        type: 2,
+                        style: 2,
+                        label: "Clear all ranges",
+                        custom_id: "tsb:lb:clear_top_roles"
                     }
                 ])
             ]
@@ -409,7 +455,7 @@ async function stepPayload(interaction) {
                 `**Suffix:** ${data.suffix}\n` +
                 `**Rank Label:** ${data.rankLabel}\n` +
                 `**Roblox verification:** ${data.requireRobloxVerification ? "required" : "optional"}\n` +
-                `**Top player role:** ${data.topPlayerRoleId ? `<@&${data.topPlayerRoleId}>` : "none"}\n` +
+                `**Top board roles:**\n${formatTopBoardRoles(data.topBoardRoles)}\n` +
                 `**Theme:** ${theme.label}\n` +
                 `**Verified-rank requirements:** ${data.rankRequirements?.length || 0} segment(s)\n` +
                 `**Challenge tickets:** ${chal.enabled ? (chal.channelId ? `<#${chal.channelId}>` : "create on confirm") : "off"} · ${formatChallengeRules(chal)}\n` +
@@ -508,9 +554,13 @@ async function confirmAndPublish(interaction) {
     await ensureSlots(guild.id, data.topPerChannel);
 
     const currentForSlots = await getLeaderboardConfig(guild.id);
+    const { editingTopRoleRange: _editingRange, ...persistData } = data;
+    const topBoardRoles = normalizeTopBoardRoles(data.topBoardRoles, null, data.topPerChannel || 10);
     await setLeaderboardConfig(guild.id, {
-        ...data,
+        ...persistData,
         managementChannelId: managementChannel.id,
+        topBoardRoles,
+        topPlayerRoleId: null,
         slots: currentForSlots.slots
     });
 
@@ -631,6 +681,17 @@ async function handleLeaderboardAction(interaction, id) {
 
     if (id === "tsb:lb:create_mgmt") return createManagementChannel(interaction);
     if (id === "tsb:lb:no_top_role") {
+        const pages = pageRangesFor(session.data.topPerChannel || 10);
+        const selected = session.data.editingTopRoleRange || pages[0];
+        if (selected) {
+            session.data.topBoardRoles = normalizeTopBoardRoles(session.data.topBoardRoles, null, session.data.topPerChannel || 10)
+                .filter((entry) => !(entry.start === selected.start && entry.end === selected.end));
+        }
+        session.data.topPlayerRoleId = null;
+        return renderStep(interaction);
+    }
+    if (id === "tsb:lb:clear_top_roles") {
+        session.data.topBoardRoles = [];
         session.data.topPlayerRoleId = null;
         return renderStep(interaction);
     }
@@ -642,7 +703,19 @@ async function handleLeaderboardAction(interaction, id) {
 
     if (id.startsWith("tsb:lb:spots:")) {
         const n = parseInt(id.split(":")[3], 10);
-        if (Number.isFinite(n)) session.data.topPerChannel = Math.max(1, Math.min(50, n));
+        if (Number.isFinite(n)) {
+            session.data.topPerChannel = Math.max(1, Math.min(50, n));
+            const pages = pageRangesFor(session.data.topPerChannel);
+            session.data.topBoardRoles = normalizeTopBoardRoles(session.data.topBoardRoles, null, session.data.topPerChannel)
+                .filter((entry) => pages.some((page) => page.start === entry.start && page.end === entry.end));
+            if (!pages.some((page) =>
+                session.data.editingTopRoleRange &&
+                page.start === session.data.editingTopRoleRange.start &&
+                page.end === session.data.editingTopRoleRange.end
+            )) {
+                session.data.editingTopRoleRange = pages[0] || null;
+            }
+        }
         return renderStep(interaction);
     }
 
@@ -836,8 +909,30 @@ async function handleLeaderboardSelect(interaction) {
         return renderStep(interaction);
     }
 
+    if (interaction.customId === "tsb:lb:top_role_range") {
+        const raw = String(interaction.values[0] || "");
+        const match = raw.match(/^(\d+)-(\d+)$/);
+        if (match) {
+            session.data.editingTopRoleRange = {
+                start: Number(match[1]),
+                end: Number(match[2]),
+            };
+        }
+        return renderStep(interaction);
+    }
+
     if (interaction.customId === "tsb:lb:top_role") {
-        session.data.topPlayerRoleId = interaction.values[0] || null;
+        const pages = pageRangesFor(session.data.topPerChannel || 10);
+        const selected = session.data.editingTopRoleRange || pages[0] || { start: 1, end: 10 };
+        const roleId = interaction.values[0] || null;
+        const next = normalizeTopBoardRoles(session.data.topBoardRoles, null, session.data.topPerChannel || 10)
+            .filter((entry) => !(entry.start === selected.start && entry.end === selected.end));
+        if (roleId) {
+            next.push({ start: selected.start, end: selected.end, roleId });
+        }
+        next.sort((a, b) => a.start - b.start);
+        session.data.topBoardRoles = next;
+        session.data.topPlayerRoleId = null;
         return renderStep(interaction);
     }
 

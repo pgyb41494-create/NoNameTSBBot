@@ -1,5 +1,6 @@
 const api = require("../../../utils/loadApi");
 const { resolveMaybe } = require("../../../utils/resolveMaybe");
+const { normalizeTopBoardRoles } = require("./boardRoles");
 
 function defaultChallengeTickets() {
   return {
@@ -88,6 +89,11 @@ function normalizeLeaderboardConfig(cfg) {
   if (!cfg.rankRequirements) cfg.rankRequirements = [];
   if (!cfg.boardPages) cfg.boardPages = [];
   cfg.challengeTickets = challengeTicketsOf(cfg);
+  cfg.topBoardRoles = normalizeTopBoardRoles(
+    cfg.topBoardRoles,
+    cfg.topPlayerRoleId,
+    cfg.topPerChannel || cfg.slotCount || 10
+  );
   return cfg;
 }
 
@@ -121,6 +127,27 @@ async function updateLeaderboardConfig(guildId, patch) {
     nextPatch = {
       ...nextPatch,
       challengeTickets: challengeTicketsOf({ challengeTickets: { ...current.challengeTickets, ...nextPatch.challengeTickets } }),
+    };
+  }
+  if (
+    nextPatch.topBoardRoles !== undefined ||
+    nextPatch.topPlayerRoleId !== undefined ||
+    nextPatch.topPerChannel ||
+    nextPatch.slotCount
+  ) {
+    const topCount = nextPatch.topPerChannel || nextPatch.slotCount || current.topPerChannel || current.slotCount || 10;
+    const rolesSource =
+      nextPatch.topBoardRoles !== undefined ? nextPatch.topBoardRoles : current.topBoardRoles;
+    // Once topBoardRoles is explicitly set (even []), stop re-applying legacy topPlayerRoleId.
+    const legacy =
+      Array.isArray(rolesSource)
+        ? null
+        : nextPatch.topPlayerRoleId !== undefined
+          ? nextPatch.topPlayerRoleId
+          : current.topPlayerRoleId;
+    nextPatch = {
+      ...nextPatch,
+      topBoardRoles: normalizeTopBoardRoles(rolesSource, legacy, topCount),
     };
   }
   return resolveMaybe(api.leaderboard.updateConfig(guildId, { ...current, ...nextPatch }));

@@ -22,6 +22,9 @@ const {
   staffIds,
   slug,
 } = require("./store");
+const { buildTicketTranscript, transcriptAuditEmbed } = require("../shared/transcript");
+const { parseEmoji, resolveEmojiStorage, formatEmojiLabel, parseEmojiInput } = require("../shared/parseEmoji");
+const { applyTicketVars, ticketVarHint } = require("../shared/ticketVars");
 
 const LAST_STEP = 8;
 const STYLES = {
@@ -39,32 +42,8 @@ function canSetup(member) {
 }
 
 function applyVars(text, ctx = {}) {
-  if (text == null || text === "") return text;
-  const user = ctx.user;
-  const guild = ctx.guild;
-  const map = {
-    "{user}": user ? `<@${user.id}>` : "{user}",
-    "{username}": user?.username ?? "{username}",
-    "{userid}": user?.id ?? "{userid}",
-    "{server}": guild?.name ?? "{server}",
-    "{channel}": ctx.channel ? `<#${ctx.channel.id}>` : "{channel}",
-    "{reason}": ctx.reason || "{reason}",
-    "{staff}": ctx.staff || "{staff}",
-    "{panel}": ctx.panelName || "{panel}",
-  };
-  let out = String(text);
-  for (const [key, value] of Object.entries(map)) out = out.split(key).join(String(value));
-  return out;
+  return applyTicketVars(text, ctx);
 }
-
-function parseEmoji(raw) {
-  const text = String(raw || "").trim();
-  if (!text) return null;
-  const custom = text.match(/<(a)?:([a-zA-Z0-9_]+):(\d{17,20})>/);
-  if (custom) return { animated: Boolean(custom[1]), name: custom[2], id: custom[3] };
-  return text;
-}
-
 function parseColor(value) {
   const hex = String(value || "").trim().replace(/^#/, "").replace(/^0x/i, "");
   const num = Number.parseInt(hex, 16);
@@ -125,7 +104,7 @@ function panelComponents(panel, ctx = {}) {
           .setCustomId(`tsb:tix:open:${panel.name}:${start + offset}`)
           .setLabel(applyVars(item.label, ctx).slice(0, 80))
           .setStyle(STYLES[item.style] || ButtonStyle.Primary);
-        const emoji = parseEmoji(item.emoji);
+        const emoji = parseEmoji(item.emoji, ctx.guild);
         if (emoji) btn.setEmoji(emoji);
         row.addComponents(btn);
       });
@@ -143,7 +122,7 @@ function panelComponents(panel, ctx = {}) {
             value: String(index),
             description: applyVars(option.description || "Open a ticket", ctx).slice(0, 100),
           };
-          const emoji = parseEmoji(option.emoji);
+          const emoji = parseEmoji(option.emoji, ctx.guild);
           if (emoji) opt.emoji = emoji;
           return opt;
         })
@@ -261,15 +240,15 @@ function wizardNav(panel, step) {
   return row;
 }
 
-function wizardPayload(panel, step) {
+function wizardPayload(panel, step, guild = null) {
   const titles = {
     1: ["Step 1 of 8 · Panel channel", "Where the ticket panel is posted."],
     2: ["Step 2 of 8 · Ticket category", "New tickets are created under this category."],
     3: ["Step 3 of 8 · Log channel", "Optional. Open/close transcripts go here. You can skip."],
     4: ["Step 4 of 8 · Staff roles", "These roles can see and close tickets."],
-    5: ["Step 5 of 8 · Panel message", "This embed is what members see in the panel channel."],
-    6: ["Step 6 of 8 · Ticket greeting", "Posted inside each new ticket. Variables: `{user}` `{reason}` `{staff}` `{server}`"],
-    7: ["Step 7 of 8 · Buttons or menu", "Pick a type, then add options (Support, Appeals, …)."],
+    5: ["Step 5 of 8 · Panel message", "Panel embed shown in the channel. Variables work in title/body/footer too."],
+    6: ["Step 6 of 8 · Ticket greeting", `Inside each ticket. Variables: ${ticketVarHint()}`],
+    7: ["Step 7 of 8 · Buttons or menu", "Pick a type, then add options. Emoji: ID, :name:, or unicode."],
     8: ["Step 8 of 8 · Publish", "Review and post (or update) the panel."],
   };
   const [title, hint] = titles[step] || titles[1];
@@ -375,7 +354,10 @@ function wizardPayload(panel, step) {
         .setTitle(panel.componentMode === "dropdown" ? "Dropdown" : panel.componentMode === "buttons" ? "Buttons" : "Choose a type")
         .setDescription(
           items.length
-            ? items.map((item, i) => `> ${i + 1}. ${item.emoji ? `${item.emoji} ` : ""}**${item.label}**${item.description ? ` — ${item.description}` : ""}`).join("\n")
+            ? items.map((item, i) => {
+              const emojiLabel = item.emoji ? `${formatEmojiLabel(item.emoji, guild)} ` : "";
+              return `> ${i + 1}. ${emojiLabel}**${item.label}**${item.description ? ` — ${item.description}` : ""}`;
+            }).join("\n")
             : "> No options yet. Add Support, Appeals, or anything you need."
         )
     );
@@ -415,12 +397,20 @@ function editModal(panel) {
 }
 
 function ticketModal(panel) {
+  const bodyInput = field(
+    "ticket_body",
+    "Body inside the ticket",
+    TextInputStyle.Paragraph,
+    panel.ticketBody,
+    4000
+  );
+  bodyInput.setPlaceholder("Hey {user} — {reason} · vars: {staff} {paneltitle} {date}");
   return new ModalBuilder()
     .setCustomId(`tsb:tix:modal:ticket:${panel.name}`)
     .setTitle("Ticket greeting")
     .addComponents(
       new ActionRowBuilder().addComponents(field("ticket_title", "Title inside the ticket", TextInputStyle.Short, panel.ticketTitle, 256)),
-      new ActionRowBuilder().addComponents(field("ticket_body", "Body inside the ticket", TextInputStyle.Paragraph, panel.ticketBody, 4000))
+      new ActionRowBuilder().addComponents(bodyInput)
     );
 }
 
@@ -432,13 +422,15 @@ function colorModal(panel) {
 }
 
 function itemModal(name) {
+  const emojiInput = field("emoji", "Emoji (ID, :name:, unicode)", TextInputStyle.Short, "", 80);
+  emojiInput.setPlaceholder("e.g. 1423781348568727705 or :support:");
   return new ModalBuilder()
     .setCustomId(`tsb:tix:modal:item:${name}`)
     .setTitle("Add option")
     .addComponents(
       new ActionRowBuilder().addComponents(field("label", "Label", TextInputStyle.Short, "", 80, true)),
       new ActionRowBuilder().addComponents(field("description", "Description (dropdown)", TextInputStyle.Short, "Open a ticket", 100)),
-      new ActionRowBuilder().addComponents(field("emoji", "Emoji (optional)", TextInputStyle.Short, "", 80)),
+      new ActionRowBuilder().addComponents(emojiInput),
       new ActionRowBuilder().addComponents(field("style", "Button color: blue gray green red", TextInputStyle.Short, "blue", 12))
     );
 }
@@ -456,8 +448,6 @@ function menuModal(panel) {
     .setTitle("Dropdown text")
     .addComponents(new ActionRowBuilder().addComponents(field("placeholder", "Placeholder", TextInputStyle.Short, panel.dropdownPlaceholder, 150)));
 }
-
-const { buildTicketTranscript, transcriptAuditEmbed } = require("../shared/transcript");
 
 async function sendAudit(guild, panel, options) {
   if (!panel?.auditLogChannelId) return;
@@ -563,11 +553,15 @@ async function openTicket(interaction, panel, item) {
 
   const ctx = {
     user: interaction.user,
+    member: interaction.member,
     guild: interaction.guild,
     channel,
     reason: reason || "",
     staff: staffMentions(panel),
     panelName: panel.name,
+    panelTitle: panel.title || panel.name,
+    openedAt: new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }),
+    now: new Date(),
   };
 
   await channel.send({
@@ -598,7 +592,13 @@ async function publishPanel(guild, panel) {
   if (!panel.sendChannelId) return { error: "Pick the panel channel in step 1." };
   const channel = await guild.channels.fetch(panel.sendChannelId).catch(() => null);
   if (!channel?.isTextBased()) return { error: "Panel channel is invalid." };
-  const ctx = { guild, panelName: panel.name };
+  if (guild?.emojis?.fetch) {
+    for (const item of itemsOf(panel)) {
+      const parsed = parseEmojiInput(item.emoji);
+      if (parsed?.id) await guild.emojis.fetch(parsed.id).catch(() => null);
+    }
+  }
+  const ctx = { guild, panelName: panel.name, panelTitle: panel.title || panel.name };
   const payload = { embeds: [panelEmbed(panel, ctx)], components: panelComponents(panel, ctx) };
   if (panel.messageId) {
     const existing = await channel.messages.fetch(panel.messageId).catch(() => null);
@@ -644,7 +644,7 @@ async function importFromLink(interaction, raw) {
   }
   panel.sendChannelId = channel.id;
   savePanel(interaction.guildId, panel);
-  return interaction.update(wizardPayload(panel, 1));
+  return interaction.update(wizardPayload(panel, 1, interaction.guild));
 }
 
 async function closeTicket(interaction, panel) {
@@ -773,14 +773,14 @@ async function handleTickets(interaction) {
   if (interaction.isStringSelectMenu() && id === "tsb:tix:pick") {
     const panel = getPanel(interaction.guildId, interaction.values[0]);
     if (!panel) return interaction.reply({ content: "That panel is gone.", ephemeral: true });
-    await interaction.update(wizardPayload(panel, 1));
+    await interaction.update(wizardPayload(panel, 1, interaction.guild));
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:next:")) {
     const [, , , name, stepText] = id.split(":");
     const panel = getPanel(interaction.guildId, name);
     if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
-    await interaction.update(wizardPayload(panel, Math.min(LAST_STEP, Number(stepText) + 1)));
+    await interaction.update(wizardPayload(panel, Math.min(LAST_STEP, Number(stepText) + 1), interaction.guild));
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:back:")) {
@@ -792,7 +792,7 @@ async function handleTickets(interaction) {
     }
     const panel = getPanel(interaction.guildId, name);
     if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
-    await interaction.update(wizardPayload(panel, step - 1));
+    await interaction.update(wizardPayload(panel, step - 1, interaction.guild));
     return true;
   }
 
@@ -817,7 +817,7 @@ async function handleTickets(interaction) {
       step = 3;
     }
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, step));
+    await interaction.update(wizardPayload(panel, step, interaction.guild));
     return true;
   }
 
@@ -826,7 +826,7 @@ async function handleTickets(interaction) {
     if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
     panel.staffRoleIds = interaction.values;
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 4));
+    await interaction.update(wizardPayload(panel, 4, interaction.guild));
     return true;
   }
 
@@ -835,35 +835,35 @@ async function handleTickets(interaction) {
     const category = await ensureCategory(interaction.guild, panel);
     panel.categoryId = category.id;
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 2));
+    await interaction.update(wizardPayload(panel, 2, interaction.guild));
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:skipaudit:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[3]);
     panel.auditLogChannelId = null;
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 3));
+    await interaction.update(wizardPayload(panel, 3, interaction.guild));
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:mode:dd:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[4]);
     panel.componentMode = "dropdown";
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 7));
+    await interaction.update(wizardPayload(panel, 7, interaction.guild));
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:mode:btn:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[4]);
     panel.componentMode = "buttons";
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 7));
+    await interaction.update(wizardPayload(panel, 7, interaction.guild));
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:modereset:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[3]);
     panel.componentMode = null;
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 7));
+    await interaction.update(wizardPayload(panel, 7, interaction.guild));
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:additem:")) {
@@ -874,14 +874,14 @@ async function handleTickets(interaction) {
     const panel = getPanel(interaction.guildId, id.split(":")[3]);
     panel.items = [];
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 7));
+    await interaction.update(wizardPayload(panel, 7, interaction.guild));
     return true;
   }
   if (interaction.isStringSelectMenu() && id.startsWith("tsb:tix:rm:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[3]);
     panel.items.splice(Number(interaction.values[0]), 1);
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 7));
+    await interaction.update(wizardPayload(panel, 7, interaction.guild));
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:edit:")) {
@@ -903,7 +903,7 @@ async function handleTickets(interaction) {
   if (interaction.isButton() && id.startsWith("tsb:tix:preview:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[3]);
     if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
-    const ctx = { guild: interaction.guild, panelName: panel.name, user: interaction.user };
+    const ctx = { guild: interaction.guild, panelName: panel.name, panelTitle: panel.title || panel.name, user: interaction.user };
     await interaction.reply({
       content: "Live preview (same embed + buttons/menu members will see):",
       embeds: [panelEmbed(panel, ctx)],
@@ -930,7 +930,7 @@ async function handleTickets(interaction) {
       return interaction.reply({ content: `Panel \`${name}\` already exists.`, ephemeral: true });
     }
     const panel = savePanel(interaction.guildId, emptyPanel(name));
-    await interaction.reply({ ...wizardPayload(panel, 1), ephemeral: true });
+    await interaction.reply({ ...wizardPayload(panel, 1, interaction.guild), ephemeral: true });
     return true;
   }
   if (interaction.isModalSubmit() && id === "tsb:tix:modal:import") {
@@ -945,7 +945,7 @@ async function handleTickets(interaction) {
     panel.image = interaction.fields.getTextInputValue("image");
     panel.thumbnail = interaction.fields.getTextInputValue("thumbnail");
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 5));
+    await interaction.update(wizardPayload(panel, 5, interaction.guild));
     return true;
   }
   if (interaction.isModalSubmit() && id.startsWith("tsb:tix:modal:ticket:")) {
@@ -953,21 +953,21 @@ async function handleTickets(interaction) {
     panel.ticketTitle = interaction.fields.getTextInputValue("ticket_title") || panel.ticketTitle;
     panel.ticketBody = interaction.fields.getTextInputValue("ticket_body") || panel.ticketBody;
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 6));
+    await interaction.update(wizardPayload(panel, 6, interaction.guild));
     return true;
   }
   if (interaction.isModalSubmit() && id.startsWith("tsb:tix:modal:color:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[4]);
     panel.color = parseColor(interaction.fields.getTextInputValue("color"));
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 5));
+    await interaction.update(wizardPayload(panel, 5, interaction.guild));
     return true;
   }
   if (interaction.isModalSubmit() && id.startsWith("tsb:tix:modal:menu:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[4]);
     panel.dropdownPlaceholder = interaction.fields.getTextInputValue("placeholder") || panel.dropdownPlaceholder;
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 7));
+    await interaction.update(wizardPayload(panel, 7, interaction.guild));
     return true;
   }
   if (interaction.isModalSubmit() && id.startsWith("tsb:tix:modal:item:")) {
@@ -977,15 +977,17 @@ async function handleTickets(interaction) {
     }
     const styleRaw = String(interaction.fields.getTextInputValue("style") || "blue").toLowerCase();
     const style = ["blue", "gray", "green", "red"].includes(styleRaw) ? styleRaw : "blue";
+    const emojiRaw = interaction.fields.getTextInputValue("emoji") || "";
+    const emoji = emojiRaw ? await resolveEmojiStorage(emojiRaw, interaction.guild) : "";
     panel.items = itemsOf(panel);
     panel.items.push({
       label: interaction.fields.getTextInputValue("label"),
       description: interaction.fields.getTextInputValue("description") || "Open a ticket",
-      emoji: interaction.fields.getTextInputValue("emoji") || "",
+      emoji,
       style,
     });
     savePanel(interaction.guildId, panel);
-    await interaction.update(wizardPayload(panel, 7));
+    await interaction.update(wizardPayload(panel, 7, interaction.guild));
     return true;
   }
 

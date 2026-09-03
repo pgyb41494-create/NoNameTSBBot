@@ -9,6 +9,7 @@ const {
 const api = require("../../../utils/loadApi");
 const { hasMod } = require("../../../utils/permissions");
 const { danger } = require("../../../utils/embeds");
+const { parseEmoji } = require("../shared/parseEmoji");
 
 function canSendPanel(member) {
   return hasMod(member, PermissionFlagsBits.ManageMessages);
@@ -90,7 +91,7 @@ function buttonStyle(style, action) {
   return ButtonStyle.Primary;
 }
 
-function panelMessage(guildId, panel, key) {
+function panelMessage(guildId, panel, key, guild = null) {
   const embed = new EmbedBuilder();
   if (panel.title) embed.setTitle(String(panel.title).slice(0, 256));
   if (panel.description) embed.setDescription(String(panel.description).slice(0, 4096));
@@ -117,9 +118,8 @@ function panelMessage(guildId, panel, key) {
       btn.setCustomId(`panel_btn_${guildId}_${key}_${i}`);
     }
     if (b.emoji) {
-      try {
-        btn.setEmoji(b.emoji);
-      } catch {}
+      const emoji = parseEmoji(b.emoji, guild);
+      if (emoji) btn.setEmoji(emoji);
     }
     row.addComponents(btn);
     if (row.components.length === 5) {
@@ -132,7 +132,7 @@ function panelMessage(guildId, panel, key) {
 }
 
 async function sendPanel(channel, guildId, panel, key) {
-  return channel.send(panelMessage(guildId, panel, key || panel.key));
+  return channel.send(panelMessage(guildId, panel, key || panel.key, channel.guild));
 }
 
 function parseCustomId(customId) {

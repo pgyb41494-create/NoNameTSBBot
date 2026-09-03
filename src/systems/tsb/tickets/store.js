@@ -84,18 +84,71 @@ function deletePanel(guildId, name) {
   save(data);
 }
 
-function staffIds(panel) {
+function emptyItem(patch = {}) {
+  return {
+    label: "",
+    description: "Open a ticket",
+    emoji: "",
+    style: "blue",
+    staffRoleIds: [],
+    categoryId: null,
+    ticketTitle: "",
+    ticketBody: "",
+    ticketFooter: "",
+    channelPrefix: "",
+    ...patch,
+  };
+}
+
+function staffIds(panel, item = null) {
+  const fromItem = Array.isArray(item?.staffRoleIds) ? item.staffRoleIds.filter(Boolean) : [];
+  if (fromItem.length) return fromItem;
   return Array.isArray(panel?.staffRoleIds) ? panel.staffRoleIds.filter(Boolean) : [];
+}
+
+function resolveOption(panel, item = null) {
+  const opt = item && typeof item === "object" && !Array.isArray(item) ? item : {};
+  const inheritsStaff = !Array.isArray(opt.staffRoleIds) || !opt.staffRoleIds.filter(Boolean).length;
+  const inheritsGreeting = !String(opt.ticketTitle || "").trim()
+    && !String(opt.ticketBody || "").trim()
+    && !String(opt.ticketFooter || "").trim();
+  const inheritsCategory = !opt.categoryId;
+  return {
+    staffRoleIds: staffIds(panel, opt),
+    categoryId: opt.categoryId || panel?.categoryId || null,
+    ticketTitle: String(opt.ticketTitle || "").trim() || panel?.ticketTitle || "Ticket",
+    ticketBody: String(opt.ticketBody || "").trim()
+      || panel?.ticketBody
+      || "Hey {user} — staff will be with you shortly.\n> Reason: {reason}",
+    ticketFooter: String(opt.ticketFooter || "").trim() || panel?.ticketFooter || "",
+    channelPrefix: String(opt.channelPrefix || "").trim(),
+    inheritsStaff,
+    inheritsGreeting,
+    inheritsCategory,
+  };
+}
+
+function parseTicketTopic(topic) {
+  const parts = String(topic || "").split(":");
+  if (parts[0] !== "ticket" || !parts[1] || !parts[2]) return null;
+  return {
+    panelName: parts[1],
+    openerId: parts[2],
+    optionIndex: parts[3] != null && parts[3] !== "" ? Number(parts[3]) : null,
+  };
 }
 
 module.exports = {
   COLOR,
   slug,
   emptyPanel,
+  emptyItem,
   listPanels,
   getPanel,
   savePanel,
   deletePanel,
   staffIds,
+  resolveOption,
+  parseTicketTopic,
   guildStore,
 };

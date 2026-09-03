@@ -16,10 +16,13 @@ const {
 const {
   COLOR,
   emptyPanel,
+  emptyItem,
   getPanel,
   savePanel,
   listPanels,
   staffIds,
+  resolveOption,
+  parseTicketTopic,
   slug,
 } = require("./store");
 const { buildTicketTranscript, transcriptAuditEmbed } = require("../shared/transcript");
@@ -54,8 +57,8 @@ function colorHex(value) {
   return `#${Number(value || COLOR).toString(16).padStart(6, "0").toUpperCase()}`;
 }
 
-function staffMentions(panel) {
-  const ids = staffIds(panel);
+function staffMentions(panel, item = null) {
+  const ids = staffIds(panel, item);
   return ids.length ? ids.map((id) => `<@&${id}>`).join(" ") : "not set";
 }
 
@@ -83,16 +86,15 @@ function panelEmbed(panel, ctx = {}) {
   return embed;
 }
 
-function ticketInsideEmbed(panel, ctx = {}) {
+function ticketInsideEmbed(panel, ctx = {}, item = null) {
+  const cfg = resolveOption(panel, item);
   const embed = new EmbedBuilder()
     .setColor(panel.color || COLOR)
-    .setTitle(applyVars(panel.ticketTitle || "Ticket", ctx).slice(0, 256))
-    .setDescription(
-      applyVars(panel.ticketBody || "Hey {user}, staff will be with you shortly.\n> Reason: {reason}", ctx).slice(0, 4096)
-    )
+    .setTitle(applyVars(cfg.ticketTitle || "Ticket", ctx).slice(0, 256))
+    .setDescription(applyVars(cfg.ticketBody, ctx).slice(0, 4096))
     .setTimestamp();
-  if (panel.ticketFooter) {
-    embed.setFooter({ text: applyVars(panel.ticketFooter, ctx).slice(0, 2048) });
+  if (cfg.ticketFooter) {
+    embed.setFooter({ text: applyVars(cfg.ticketFooter, ctx).slice(0, 2048) });
   }
   return embed;
 }
@@ -250,10 +252,10 @@ function wizardPayload(panel, step, guild = null) {
     1: ["Step 1 of 8 · Panel channel", "Where the ticket panel is posted."],
     2: ["Step 2 of 8 · Ticket category", "New tickets are created under this category."],
     3: ["Step 3 of 8 · Log channel", "Optional. Open/close transcripts go here. You can skip."],
-    4: ["Step 4 of 8 · Staff roles", "These roles can see and close tickets."],
+    4: ["Step 4 of 8 · Staff roles", "Default staff. Each option can override this in step 7."],
     5: ["Step 5 of 8 · Panel message", "Panel embed shown in the channel. Press **Variables** for placeholders."],
-    6: ["Step 6 of 8 · Ticket greeting", "Title, body, and footer inside each new ticket. Press **Variables** for placeholders."],
-    7: ["Step 7 of 8 · Buttons or menu", "Pick a type, then add options. Emoji: ID, :name:, or unicode."],
+    6: ["Step 6 of 8 · Ticket greeting", "Default greeting. Each option can override this in step 7. Press **Variables** for placeholders."],
+    7: ["Step 7 of 8 · Buttons or menu", "Add options, then **Configure option** for its own greeting, staff, and category."],
     8: ["Step 8 of 8 · Publish", "Review and post (or update) the panel."],
   };
   const [title, hint] = titles[step] || titles[1];
@@ -337,6 +339,16 @@ function wizardPayload(panel, step, guild = null) {
       if (items.length) {
         rows.push(new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
+            .setCustomId(`tsb:tix:cfgopt:${panel.name}`)
+            .setPlaceholder("Configure an option")
+            .addOptions(items.slice(0, 25).map((item, index) => ({
+              label: `Configure: ${item.label}`.slice(0, 100),
+              value: String(index),
+              description: "Greeting, staff, category, channel name".slice(0, 100),
+            })))
+        ));
+        rows.push(new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
             .setCustomId(`tsb:tix:rm:${panel.name}`)
             .setPlaceholder("Remove an option")
             .addOptions(items.slice(0, 25).map((item, index) => ({
@@ -363,13 +375,65 @@ function wizardPayload(panel, step, guild = null) {
           items.length
             ? items.map((item, i) => {
               const emojiLabel = item.emoji ? `${formatEmojiLabel(item.emoji, guild)} ` : "";
-              return `> ${i + 1}. ${emojiLabel}**${item.label}**${item.description ? ` — ${item.description}` : ""}`;
+              const cfg = resolveOption(panel, item);
+              const staff = cfg.inheritsStaff ? "panel staff" : staffMentions(panel, item);
+              const greet = cfg.inheritsGreeting ? "panel greeting" : "custom greeting";
+              const cat = cfg.inheritsCategory
+                ? "panel category"
+                : (item.categoryId ? `<#${item.categoryId}>` : "panel category");
+              const prefix = item.channelPrefix ? ` · \`${item.channelPrefix}-\`` : "";
+              return `> ${i + 1}. ${emojiLabel}**${item.label}**${item.description ? ` — ${item.description}` : ""}\n> ${staff} · ${greet} · ${cat}${prefix}`;
             }).join("\n")
             : "> No options yet. Add Support, Appeals, or anything you need."
         )
     );
   }
   return { embeds, components: rows };
+}
+
+function optionPayload(panel, index, guild = null) {
+  const item = itemsOf(panel)[index];
+  if (!item) return wizardPayload(panel, 7, guild);
+  const cfg = resolveOption(panel, item);
+  const embed = new EmbedBuilder()
+    .setColor(panel.color || COLOR)
+    .setTitle(`Option · ${item.label}`.slice(0, 256))
+    .setDescription(
+      "Settings here apply only when someone picks this option. Leave blank to inherit the panel defaults.\n\n" +
+      `> **Staff:** ${cfg.inheritsStaff ? `panel default · ${staffMentions(panel)}` : staffMentions(panel, item)}\n` +
+      `> **Category:** ${cfg.inheritsCategory ? (panel.categoryId ? `<#${panel.categoryId}>` : "panel default") : `<#${item.categoryId}>`}\n` +
+      `> **Channel name:** \`${(item.channelPrefix || "ticket").slice(0, 20)}-username\`\n` +
+      `> **Greeting:** ${cfg.inheritsGreeting ? "panel default" : "custom"}`
+    );
+  return {
+    embeds: [embed, ticketInsideEmbed(panel, { guild, panelName: panel.name, panelTitle: panel.title }, item)],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId(`tsb:tix:optstaff:${panel.name}:${index}`)
+          .setPlaceholder("Staff roles for this option (empty = panel default)")
+          .setMinValues(0)
+          .setMaxValues(25)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId(`tsb:tix:optcat:${panel.name}:${index}`)
+          .setPlaceholder("Category for this option (optional)")
+          .addChannelTypes(ChannelType.GuildCategory)
+          .setMinValues(1)
+          .setMaxValues(1)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`tsb:tix:optg:${panel.name}:${index}`).setLabel("Greeting").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`tsb:tix:optn:${panel.name}:${index}`).setLabel("Channel name").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`tsb:tix:vars:${panel.name}`).setLabel("Variables").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`tsb:tix:optreset:${panel.name}:${index}`).setLabel("Use panel defaults").setStyle(ButtonStyle.Danger)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`tsb:tix:optback:${panel.name}`).setLabel("Back to options").setStyle(ButtonStyle.Secondary)
+      ),
+    ],
+  };
 }
 
 function field(id, label, style, value, max, required = false) {
@@ -414,11 +478,38 @@ function ticketModal(panel) {
   bodyInput.setPlaceholder("Hey {user} — {reason} · vars: {staff} {paneltitle} {date}");
   return new ModalBuilder()
     .setCustomId(`tsb:tix:modal:ticket:${panel.name}`)
-    .setTitle("Ticket greeting")
+    .setTitle("Default ticket greeting")
     .addComponents(
       new ActionRowBuilder().addComponents(field("ticket_title", "Title", TextInputStyle.Short, panel.ticketTitle || "Ticket", 256)),
       new ActionRowBuilder().addComponents(bodyInput),
       new ActionRowBuilder().addComponents(field("ticket_footer", "Footer (optional)", TextInputStyle.Short, panel.ticketFooter || "", 256))
+    );
+}
+
+function optionGreetingModal(panel, index) {
+  const item = itemsOf(panel)[index];
+  const cfg = resolveOption(panel, item);
+  const bodyInput = field("ticket_body", "Body", TextInputStyle.Paragraph, cfg.ticketBody, 4000);
+  bodyInput.setPlaceholder("Leave as-is to copy, or edit for this option only");
+  return new ModalBuilder()
+    .setCustomId(`tsb:tix:modal:optg:${panel.name}:${index}`)
+    .setTitle(`Greeting · ${(item?.label || "option").slice(0, 30)}`)
+    .addComponents(
+      new ActionRowBuilder().addComponents(field("ticket_title", "Title", TextInputStyle.Short, cfg.ticketTitle, 256)),
+      new ActionRowBuilder().addComponents(bodyInput),
+      new ActionRowBuilder().addComponents(field("ticket_footer", "Footer (optional)", TextInputStyle.Short, cfg.ticketFooter || "", 256))
+    );
+}
+
+function optionNameModal(panel, index) {
+  const item = itemsOf(panel)[index];
+  return new ModalBuilder()
+    .setCustomId(`tsb:tix:modal:optn:${panel.name}:${index}`)
+    .setTitle("Channel name prefix")
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        field("prefix", "Prefix (ticket-username)", TextInputStyle.Short, item?.channelPrefix || "ticket", 20)
+      )
     );
 }
 
@@ -477,8 +568,13 @@ async function sendAudit(guild, panel, options) {
   await channel.send(payload).catch(() => {});
 }
 
-async function ensureCategory(guild, panel) {
-  if (panel.categoryId) {
+async function ensureCategory(guild, panel, item = null) {
+  const cfg = resolveOption(panel, item);
+  if (cfg.categoryId) {
+    const existing = await guild.channels.fetch(cfg.categoryId).catch(() => null);
+    if (existing?.type === ChannelType.GuildCategory) return existing;
+  }
+  if (panel.categoryId && panel.categoryId !== cfg.categoryId) {
     const existing = await guild.channels.fetch(panel.categoryId).catch(() => null);
     if (existing?.type === ChannelType.GuildCategory) return existing;
   }
@@ -493,13 +589,16 @@ async function ensureCategory(guild, panel) {
   });
 }
 
-async function openTicket(interaction, panel, item) {
+async function openTicket(interaction, panel, item, optionIndex = null) {
   const reason = typeof item === "string" ? item : item?.label || "";
-  let categoryId = panel.categoryId;
+  const option = typeof item === "object" && item ? item : null;
+  const cfg = resolveOption(panel, option);
+
+  let categoryId = cfg.categoryId;
   if (!categoryId) {
-    const category = await ensureCategory(interaction.guild, panel);
+    const category = await ensureCategory(interaction.guild, panel, option);
     categoryId = category?.id;
-    if (categoryId && categoryId !== panel.categoryId) {
+    if (categoryId && !panel.categoryId) {
       panel.categoryId = categoryId;
       savePanel(interaction.guildId, panel);
     }
@@ -508,13 +607,17 @@ async function openTicket(interaction, panel, item) {
     return interaction.reply({ content: "This panel has no ticket category. Run `/ticketsetup`.", ephemeral: true });
   }
 
-  const existing = interaction.guild.channels.cache.find(
-    (channel) => channel.topic === `ticket:${panel.name}:${interaction.user.id}`
-  );
+  const existing = interaction.guild.channels.cache.find((channel) => {
+    const parsed = parseTicketTopic(channel.topic);
+    if (!parsed || parsed.panelName !== panel.name || parsed.openerId !== interaction.user.id) return false;
+    if (optionIndex == null) return parsed.optionIndex == null;
+    return Number(parsed.optionIndex) === Number(optionIndex);
+  });
   if (existing) {
     return interaction.reply({ content: `You already have a ticket: ${existing}`, ephemeral: true });
   }
 
+  const roles = cfg.staffRoleIds;
   const overwrites = [
     { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
     {
@@ -536,7 +639,7 @@ async function openTicket(interaction, panel, item) {
       ],
     },
   ];
-  for (const roleId of staffIds(panel)) {
+  for (const roleId of roles) {
     overwrites.push({
       id: roleId,
       allow: [
@@ -547,15 +650,24 @@ async function openTicket(interaction, panel, item) {
     });
   }
 
-  const name = `ticket-${interaction.user.username}`
+  const prefix = (cfg.channelPrefix || "ticket")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 20) || "ticket";
+  const name = `${prefix}-${interaction.user.username}`
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "")
     .slice(0, 90);
+  const topic = optionIndex == null
+    ? `ticket:${panel.name}:${interaction.user.id}`
+    : `ticket:${panel.name}:${interaction.user.id}:${optionIndex}`;
   const channel = await interaction.guild.channels.create({
     name,
     type: ChannelType.GuildText,
     parent: categoryId,
-    topic: `ticket:${panel.name}:${interaction.user.id}`,
+    topic,
     permissionOverwrites: overwrites,
   });
 
@@ -565,7 +677,7 @@ async function openTicket(interaction, panel, item) {
     guild: interaction.guild,
     channel,
     reason: reason || "",
-    staff: staffMentions(panel),
+    staff: staffMentions(panel, option),
     panelName: panel.name,
     panelTitle: panel.title || panel.name,
     openedAt: new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }),
@@ -573,8 +685,8 @@ async function openTicket(interaction, panel, item) {
   };
 
   await channel.send({
-    content: applyVars(`{user}${staffIds(panel).length ? " | {staff}" : ""}`, ctx),
-    embeds: [ticketInsideEmbed(panel, ctx)],
+    content: applyVars(`{user}${roles.length ? " | {staff}" : ""}`, ctx),
+    embeds: [ticketInsideEmbed(panel, ctx, option)],
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`tsb:tix:claim:${panel.name}`).setLabel("Claim").setStyle(ButtonStyle.Secondary),
@@ -656,14 +768,15 @@ async function importFromLink(interaction, raw) {
 }
 
 async function closeTicket(interaction, panel) {
-  const topic = interaction.channel.topic || "";
-  if (!topic.startsWith("ticket:")) {
+  const parsed = parseTicketTopic(interaction.channel.topic);
+  if (!parsed) {
     return interaction.reply({ content: "This is not a ticket channel.", ephemeral: true });
   }
-  const openerId = topic.split(":")[2];
+  const openerId = parsed.openerId;
+  const item = parsed.optionIndex != null ? itemsOf(panel || {})[parsed.optionIndex] : null;
   const allowed =
     interaction.user.id === openerId
-    || staffIds(panel || {}).some((id) => interaction.member.roles.cache.has(id))
+    || staffIds(panel || {}, item).some((id) => interaction.member.roles.cache.has(id))
     || canSetup(interaction.member);
   if (!allowed) {
     return interaction.reply({ content: "You can't close this ticket.", ephemeral: true });
@@ -711,7 +824,7 @@ async function handleTickets(interaction) {
     const [, , , name, index] = id.split(":");
     const panel = getPanel(interaction.guildId, name);
     if (!panel) return interaction.reply({ content: "This panel no longer exists.", ephemeral: true });
-    await openTicket(interaction, panel, itemsOf(panel)[Number(index)]);
+    await openTicket(interaction, panel, itemsOf(panel)[Number(index)], Number(index));
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:close:")) {
@@ -722,7 +835,9 @@ async function handleTickets(interaction) {
   if (interaction.isButton() && id.startsWith("tsb:tix:claim:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[3]);
     if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
-    const ok = staffIds(panel).some((rid) => interaction.member.roles.cache.has(rid)) || canSetup(interaction.member);
+    const parsed = parseTicketTopic(interaction.channel.topic);
+    const item = parsed?.optionIndex != null ? itemsOf(panel)[parsed.optionIndex] : null;
+    const ok = staffIds(panel, item).some((rid) => interaction.member.roles.cache.has(rid)) || canSetup(interaction.member);
     if (!ok) return interaction.reply({ content: "Only staff can claim.", ephemeral: true });
     await interaction.reply(`${interaction.user} claimed this ticket.`);
     return true;
@@ -730,7 +845,7 @@ async function handleTickets(interaction) {
   if (interaction.isStringSelectMenu() && id.startsWith("tsb:tix:dd:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[3]);
     if (!panel) return interaction.reply({ content: "This panel no longer exists.", ephemeral: true });
-    await openTicket(interaction, panel, itemsOf(panel)[Number(interaction.values[0])]);
+    await openTicket(interaction, panel, itemsOf(panel)[Number(interaction.values[0])], Number(interaction.values[0]));
     return true;
   }
 
@@ -809,6 +924,17 @@ async function handleTickets(interaction) {
     const name = id.split(":")[3];
     const panel = getPanel(interaction.guildId, name);
     if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
+
+    if (kind === "optcat") {
+      const index = Number(id.split(":")[4]);
+      const item = itemsOf(panel)[index];
+      if (!item) return interaction.reply({ content: "Option missing.", ephemeral: true });
+      item.categoryId = interaction.values[0] || null;
+      panel.items[index] = item;
+      savePanel(interaction.guildId, panel);
+      await interaction.update(optionPayload(panel, index, interaction.guild));
+      return true;
+    }
     const channelId = interaction.values[0];
     let step = 1;
     if (kind === "send") {
@@ -826,6 +952,20 @@ async function handleTickets(interaction) {
     }
     savePanel(interaction.guildId, panel);
     await interaction.update(wizardPayload(panel, step, interaction.guild));
+    return true;
+  }
+
+  if (interaction.isRoleSelectMenu() && id.startsWith("tsb:tix:optstaff:")) {
+    const name = id.split(":")[3];
+    const index = Number(id.split(":")[4]);
+    const panel = getPanel(interaction.guildId, name);
+    if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
+    const item = itemsOf(panel)[index];
+    if (!item) return interaction.reply({ content: "Option missing.", ephemeral: true });
+    item.staffRoleIds = interaction.values;
+    panel.items[index] = item;
+    savePanel(interaction.guildId, panel);
+    await interaction.update(optionPayload(panel, index, interaction.guild));
     return true;
   }
 
@@ -878,11 +1018,58 @@ async function handleTickets(interaction) {
     await interaction.showModal(itemModal(id.split(":")[3]));
     return true;
   }
+  if (interaction.isButton() && id.startsWith("tsb:tix:optg:")) {
+    const name = id.split(":")[3];
+    const index = Number(id.split(":")[4]);
+    const panel = getPanel(interaction.guildId, name);
+    if (!panel || !itemsOf(panel)[index]) return interaction.reply({ content: "Option missing.", ephemeral: true });
+    await interaction.showModal(optionGreetingModal(panel, index));
+    return true;
+  }
+  if (interaction.isButton() && id.startsWith("tsb:tix:optn:")) {
+    const name = id.split(":")[3];
+    const index = Number(id.split(":")[4]);
+    const panel = getPanel(interaction.guildId, name);
+    if (!panel || !itemsOf(panel)[index]) return interaction.reply({ content: "Option missing.", ephemeral: true });
+    await interaction.showModal(optionNameModal(panel, index));
+    return true;
+  }
+  if (interaction.isButton() && id.startsWith("tsb:tix:optreset:")) {
+    const name = id.split(":")[3];
+    const index = Number(id.split(":")[4]);
+    const panel = getPanel(interaction.guildId, name);
+    const item = itemsOf(panel)[index];
+    if (!item) return interaction.reply({ content: "Option missing.", ephemeral: true });
+    item.staffRoleIds = [];
+    item.categoryId = null;
+    item.ticketTitle = "";
+    item.ticketBody = "";
+    item.ticketFooter = "";
+    item.channelPrefix = "";
+    panel.items[index] = item;
+    savePanel(interaction.guildId, panel);
+    await interaction.update(optionPayload(panel, index, interaction.guild));
+    return true;
+  }
+  if (interaction.isButton() && id.startsWith("tsb:tix:optback:")) {
+    const panel = getPanel(interaction.guildId, id.split(":")[3]);
+    if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
+    await interaction.update(wizardPayload(panel, 7, interaction.guild));
+    return true;
+  }
   if (interaction.isButton() && id.startsWith("tsb:tix:clearitems:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[3]);
     panel.items = [];
     savePanel(interaction.guildId, panel);
     await interaction.update(wizardPayload(panel, 7, interaction.guild));
+    return true;
+  }
+  if (interaction.isStringSelectMenu() && id.startsWith("tsb:tix:cfgopt:")) {
+    const panel = getPanel(interaction.guildId, id.split(":")[3]);
+    if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
+    const index = Number(interaction.values[0]);
+    if (!itemsOf(panel)[index]) return interaction.reply({ content: "Option missing.", ephemeral: true });
+    await interaction.update(optionPayload(panel, index, interaction.guild));
     return true;
   }
   if (interaction.isStringSelectMenu() && id.startsWith("tsb:tix:rm:")) {
@@ -973,6 +1160,32 @@ async function handleTickets(interaction) {
     await interaction.update(wizardPayload(panel, 6, interaction.guild));
     return true;
   }
+  if (interaction.isModalSubmit() && id.startsWith("tsb:tix:modal:optg:")) {
+    const name = id.split(":")[4];
+    const index = Number(id.split(":")[5]);
+    const panel = getPanel(interaction.guildId, name);
+    const item = itemsOf(panel)[index];
+    if (!item) return interaction.reply({ content: "Option missing.", ephemeral: true });
+    item.ticketTitle = interaction.fields.getTextInputValue("ticket_title") || "";
+    item.ticketBody = interaction.fields.getTextInputValue("ticket_body") || "";
+    item.ticketFooter = interaction.fields.getTextInputValue("ticket_footer") || "";
+    panel.items[index] = item;
+    savePanel(interaction.guildId, panel);
+    await interaction.update(optionPayload(panel, index, interaction.guild));
+    return true;
+  }
+  if (interaction.isModalSubmit() && id.startsWith("tsb:tix:modal:optn:")) {
+    const name = id.split(":")[4];
+    const index = Number(id.split(":")[5]);
+    const panel = getPanel(interaction.guildId, name);
+    const item = itemsOf(panel)[index];
+    if (!item) return interaction.reply({ content: "Option missing.", ephemeral: true });
+    item.channelPrefix = String(interaction.fields.getTextInputValue("prefix") || "").trim();
+    panel.items[index] = item;
+    savePanel(interaction.guildId, panel);
+    await interaction.update(optionPayload(panel, index, interaction.guild));
+    return true;
+  }
   if (interaction.isModalSubmit() && id.startsWith("tsb:tix:modal:color:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[4]);
     panel.color = parseColor(interaction.fields.getTextInputValue("color"));
@@ -997,12 +1210,12 @@ async function handleTickets(interaction) {
     const emojiRaw = interaction.fields.getTextInputValue("emoji") || "";
     const emoji = emojiRaw ? await resolveEmojiStorage(emojiRaw, interaction.guild) : "";
     panel.items = itemsOf(panel);
-    panel.items.push({
+    panel.items.push(emptyItem({
       label: interaction.fields.getTextInputValue("label"),
       description: interaction.fields.getTextInputValue("description") || "Open a ticket",
       emoji,
       style,
-    });
+    }));
     savePanel(interaction.guildId, panel);
     await interaction.update(wizardPayload(panel, 7, interaction.guild));
     return true;

@@ -84,13 +84,17 @@ function panelEmbed(panel, ctx = {}) {
 }
 
 function ticketInsideEmbed(panel, ctx = {}) {
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(panel.color || COLOR)
     .setTitle(applyVars(panel.ticketTitle || "Ticket", ctx).slice(0, 256))
     .setDescription(
       applyVars(panel.ticketBody || "Hey {user}, staff will be with you shortly.\n> Reason: {reason}", ctx).slice(0, 4096)
     )
     .setTimestamp();
+  if (panel.ticketFooter) {
+    embed.setFooter({ text: applyVars(panel.ticketFooter, ctx).slice(0, 2048) });
+  }
+  return embed;
 }
 
 function panelComponents(panel, ctx = {}) {
@@ -248,7 +252,7 @@ function wizardPayload(panel, step, guild = null) {
     3: ["Step 3 of 8 · Log channel", "Optional. Open/close transcripts go here. You can skip."],
     4: ["Step 4 of 8 · Staff roles", "These roles can see and close tickets."],
     5: ["Step 5 of 8 · Panel message", "Panel embed shown in the channel. Press **Variables** for placeholders."],
-    6: ["Step 6 of 8 · Ticket greeting", "Posted inside each new ticket. Press **Variables** for the full list."],
+    6: ["Step 6 of 8 · Ticket greeting", "Title, body, and footer inside each new ticket. Press **Variables** for placeholders."],
     7: ["Step 7 of 8 · Buttons or menu", "Pick a type, then add options. Emoji: ID, :name:, or unicode."],
     8: ["Step 8 of 8 · Publish", "Review and post (or update) the panel."],
   };
@@ -402,7 +406,7 @@ function editModal(panel) {
 function ticketModal(panel) {
   const bodyInput = field(
     "ticket_body",
-    "Body inside the ticket",
+    "Body",
     TextInputStyle.Paragraph,
     panel.ticketBody,
     4000
@@ -412,8 +416,9 @@ function ticketModal(panel) {
     .setCustomId(`tsb:tix:modal:ticket:${panel.name}`)
     .setTitle("Ticket greeting")
     .addComponents(
-      new ActionRowBuilder().addComponents(field("ticket_title", "Title inside the ticket", TextInputStyle.Short, panel.ticketTitle, 256)),
-      new ActionRowBuilder().addComponents(bodyInput)
+      new ActionRowBuilder().addComponents(field("ticket_title", "Title", TextInputStyle.Short, panel.ticketTitle || "Ticket", 256)),
+      new ActionRowBuilder().addComponents(bodyInput),
+      new ActionRowBuilder().addComponents(field("ticket_footer", "Footer (optional)", TextInputStyle.Short, panel.ticketFooter || "", 256))
     );
 }
 
@@ -961,8 +966,9 @@ async function handleTickets(interaction) {
   }
   if (interaction.isModalSubmit() && id.startsWith("tsb:tix:modal:ticket:")) {
     const panel = getPanel(interaction.guildId, id.split(":")[4]);
-    panel.ticketTitle = interaction.fields.getTextInputValue("ticket_title") || panel.ticketTitle;
+    panel.ticketTitle = interaction.fields.getTextInputValue("ticket_title") || panel.ticketTitle || "Ticket";
     panel.ticketBody = interaction.fields.getTextInputValue("ticket_body") || panel.ticketBody;
+    panel.ticketFooter = interaction.fields.getTextInputValue("ticket_footer") || "";
     savePanel(interaction.guildId, panel);
     await interaction.update(wizardPayload(panel, 6, interaction.guild));
     return true;

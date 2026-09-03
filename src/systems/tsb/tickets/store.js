@@ -51,6 +51,7 @@ function emptyPanel(name) {
     messageId: null,
     ticketTitle: "Ticket",
     ticketBody: "Hey {user} — staff will be with you shortly.\n> Reason: {reason}",
+    ticketFooter: "",
   };
 }
 

@@ -24,7 +24,7 @@ const {
 } = require("./store");
 const { buildTicketTranscript, transcriptAuditEmbed } = require("../shared/transcript");
 const { parseEmoji, resolveEmojiStorage, formatEmojiLabel, parseEmojiInput } = require("../shared/parseEmoji");
-const { applyTicketVars, ticketVarHint } = require("../shared/ticketVars");
+const { applyTicketVars, ticketVarHint, ticketVariablesHelpEmbed } = require("../shared/ticketVars");
 
 const LAST_STEP = 8;
 const STYLES = {
@@ -231,7 +231,8 @@ function wizardNav(panel, step) {
   } else {
     row.addComponents(
       new ButtonBuilder().setCustomId(`tsb:tix:post:${panel.name}`).setLabel("Publish panel").setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`tsb:tix:preview:${panel.name}`).setLabel("Live preview").setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder().setCustomId(`tsb:tix:preview:${panel.name}`).setLabel("Live preview").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`tsb:tix:vars:${panel.name}`).setLabel("Variables").setStyle(ButtonStyle.Secondary)
     );
   }
   row.addComponents(
@@ -246,8 +247,8 @@ function wizardPayload(panel, step, guild = null) {
     2: ["Step 2 of 8 · Ticket category", "New tickets are created under this category."],
     3: ["Step 3 of 8 · Log channel", "Optional. Open/close transcripts go here. You can skip."],
     4: ["Step 4 of 8 · Staff roles", "These roles can see and close tickets."],
-    5: ["Step 5 of 8 · Panel message", "Panel embed shown in the channel. Variables work in title/body/footer too."],
-    6: ["Step 6 of 8 · Ticket greeting", `Inside each ticket. Variables: ${ticketVarHint()}`],
+    5: ["Step 5 of 8 · Panel message", "Panel embed shown in the channel. Press **Variables** for placeholders."],
+    6: ["Step 6 of 8 · Ticket greeting", "Posted inside each new ticket. Press **Variables** for the full list."],
     7: ["Step 7 of 8 · Buttons or menu", "Pick a type, then add options. Emoji: ID, :name:, or unicode."],
     8: ["Step 8 of 8 · Publish", "Review and post (or update) the panel."],
   };
@@ -300,12 +301,14 @@ function wizardPayload(panel, step, guild = null) {
   if (step === 5) {
     rows.push(new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`tsb:tix:edit:${panel.name}`).setLabel("Edit text").setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`tsb:tix:color:${panel.name}`).setLabel("Color").setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder().setCustomId(`tsb:tix:color:${panel.name}`).setLabel("Color").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`tsb:tix:vars:${panel.name}`).setLabel("Variables").setStyle(ButtonStyle.Secondary)
     ));
   }
   if (step === 6) {
     rows.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`tsb:tix:tickettxt:${panel.name}`).setLabel("Edit greeting").setStyle(ButtonStyle.Primary)
+      new ButtonBuilder().setCustomId(`tsb:tix:tickettxt:${panel.name}`).setLabel("Edit greeting").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`tsb:tix:vars:${panel.name}`).setLabel("Variables").setStyle(ButtonStyle.Secondary)
     ));
   }
   if (step === 7) {
@@ -894,6 +897,14 @@ async function handleTickets(interaction) {
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:tickettxt:")) {
     await interaction.showModal(ticketModal(getPanel(interaction.guildId, id.split(":")[3])));
+    return true;
+  }
+  if (interaction.isButton() && id.startsWith("tsb:tix:vars:")) {
+    const panel = getPanel(interaction.guildId, id.split(":")[3]);
+    await interaction.reply({
+      ...ticketVariablesHelpEmbed(panel?.color || COLOR),
+      ephemeral: true,
+    });
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:editmenu:")) {

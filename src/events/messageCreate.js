@@ -21,8 +21,13 @@ module.exports = {
       } else {
         const prefix = brand.prefix;
         if (message.content.startsWith(prefix)) {
-          const parts = message.content.slice(prefix.length).trim().split(/\s+/);
+          const body = message.content.slice(prefix.length).trim();
+          if (!body) return;
+
+          const parts = body.split(/\s+/);
           const name = (parts.shift() || "").toLowerCase();
+          if (!name) return;
+
           let command = client.commands.get(name);
           if (!command?.executePrefix) {
             try {

@@ -6,12 +6,15 @@ const { resolveMaybe } = require("../../../utils/resolveMaybe");
 function normalizeCommandName(value) {
   return api.ranking.normalizeCommandName
     ? api.ranking.normalizeCommandName(value)
-    : String(value || "stage")
-      .replace(/^[-/>!.]+/, "")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, "")
-      .slice(0, 32) || "stage";
+    : (() => {
+      if (value == null || value === "") return "";
+      return String(value)
+        .replace(/^[-/>!.]+/, "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "")
+        .slice(0, 32);
+    })();
 }
 
 function defaultGuildConfig() {

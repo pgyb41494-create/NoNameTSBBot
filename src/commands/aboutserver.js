@@ -8,17 +8,14 @@ const {
   safeUrl,
   normalizeName,
   hasConfig,
-  createConfig,
   listConfigs,
   deleteConfig,
 } = require("../systems/tsb/aboutserver/store");
 const {
   postOrEdit,
   refreshPosted,
-  openEditor,
   openEmbedHub,
   embedHubPayload,
-  editorPayload,
   varsHelp,
 } = require("../systems/tsb/aboutserver/runtime");
 
@@ -28,14 +25,18 @@ function denied() {
 
 function usage() {
   const p = "'";
+  const site = String(process.env.WEBSITE_URL || process.env.FRONTEND_URL || "https://no-name-tsb-website.vercel.app").replace(
+    /\/$/,
+    ""
+  );
   return tsbEmbed({
     title: "Embeds",
     color: COLOR_PRIMARY,
     description: [
-      `Create and post multiple editable v2 cards (GIF, title, body, footer).`,
+      `Create and edit embeds on the **website dashboard** (Discohook-style UI + live preview).`,
       "",
-      `Use \`${p}embed\` to open the button-based builder.`,
-      `Create an embed, then edit its title, sections, media, style, and posting channel.`,
+      `Open **Dashboard → Embeds**: ${site}/dashboard`,
+      `Use \`${p}embed\` here to list, post, refresh, or delete.`,
       `\`${p}embed list\` — list saved embeds`,
       `\`${p}embed delete <name>\` — delete a named embed`,
       "",
@@ -64,13 +65,25 @@ async function run(member, guild, channel, args, reply, interaction) {
   }
 
   if (sub === "edit" || sub === "setup") {
-    if (!name) return interaction ? openEmbedHub(interaction) : reply({ ...embedHubPayload(guild.id), allowedMentions: { repliedUser: false } });
-    if (!hasConfig(guild.id, name)) {
-      const created = createConfig(guild.id, name);
-      if (!created.ok) return reply({ embeds: [danger("Could not create embed", created.reason)], ephemeral: true });
-    }
-    if (interaction) return openEditor(interaction, name);
-    return reply({ ...editorPayload(guild.id, name, guild), allowedMentions: { repliedUser: false } });
+    const site = String(process.env.WEBSITE_URL || process.env.FRONTEND_URL || "https://no-name-tsb-website.vercel.app").replace(
+      /\/$/,
+      ""
+    );
+    return reply({
+      embeds: [
+        tsbEmbed({
+          title: "Edit embeds on the website",
+          color: COLOR_PRIMARY,
+          description: [
+            "The Discohook-style builder lives on the dashboard.",
+            "",
+            `Open **Dashboard → Embeds**: ${site}/dashboard`,
+            name ? `Then select or create \`${name}\`.` : "Create a new embed there, then use `'embed` here to post it.",
+          ].join("\n"),
+        }),
+      ],
+      ephemeral: true,
+    });
   }
 
   if (sub === "help" || sub === "vars") {
@@ -128,7 +141,7 @@ module.exports = {
   slash: () =>
     new SlashCommandBuilder()
       .setName("embed")
-      .setDescription("Manage server embeds with buttons")
+      .setDescription("Post and refresh server embeds (edit on the website)")
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async executePrefix(message, args) {

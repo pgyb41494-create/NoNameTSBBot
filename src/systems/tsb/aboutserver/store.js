@@ -120,9 +120,34 @@ function updateConfig(guildId, patch, name) {
   let next = null;
   store.updateSync((db) => {
     const raw = normalizeGuild(db[String(guildId)] || {});
+    const incoming = { ...patch };
+    if (incoming.gif != null) incoming.gif = safeUrl(incoming.gif);
+    if (incoming.thumbnail != null) incoming.thumbnail = safeUrl(incoming.thumbnail);
+    if (Array.isArray(incoming.sections)) {
+      incoming.sections = incoming.sections
+        .map((section, index) => {
+          if (!section || typeof section !== "object") return null;
+          const text = safeText(section.text, 4000).trim();
+          if (!text) return null;
+          return {
+            id: String(section.id || `s${index + 1}`).slice(0, 40),
+            text,
+            thumbnail: safeUrl(section.thumbnail),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 25);
+    }
+    if (incoming.body != null) incoming.body = safeText(incoming.body, 3900);
+    if (incoming.title != null) incoming.title = safeText(incoming.title, 256);
+    if (incoming.footer != null) incoming.footer = safeText(incoming.footer, 2048);
+    if (incoming.color != null) {
+      const hex = String(incoming.color || "").replace(/^#/, "").trim();
+      incoming.color = /^[0-9a-fA-F]{6}$/.test(hex) ? hex.toUpperCase() : "2B2D31";
+    }
     next = {
       ...configFromRaw(raw, key),
-      ...patch,
+      ...incoming,
       name: key,
       updatedAt: Date.now(),
     };

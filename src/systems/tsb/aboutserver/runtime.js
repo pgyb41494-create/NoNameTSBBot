@@ -377,21 +377,39 @@ function editorPayload(guildId, name, guild = { id: guildId, name: "this server"
   };
 }
 
+function websiteBase() {
+  return String(process.env.WEBSITE_URL || process.env.FRONTEND_URL || "https://no-name-tsb-website.vercel.app").replace(
+    /\/$/,
+    ""
+  );
+}
+
+function dashboardEmbedsUrl() {
+  return `${websiteBase()}/dashboard`;
+}
+
 function embedHubPayload(guildId, selected = "", notice = "") {
   const names = listConfigs(guildId);
   const current = normalizeName(selected);
+  const dash = dashboardEmbedsUrl();
   if (!names.length) {
     return {
       embeds: [
         tsbEmbed({
           title: "Embeds",
           color: COLOR_PRIMARY,
-          description: "No embeds yet.\n\nClick **Create** to name your first embed. Nothing is created until you choose a name.",
+          description: [
+            "Create and edit embeds on the **website dashboard** (Discohook-style builder + live preview).",
+            "",
+            "Open **Dashboard → Embeds**, then come back here to post or refresh.",
+            "",
+            `[Open dashboard](${dash})`,
+          ].join("\n"),
         }),
       ],
       components: [
         new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId("tsb:embed:hub_new").setLabel("Create your first embed").setStyle(ButtonStyle.Primary)
+          new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("Open dashboard").setURL(dash)
         ),
       ],
     };
@@ -410,11 +428,17 @@ function embedHubPayload(guildId, selected = "", notice = "") {
       tsbEmbed({
         title: "Embeds",
         color: COLOR_PRIMARY,
-        description:
-          "Choose an embed below, then use the buttons. You can create as many named embeds as you need.\n\n" +
-          `> **Selected:** \`${chosen}\`\n` +
-          `> **Saved embeds:** \`${names.length}\`` +
-          (notice ? `\n> **Status:** ${notice}` : ""),
+        description: [
+          "Edit embeds on the **website** (Dashboard → Embeds). Use these buttons to post, refresh, or delete.",
+          "",
+          `> **Selected:** \`${chosen}\``,
+          `> **Saved embeds:** \`${names.length}\``,
+          notice ? `> **Status:** ${notice}` : "",
+          "",
+          `[Open dashboard](${dash})`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
       }),
     ],
     components: [
@@ -425,15 +449,12 @@ function embedHubPayload(guildId, selected = "", notice = "") {
           .addOptions(options)
       ),
       new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel("Open dashboard").setURL(dash),
         new ButtonBuilder().setCustomId(`tsb:embed:hub_list:${chosen}`).setLabel("List").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId("tsb:embed:hub_new").setLabel("Create").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`tsb:embed:hub_duplicate:${chosen}`).setLabel("Duplicate").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`tsb:embed:hub_edit:${chosen}`).setLabel("Edit").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`tsb:embed:hub_post:${chosen}`).setLabel("Post / update").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`tsb:embed:hub_refresh:${chosen}`).setLabel("Refresh").setStyle(ButtonStyle.Secondary)
       ),
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`tsb:embed:hub_post:${chosen}`).setLabel("Post / update").setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`tsb:embed:hub_refresh:${chosen}`).setLabel("Refresh").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`tsb:embed:hub_rename:${chosen}`).setLabel("Rename").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(`tsb:embed:hub_delete:${chosen}`).setLabel("Delete").setStyle(ButtonStyle.Danger)
       ),
     ],

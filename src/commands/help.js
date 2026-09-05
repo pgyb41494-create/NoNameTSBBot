@@ -27,7 +27,7 @@ function helpEmbed() {
       `\`${p}panel <key>\` / \`/panel\` — send a saved dashboard panel (roles / reply / link buttons)`,
       `\`${p}ticketsetup\` / \`/ticketsetup\` — support ticket panels (buttons or menu, staff, transcripts)`,
       `\`${p}republish\` / \`/republish\` — 1-click refresh boards, lineups, challenge + ticket panels`,
-      `\`${p}embed\` / \`/embed\` — manage multiple editable embeds with buttons`,
+      `\`${p}embed\` / \`/embed\` — post/refresh embeds (edit on website Dashboard → Embeds)`,
       "",
       "**Profile & coach**",
       `\`/profile\` · \`${p}profile\` — view yours, or look up by Roblox name / code / @user`,

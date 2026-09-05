@@ -184,6 +184,115 @@ function createBotApi(client) {
     }
   });
 
+  app.get("/discord/guilds/:guildId/embeds", (req, res) => {
+    try {
+      const store = require("./systems/tsb/aboutserver/store");
+      const embeds = store.listConfigs(req.params.guildId).map((name) => store.getConfig(req.params.guildId, name));
+      res.json({ embeds });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.get("/discord/guilds/:guildId/embeds/:name", (req, res) => {
+    try {
+      const store = require("./systems/tsb/aboutserver/store");
+      if (!store.hasConfig(req.params.guildId, req.params.name)) {
+        return res.status(404).json({ error: "Embed not found" });
+      }
+      res.json({ embed: store.getConfig(req.params.guildId, req.params.name) });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.post("/discord/guilds/:guildId/embeds", (req, res) => {
+    try {
+      const store = require("./systems/tsb/aboutserver/store");
+      const body = req.body || {};
+      const created = store.createConfig(req.params.guildId, body.name || body.key, body);
+      if (!created.ok) return res.status(400).json({ error: created.reason });
+      res.json({ embed: created.config });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.put("/discord/guilds/:guildId/embeds/:name", (req, res) => {
+    try {
+      const store = require("./systems/tsb/aboutserver/store");
+      if (!store.hasConfig(req.params.guildId, req.params.name)) {
+        return res.status(404).json({ error: "Embed not found" });
+      }
+      const body = { ...(req.body || {}) };
+      delete body.name;
+      delete body.channelId;
+      delete body.messageId;
+      const embed = store.updateConfig(req.params.guildId, body, req.params.name);
+      res.json({ embed });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/discord/guilds/:guildId/embeds/:name", (req, res) => {
+    try {
+      const store = require("./systems/tsb/aboutserver/store");
+      const removed = store.deleteConfig(req.params.guildId, req.params.name);
+      if (!removed) return res.status(404).json({ error: "Embed not found" });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.post("/discord/guilds/:guildId/embeds/:name/send", async (req, res) => {
+    try {
+      const store = require("./systems/tsb/aboutserver/store");
+      const { postOrEdit } = require("./systems/tsb/aboutserver/runtime");
+      if (!store.hasConfig(req.params.guildId, req.params.name)) {
+        return res.status(404).json({ error: "Embed not found" });
+      }
+      const channelId = String(req.body?.channelId || req.body?.channel || "").trim();
+      if (!channelId) return res.status(400).json({ error: "channelId is required" });
+      const client = botBridge.getClient();
+      if (!client?.user) return res.status(503).json({ error: "Bot is offline" });
+      const guild = await client.guilds.fetch(req.params.guildId).catch(() => null);
+      if (!guild) return res.status(404).json({ error: "Guild not found" });
+      const channel = await guild.channels.fetch(channelId).catch(() => null);
+      if (!channel?.isTextBased?.()) return res.status(400).json({ error: "Invalid channel" });
+      const cfg = store.getConfig(req.params.guildId, req.params.name);
+      const sent = await postOrEdit(channel, guild, cfg);
+      res.json({
+        ok: true,
+        messageId: sent.id,
+        channelId: channel.id,
+        embed: store.getConfig(req.params.guildId, req.params.name),
+      });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.post("/discord/guilds/:guildId/embeds/:name/refresh", async (req, res) => {
+    try {
+      const store = require("./systems/tsb/aboutserver/store");
+      const { refreshPosted } = require("./systems/tsb/aboutserver/runtime");
+      if (!store.hasConfig(req.params.guildId, req.params.name)) {
+        return res.status(404).json({ error: "Embed not found" });
+      }
+      const client = botBridge.getClient();
+      if (!client?.user) return res.status(503).json({ error: "Bot is offline" });
+      const guild = await client.guilds.fetch(req.params.guildId).catch(() => null);
+      if (!guild) return res.status(404).json({ error: "Guild not found" });
+      const refreshed = await refreshPosted(guild, req.params.name);
+      if (!refreshed) return res.status(400).json({ error: "Nothing posted yet for that embed" });
+      res.json({ ok: true, messageId: refreshed.id, embed: store.getConfig(req.params.guildId, req.params.name) });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
   app.post("/discord/guilds/:guildId/channels", async (req, res) => {
     try {
       res.json(await botBridge.createChannel(req.params.guildId, req.body || {}));

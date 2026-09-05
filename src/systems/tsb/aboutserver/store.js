@@ -32,6 +32,8 @@ function normalizeName(value) {
 function defaultConfig(name = "") {
   return {
     name: normalizeName(name),
+    mode: "components",
+    content: "",
     gif: "",
     thumbnail: "",
     title: "",
@@ -40,6 +42,7 @@ function defaultConfig(name = "") {
     sections: [],
     sectionThumbnails: [],
     components: [],
+    blocks: [],
     color: "2B2D31",
     channelId: "",
     messageId: "",
@@ -146,6 +149,66 @@ function normalizeComponents(list) {
     .slice(0, 20);
 }
 
+function normalizeBlock(block, index = 0) {
+  if (!block || typeof block !== "object") return null;
+  const id = String(block.id || `b${index + 1}`).slice(0, 40);
+  const type = String(block.type || "text").toLowerCase();
+  if (type === "media" || type === "gallery" || type === "image") {
+    return { id, type: "media", url: safeUrl(block.url || block.gif || "") };
+  }
+  if (type === "separator" || type === "divider") {
+    return {
+      id,
+      type: "separator",
+      divider: block.divider !== false,
+      spacing: String(block.spacing || "small").toLowerCase() === "large" ? "large" : "small",
+    };
+  }
+  if (type === "row" || type === "actions" || type === "buttons") {
+    return { id, type: "row", components: normalizeComponents(block.components || block.buttons) };
+  }
+  return {
+    id,
+    type: "text",
+    content: safeText(block.content != null ? block.content : block.text, 4000),
+    thumbnail: safeUrl(block.thumbnail),
+  };
+}
+
+function normalizeBlocks(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map((block, index) => normalizeBlock(block, index)).filter(Boolean).slice(0, 40);
+}
+
+function blocksFromLegacy(cfg = {}) {
+  if (Array.isArray(cfg.blocks) && cfg.blocks.length) return normalizeBlocks(cfg.blocks);
+  const blocks = [];
+  let n = 0;
+  const push = (block) => {
+    n += 1;
+    blocks.push(normalizeBlock({ ...block, id: block.id || `legacy${n}` }, n - 1));
+  };
+  if (cfg.gif) push({ type: "media", url: cfg.gif });
+  if (cfg.title) push({ type: "text", content: `# ${cfg.title}`, thumbnail: cfg.thumbnail || "" });
+  if (cfg.body) push({ type: "text", content: cfg.body });
+  const sections = Array.isArray(cfg.sections) ? cfg.sections : [];
+  sections.forEach((section, index) => {
+    if (index > 0 || cfg.title || cfg.body || cfg.gif) push({ type: "separator", divider: true, spacing: "small" });
+    push({ type: "text", content: section.text || "", thumbnail: section.thumbnail || "" });
+    if (Array.isArray(section.components) && section.components.length) {
+      push({ type: "row", components: section.components });
+    }
+  });
+  if (cfg.footer) {
+    push({ type: "separator", divider: true, spacing: "small" });
+    push({ type: "text", content: `-# ${cfg.footer}` });
+  }
+  if (Array.isArray(cfg.components) && cfg.components.length) {
+    push({ type: "row", components: cfg.components });
+  }
+  return blocks.filter(Boolean);
+}
+
 function normalizeSection(section, index = 0) {
   if (!section || typeof section !== "object") return null;
   const text = safeText(section.text, 4000).trim();
@@ -163,16 +226,21 @@ function configFromRaw(raw, name) {
   if (!key) return defaultConfig();
   const embeds = raw?.embeds && typeof raw.embeds === "object" ? raw.embeds : null;
   const current = embeds?.[key] && typeof embeds[key] === "object" ? embeds[key] : {};
-  return {
+  const base = {
     ...defaultConfig(key),
     ...current,
     name: key,
+    mode: String(current.mode || "components").toLowerCase() === "standard" ? "standard" : "components",
+    content: safeText(current.content || "", 2000),
     sections: Array.isArray(current.sections)
       ? current.sections.map((section, index) => normalizeSection(section, index)).filter(Boolean)
       : [],
     sectionThumbnails: Array.isArray(current.sectionThumbnails) ? current.sectionThumbnails : [],
     components: normalizeComponents(current.components),
+    blocks: [],
   };
+  base.blocks = blocksFromLegacy(base);
+  return base;
 }
 
 function normalizeGuild(raw) {
@@ -181,16 +249,7 @@ function normalizeGuild(raw) {
   for (const [rawName, value] of Object.entries(source)) {
     const key = normalizeName(rawName);
     if (!key || key === "default" || !value || typeof value !== "object") continue;
-    embeds[key] = {
-      ...defaultConfig(key),
-      ...value,
-      name: key,
-      sections: Array.isArray(value.sections)
-        ? value.sections.map((section, index) => normalizeSection(section, index)).filter(Boolean)
-        : [],
-      sectionThumbnails: Array.isArray(value.sectionThumbnails) ? value.sectionThumbnails : [],
-      components: normalizeComponents(value.components),
-    };
+    embeds[key] = configFromRaw({ embeds: { [key]: value } }, key);
   }
   return { embeds };
 }
@@ -250,6 +309,13 @@ function updateConfig(guildId, patch, name) {
     if (Array.isArray(incoming.components)) {
       incoming.components = normalizeComponents(incoming.components);
     }
+    if (Array.isArray(incoming.blocks)) {
+      incoming.blocks = normalizeBlocks(incoming.blocks);
+    }
+    if (incoming.content != null) incoming.content = safeText(incoming.content, 2000);
+    if (incoming.mode != null) {
+      incoming.mode = String(incoming.mode).toLowerCase() === "standard" ? "standard" : "components";
+    }
     if (incoming.body != null) incoming.body = safeText(incoming.body, 3900);
     if (incoming.title != null) incoming.title = safeText(incoming.title, 256);
     if (incoming.footer != null) incoming.footer = safeText(incoming.footer, 2048);
@@ -263,6 +329,11 @@ function updateConfig(guildId, patch, name) {
       name: key,
       updatedAt: Date.now(),
     };
+    if (Array.isArray(incoming.blocks)) {
+      next.blocks = normalizeBlocks(incoming.blocks);
+    } else {
+      next.blocks = blocksFromLegacy(next);
+    }
     delete next.records;
     delete next.v2;
     delete next.recordCount;
@@ -352,6 +423,9 @@ module.exports = {
   normalizeReplyEmbed,
   normalizeComponent,
   normalizeComponents,
+  normalizeBlock,
+  normalizeBlocks,
+  blocksFromLegacy,
   normalizeSection,
   defaultConfig,
   getConfig,

@@ -222,9 +222,11 @@ function addText(container, content, thumbnail) {
   return true;
 }
 
-function addDivider(container) {
+function addDivider(container, spacing = "small") {
   container.addSeparatorComponents((sep) =>
-    sep.setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+    sep
+      .setDivider(true)
+      .setSpacing(spacing === "large" ? SeparatorSpacingSize.Large : SeparatorSpacingSize.Small)
   );
 }
 
@@ -261,6 +263,11 @@ function parseLiveComponentId(customId) {
 
 function resolveComponentList(cfg, scope) {
   if (scope === "r" || scope === "root") return Array.isArray(cfg.components) ? cfg.components : [];
+  const blockMatch = String(scope || "").match(/^b(\d+)$/i);
+  if (blockMatch) {
+    const block = (cfg.blocks || [])[Number(blockMatch[1])];
+    return Array.isArray(block?.components) ? block.components : [];
+  }
   const match = String(scope || "").match(/^s(\d+)$/i);
   if (!match) return [];
   const section = (cfg.sections || [])[Number(match[1])];
@@ -341,6 +348,53 @@ function attachRows(container, rows, budget) {
 async function buildPayload(guild, cfg = getConfig(guild.id), options = {}) {
   const stripComponents = Boolean(options.stripComponents);
   const vars = buildVars(guild);
+  const color = parseColor(cfg.color);
+  const container = new ContainerBuilder().setAccentColor(color);
+  const rowBudget = { remaining: 5 };
+  const blocks = Array.isArray(cfg.blocks) && cfg.blocks.length
+    ? cfg.blocks
+    : null;
+
+  if (blocks) {
+    let wrote = false;
+    for (let index = 0; index < blocks.length; index++) {
+      const block = blocks[index];
+      if (!block) continue;
+      if (block.type === "media") {
+        const url = safeUrl(block.url);
+        if (!url) continue;
+        container.addMediaGalleryComponents(
+          new MediaGalleryBuilder().addItems((item) => item.setURL(url))
+        );
+        wrote = true;
+        continue;
+      }
+      if (block.type === "separator") {
+        if (wrote) addDivider(container, block.spacing === "large" ? "large" : "small");
+        continue;
+      }
+      if (block.type === "row") {
+        if (!stripComponents) {
+          attachRows(container, buildActionRows(guild, cfg.name, block.components, `b${index}`), rowBudget);
+        }
+        continue;
+      }
+      const text = fill(block.content || "", vars, 4000).trim();
+      if (!text) continue;
+      wrote = addText(container, text, safeUrl(block.thumbnail)) || wrote;
+    }
+    if (!wrote) addText(container, "\u200b");
+    const outer = fill(cfg.content || "", vars, 2000).trim();
+    const payload = {
+      flags: MessageFlags.IsComponentsV2,
+      components: [container],
+      allowedMentions: { parse: ["users", "roles", "everyone"] },
+    };
+    // Components V2 cannot mix classic content; keep content inside blocks only.
+    void outer;
+    return payload;
+  }
+
   const title = fill(cfg.title || "", vars, 256).trim();
   const body = fill(cfg.body || "", vars, 3900).trim();
   const sections = sectionsFromConfig(cfg);
@@ -350,9 +404,6 @@ async function buildPayload(guild, cfg = getConfig(guild.id), options = {}) {
   const sectionThumbnails = Array.isArray(cfg.sectionThumbnails)
     ? cfg.sectionThumbnails.map((url) => safeUrl(url))
     : [];
-  const color = parseColor(cfg.color);
-  const container = new ContainerBuilder().setAccentColor(color);
-  const rowBudget = { remaining: 5 };
 
   if (gif) {
     container.addMediaGalleryComponents(

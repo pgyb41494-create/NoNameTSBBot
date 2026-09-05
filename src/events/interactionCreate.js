@@ -37,7 +37,7 @@ const { handleVerifyInteraction } = require("../systems/tsb/verify/runtime");
 const { handleChallengeTickets } = require("../systems/tsb/challengeTickets/runtime");
 const { handleTickets } = require("../systems/tsb/tickets/runtime");
 const { handlePanelButton } = require("../systems/tsb/panels/runtime");
-const { handleAboutInteraction } = require("../systems/tsb/aboutserver/runtime");
+const { handleAboutInteraction, handleEmbedLiveInteraction } = require("../systems/tsb/aboutserver/runtime");
 const {
   handleVerifySetupButton,
   handleVerifySetupSelect,
@@ -74,6 +74,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:tryout:")) return handleTryoutSelect(interaction);
     if (id.startsWith("tsb:chaltix:")) return handleChallengeTickets(interaction);
     if (id.startsWith("tsb:about:") || id.startsWith("tsb:embed:")) return handleAboutInteraction(interaction);
+    if (id.startsWith("tsb:embtn:") || id.startsWith("tsb:emsel:")) return handleEmbedLiveInteraction(interaction);
   }
 
   if (interaction.isButton?.()) {
@@ -90,6 +91,7 @@ async function handleTsbInteraction(interaction) {
     if (id.startsWith("tsb:tix:")) return handleTickets(interaction);
     if (id.startsWith("panel_btn_") || id.startsWith("pannel_btn_")) return handlePanelButton(interaction);
     if (id.startsWith("tsb:about:") || id.startsWith("tsb:embed:")) return handleAboutInteraction(interaction);
+    if (id.startsWith("tsb:embtn:")) return handleEmbedLiveInteraction(interaction);
   }
 
   if (interaction.isModalSubmit?.()) {

@@ -39,10 +39,82 @@ function defaultConfig(name = "") {
     footer: "",
     sections: [],
     sectionThumbnails: [],
+    components: [],
     color: "2B2D31",
     channelId: "",
     messageId: "",
     updatedAt: 0,
+  };
+}
+
+function normalizeAction(action) {
+  const key = String(action || "ephemeral").toLowerCase();
+  if (key === "embed") return "embed";
+  if (key === "url" || key === "link") return "url";
+  if (key === "reply" || key === "ephemeral" || key === "message") return "ephemeral";
+  return "ephemeral";
+}
+
+function normalizeSelectOption(opt = {}, index = 0) {
+  return {
+    id: String(opt.id || `opt${index + 1}`).slice(0, 40),
+    label: safeText(opt.label || `Option ${index + 1}`, 100).trim() || `Option ${index + 1}`,
+    description: safeText(opt.description || "", 100),
+    emoji: safeText(opt.emoji || "", 80),
+    action: normalizeAction(opt.action),
+    reply: safeText(opt.reply || "", 2000),
+    targetEmbed: normalizeName(opt.targetEmbed || ""),
+    includeComponents: Boolean(opt.includeComponents),
+  };
+}
+
+function normalizeComponent(comp = {}, index = 0) {
+  const kind = String(comp.kind || comp.type || "button").toLowerCase() === "select" ? "select" : "button";
+  let action = normalizeAction(comp.action);
+  if (kind === "select" && action === "url") action = "ephemeral";
+  const styleRaw = String(comp.style || (action === "url" ? "LINK" : "PRIMARY")).toUpperCase();
+  const style = action === "url" ? "LINK" : ["PRIMARY", "SECONDARY", "SUCCESS", "DANGER"].includes(styleRaw) ? styleRaw : "PRIMARY";
+  const out = {
+    id: String(comp.id || `c${index + 1}`).slice(0, 40),
+    kind,
+    label: safeText(comp.label || (kind === "select" ? "Choose an option" : "Button"), 80).trim() || (kind === "select" ? "Choose an option" : "Button"),
+    style,
+    emoji: safeText(comp.emoji || "", 80),
+    action,
+    reply: safeText(comp.reply || "", 2000),
+    targetEmbed: normalizeName(comp.targetEmbed || ""),
+    includeComponents: Boolean(comp.includeComponents),
+    url: safeUrl(comp.url || ""),
+    options: [],
+  };
+  if (kind === "select") {
+    out.options = (Array.isArray(comp.options) ? comp.options : [])
+      .slice(0, 25)
+      .map((option, i) => normalizeSelectOption(option, i));
+    if (!out.options.length) {
+      out.options = [normalizeSelectOption({ label: "Option 1", reply: "Selected." }, 0)];
+    }
+  }
+  return out;
+}
+
+function normalizeComponents(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((comp, index) => (comp && typeof comp === "object" ? normalizeComponent(comp, index) : null))
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function normalizeSection(section, index = 0) {
+  if (!section || typeof section !== "object") return null;
+  const text = safeText(section.text, 4000).trim();
+  if (!text) return null;
+  return {
+    id: String(section.id || `s${index + 1}`).slice(0, 40),
+    text,
+    thumbnail: safeUrl(section.thumbnail),
+    components: normalizeComponents(section.components),
   };
 }
 
@@ -55,8 +127,11 @@ function configFromRaw(raw, name) {
     ...defaultConfig(key),
     ...current,
     name: key,
-    sections: Array.isArray(current.sections) ? current.sections : [],
+    sections: Array.isArray(current.sections)
+      ? current.sections.map((section, index) => normalizeSection(section, index)).filter(Boolean)
+      : [],
     sectionThumbnails: Array.isArray(current.sectionThumbnails) ? current.sectionThumbnails : [],
+    components: normalizeComponents(current.components),
   };
 }
 
@@ -70,8 +145,11 @@ function normalizeGuild(raw) {
       ...defaultConfig(key),
       ...value,
       name: key,
-      sections: Array.isArray(value.sections) ? value.sections : [],
+      sections: Array.isArray(value.sections)
+        ? value.sections.map((section, index) => normalizeSection(section, index)).filter(Boolean)
+        : [],
       sectionThumbnails: Array.isArray(value.sectionThumbnails) ? value.sectionThumbnails : [],
+      components: normalizeComponents(value.components),
     };
   }
   return { embeds };
@@ -125,18 +203,12 @@ function updateConfig(guildId, patch, name) {
     if (incoming.thumbnail != null) incoming.thumbnail = safeUrl(incoming.thumbnail);
     if (Array.isArray(incoming.sections)) {
       incoming.sections = incoming.sections
-        .map((section, index) => {
-          if (!section || typeof section !== "object") return null;
-          const text = safeText(section.text, 4000).trim();
-          if (!text) return null;
-          return {
-            id: String(section.id || `s${index + 1}`).slice(0, 40),
-            text,
-            thumbnail: safeUrl(section.thumbnail),
-          };
-        })
+        .map((section, index) => normalizeSection(section, index))
         .filter(Boolean)
         .slice(0, 25);
+    }
+    if (Array.isArray(incoming.components)) {
+      incoming.components = normalizeComponents(incoming.components);
     }
     if (incoming.body != null) incoming.body = safeText(incoming.body, 3900);
     if (incoming.title != null) incoming.title = safeText(incoming.title, 256);
@@ -235,6 +307,10 @@ module.exports = {
   safeUrl,
   parseColor,
   normalizeName,
+  normalizeAction,
+  normalizeComponent,
+  normalizeComponents,
+  normalizeSection,
   defaultConfig,
   getConfig,
   hasConfig,

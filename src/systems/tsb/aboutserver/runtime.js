@@ -16,6 +16,7 @@ const {
 const { isAdminOrOwner } = require("../shared/permissions");
 const { tsbEmbed, COLOR_PRIMARY } = require("../shared/embeds");
 const { danger } = require("../../../utils/embeds");
+const { parseEmoji } = require("../shared/parseEmoji");
 const {
   getConfig,
   hasConfig,
@@ -128,6 +129,7 @@ function normalizeSection(section) {
     id: String(section.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`).slice(0, 48),
     text,
     thumbnail: safeUrl(section.thumbnail),
+    components: Array.isArray(section.components) ? section.components : [],
   };
 }
 
@@ -226,9 +228,121 @@ function addDivider(container) {
   );
 }
 
-async function buildPayload(guild, cfg = getConfig(guild.id)) {
+function buttonStyle(style, action) {
+  if (action === "url") return ButtonStyle.Link;
+  const key = String(style || "PRIMARY").toUpperCase();
+  if (key === "SECONDARY") return ButtonStyle.Secondary;
+  if (key === "SUCCESS") return ButtonStyle.Success;
+  if (key === "DANGER") return ButtonStyle.Danger;
+  if (key === "LINK") return ButtonStyle.Link;
+  return ButtonStyle.Primary;
+}
+
+function componentCustomId(kind, guildId, embedName, scope, index) {
+  const prefix = kind === "select" ? "tsb:emsel" : "tsb:embtn";
+  return `${prefix}:${guildId}:${normalizeName(embedName)}:${scope}:${index}`.slice(0, 100);
+}
+
+function parseLiveComponentId(customId) {
+  const id = String(customId || "");
+  const isBtn = id.startsWith("tsb:embtn:");
+  const isSel = id.startsWith("tsb:emsel:");
+  if (!isBtn && !isSel) return null;
+  const parts = id.split(":");
+  // tsb : embtn|emsel : guildId : name : scope : index
+  if (parts.length < 6) return null;
+  const index = Number(parts[parts.length - 1]);
+  const scope = parts[parts.length - 2];
+  const guildId = parts[2];
+  const name = normalizeName(parts.slice(3, -2).join(":"));
+  if (!guildId || !name || Number.isNaN(index)) return null;
+  return { kind: isSel ? "select" : "button", guildId, name, scope, index };
+}
+
+function resolveComponentList(cfg, scope) {
+  if (scope === "r" || scope === "root") return Array.isArray(cfg.components) ? cfg.components : [];
+  const match = String(scope || "").match(/^s(\d+)$/i);
+  if (!match) return [];
+  const section = (cfg.sections || [])[Number(match[1])];
+  return Array.isArray(section?.components) ? section.components : [];
+}
+
+function applyEmoji(builder, emojiRaw, guild) {
+  if (!emojiRaw) return;
+  const emoji = parseEmoji(emojiRaw, guild);
+  if (emoji) builder.setEmoji(emoji);
+}
+
+function buildActionRows(guild, embedName, components, scope) {
+  const rows = [];
+  let buttonRow = null;
+  const list = Array.isArray(components) ? components : [];
+
+  for (let i = 0; i < list.length; i++) {
+    const comp = list[i];
+    if (!comp) continue;
+
+    if (comp.kind === "select") {
+      if (buttonRow?.components?.length) {
+        rows.push(buttonRow);
+        buttonRow = null;
+      }
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId(componentCustomId("select", guild.id, embedName, scope, i))
+        .setPlaceholder(String(comp.label || "Choose an option").slice(0, 150));
+      const options = (comp.options || []).slice(0, 25).map((opt, optIdx) => {
+        const option = {
+          label: String(opt.label || `Option ${optIdx + 1}`).slice(0, 100),
+          value: String(opt.id || `opt${optIdx}`).slice(0, 100),
+        };
+        if (opt.description) option.description = String(opt.description).slice(0, 100);
+        const emoji = parseEmoji(opt.emoji, guild);
+        if (emoji) option.emoji = emoji;
+        return option;
+      });
+      if (!options.length) continue;
+      menu.addOptions(options);
+      rows.push(new ActionRowBuilder().addComponents(menu));
+      continue;
+    }
+
+    if (!buttonRow) buttonRow = new ActionRowBuilder();
+    if (buttonRow.components.length >= 5) {
+      rows.push(buttonRow);
+      buttonRow = new ActionRowBuilder();
+    }
+    const style = buttonStyle(comp.style, comp.action);
+    const btn = new ButtonBuilder()
+      .setLabel(String(comp.label || "Button").slice(0, 80))
+      .setStyle(style);
+    if (style === ButtonStyle.Link) {
+      btn.setURL(String(comp.url || "https://discord.com").slice(0, 512));
+    } else {
+      btn.setCustomId(componentCustomId("button", guild.id, embedName, scope, i));
+    }
+    applyEmoji(btn, comp.emoji, guild);
+    buttonRow.addComponents(btn);
+  }
+
+  if (buttonRow?.components?.length) rows.push(buttonRow);
+  return rows.slice(0, 5);
+}
+
+function attachRows(container, rows, budget) {
+  const room = Math.max(0, Number(budget?.remaining ?? 5));
+  const take = (rows || []).slice(0, room);
+  for (const row of take) {
+    container.addActionRowComponents(row);
+  }
+  if (budget) budget.remaining = room - take.length;
+  return take.length;
+}
+
+async function buildPayload(guild, cfg = getConfig(guild.id), options = {}) {
+  const stripComponents = Boolean(options.stripComponents);
   const vars = buildVars(guild);
   const title = fill(cfg.title || "", vars, 256).trim();
+  const body = fill(cfg.body || "", vars, 3900).trim();
   const sections = sectionsFromConfig(cfg);
   const footer = fill(cfg.footer || "", vars, 500).trim();
   const gif = safeUrl(cfg.gif);
@@ -238,6 +352,7 @@ async function buildPayload(guild, cfg = getConfig(guild.id)) {
     : [];
   const color = parseColor(cfg.color);
   const container = new ContainerBuilder().setAccentColor(color);
+  const rowBudget = { remaining: 5 };
 
   if (gif) {
     container.addMediaGalleryComponents(
@@ -245,24 +360,29 @@ async function buildPayload(guild, cfg = getConfig(guild.id)) {
     );
   }
 
-  const chunks = sections.length
-    ? sections.map((section) => ({ text: fill(section.text, vars, 4000), thumbnail: safeUrl(section.thumbnail) }))
-    : splitV2Line(fill(cfg.body || "", vars, 3900));
   let wrote = false;
 
   if (title) {
     wrote = addText(container, `# ${title}`, thumbnail) || wrote;
   }
 
-  chunks.forEach((chunk, index) => {
-    if (index > 0) addDivider(container);
-    const text = String(chunk.text || "").trim();
+  if (body) {
+    if (wrote || title) addDivider(container);
+    wrote = addText(container, body) || wrote;
+  }
+
+  sections.forEach((section, index) => {
+    if (wrote || title || body || index > 0) addDivider(container);
+    const text = fill(section.text || "", vars, 4000).trim();
     if (!text) return;
     const chunkThumbnail =
-      chunk.thumbnail
+      safeUrl(section.thumbnail)
       || sectionThumbnails[index]
-      || (!title && index === 0 ? thumbnail : "");
+      || (!title && !body && index === 0 ? thumbnail : "");
     wrote = addText(container, text, chunkThumbnail) || wrote;
+    if (!stripComponents) {
+      attachRows(container, buildActionRows(guild, cfg.name, section.components, `s${index}`), rowBudget);
+    }
   });
 
   if (footer) {
@@ -274,6 +394,10 @@ async function buildPayload(guild, cfg = getConfig(guild.id)) {
     addText(container, "\u200b");
   }
 
+  if (!stripComponents) {
+    attachRows(container, buildActionRows(guild, cfg.name, cfg.components, "r"), rowBudget);
+  }
+
   return {
     flags: MessageFlags.IsComponentsV2,
     components: [container],
@@ -281,6 +405,80 @@ async function buildPayload(guild, cfg = getConfig(guild.id)) {
       parse: ["users", "roles", "everyone"],
     },
   };
+}
+
+async function runComponentAction(interaction, actionCfg, sourceEmbedName) {
+  const action = String(actionCfg?.action || "ephemeral");
+  const vars = buildVars(interaction.guild);
+
+  if (action === "embed") {
+    const targetName = normalizeName(actionCfg.targetEmbed || "");
+    if (!targetName || !hasConfig(interaction.guild.id, targetName)) {
+      await interaction.reply({
+        content: targetName
+          ? `Embed \`${targetName}\` was not found.`
+          : "This button has no target embed configured.",
+        ephemeral: true,
+      });
+      return;
+    }
+    const target = getConfig(interaction.guild.id, targetName);
+    const strip = actionCfg.includeComponents !== true;
+    const payload = await buildPayload(interaction.guild, target, { stripComponents: strip });
+    await interaction.reply({
+      ...payload,
+      flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const replyText = fill(actionCfg?.reply || `You pressed **${actionCfg?.label || "this"}**.`, vars, 2000).trim()
+    || `Selected from \`${sourceEmbedName}\`.`;
+  await interaction.reply({ content: replyText, ephemeral: true });
+}
+
+async function handleEmbedLiveInteraction(interaction) {
+  const parsed = parseLiveComponentId(interaction.customId);
+  if (!parsed) return false;
+  if (String(parsed.guildId) !== String(interaction.guild?.id || "")) {
+    await interaction.reply({ content: "This control belongs to another server.", ephemeral: true }).catch(() => null);
+    return true;
+  }
+  if (!hasConfig(parsed.guildId, parsed.name)) {
+    await interaction.reply({ content: "That embed no longer exists.", ephemeral: true }).catch(() => null);
+    return true;
+  }
+  const cfg = getConfig(parsed.guildId, parsed.name);
+  const list = resolveComponentList(cfg, parsed.scope);
+  const comp = list[parsed.index];
+  if (!comp) {
+    await interaction.reply({ content: "That control is no longer on this embed.", ephemeral: true }).catch(() => null);
+    return true;
+  }
+
+  try {
+    if (parsed.kind === "select") {
+      const selected = String(interaction.values?.[0] || "");
+      const option = (comp.options || []).find((opt) => String(opt.id) === selected) || comp.options?.[0];
+      if (!option) {
+        await interaction.reply({ content: "That option is missing.", ephemeral: true });
+        return true;
+      }
+      await runComponentAction(interaction, { ...option, label: option.label || comp.label }, parsed.name);
+      return true;
+    }
+    if (comp.action === "url") {
+      await interaction.reply({ content: "Open the link on that button.", ephemeral: true });
+      return true;
+    }
+    await runComponentAction(interaction, comp, parsed.name);
+    return true;
+  } catch (err) {
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: err.message || "That action failed.", ephemeral: true }).catch(() => null);
+    }
+    return true;
+  }
 }
 
 async function postOrEdit(channel, guild, cfg = getConfig(guild.id)) {
@@ -1033,5 +1231,6 @@ module.exports = {
   openEmbedHub,
   openEditor,
   handleAboutInteraction,
+  handleEmbedLiveInteraction,
   varsHelp,
 };

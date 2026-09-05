@@ -21,7 +21,7 @@ function json(res, status, body) {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type, x-bot-token, Authorization",
-    "Access-Control-Allow-Methods": "GET,PUT,POST,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,PUT,POST,DELETE,OPTIONS",
   });
   res.end(payload);
 }
@@ -225,6 +225,88 @@ async function handle(req, res) {
         const body = await readBody(req);
         return json(res, 200, { panels: store.replaceAll(guildId, body || {}) });
       }
+    }
+
+    const embedsListMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/embeds$/);
+    if (embedsListMatch) {
+      const store = require("./src/systems/tsb/aboutserver/store");
+      const guildId = embedsListMatch[1];
+      if (req.method === "GET") {
+        const embeds = store.listConfigs(guildId).map((name) => store.getConfig(guildId, name));
+        return json(res, 200, { embeds });
+      }
+      if (req.method === "POST") {
+        const body = await readBody(req);
+        const created = store.createConfig(guildId, body.name || body.key, body || {});
+        if (!created.ok) return json(res, 400, { error: created.reason });
+        return json(res, 200, { embed: created.config });
+      }
+    }
+
+    const embedsOneMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/embeds\/([^/]+)$/);
+    if (embedsOneMatch) {
+      const store = require("./src/systems/tsb/aboutserver/store");
+      const guildId = embedsOneMatch[1];
+      const name = decodeURIComponent(embedsOneMatch[2]);
+      if (req.method === "GET") {
+        if (!store.hasConfig(guildId, name)) return json(res, 404, { error: "Embed not found" });
+        return json(res, 200, { embed: store.getConfig(guildId, name) });
+      }
+      if (req.method === "PUT") {
+        if (!store.hasConfig(guildId, name)) return json(res, 404, { error: "Embed not found" });
+        const body = { ...(await readBody(req)) };
+        delete body.name;
+        delete body.channelId;
+        delete body.messageId;
+        return json(res, 200, { embed: store.updateConfig(guildId, body, name) });
+      }
+      if (req.method === "DELETE") {
+        const removed = store.deleteConfig(guildId, name);
+        if (!removed) return json(res, 404, { error: "Embed not found" });
+        return json(res, 200, { ok: true });
+      }
+    }
+
+    const embedsSendMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/embeds\/([^/]+)\/send$/);
+    if (req.method === "POST" && embedsSendMatch) {
+      const store = require("./src/systems/tsb/aboutserver/store");
+      const { postOrEdit } = require("./src/systems/tsb/aboutserver/runtime");
+      const guildId = embedsSendMatch[1];
+      const name = decodeURIComponent(embedsSendMatch[2]);
+      if (!store.hasConfig(guildId, name)) return json(res, 404, { error: "Embed not found" });
+      const body = await readBody(req);
+      const channelId = String(body?.channelId || body?.channel || "").trim();
+      if (!channelId) return json(res, 400, { error: "channelId is required" });
+      const c = requireDiscord(res);
+      if (!c) return;
+      const guild = await c.guilds.fetch(guildId).catch(() => null);
+      if (!guild) return json(res, 404, { error: "Guild not found" });
+      const channel = await guild.channels.fetch(channelId).catch(() => null);
+      if (!channel?.isTextBased?.()) return json(res, 400, { error: "Invalid channel" });
+      const cfg = store.getConfig(guildId, name);
+      const sent = await postOrEdit(channel, guild, cfg);
+      return json(res, 200, {
+        ok: true,
+        messageId: sent.id,
+        channelId: channel.id,
+        embed: store.getConfig(guildId, name),
+      });
+    }
+
+    const embedsRefreshMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/embeds\/([^/]+)\/refresh$/);
+    if (req.method === "POST" && embedsRefreshMatch) {
+      const store = require("./src/systems/tsb/aboutserver/store");
+      const { refreshPosted } = require("./src/systems/tsb/aboutserver/runtime");
+      const guildId = embedsRefreshMatch[1];
+      const name = decodeURIComponent(embedsRefreshMatch[2]);
+      if (!store.hasConfig(guildId, name)) return json(res, 404, { error: "Embed not found" });
+      const c = requireDiscord(res);
+      if (!c) return;
+      const guild = await c.guilds.fetch(guildId).catch(() => null);
+      if (!guild) return json(res, 404, { error: "Guild not found" });
+      const refreshed = await refreshPosted(guild, name);
+      if (!refreshed) return json(res, 400, { error: "Nothing posted yet for that embed" });
+      return json(res, 200, { ok: true, messageId: refreshed.id, embed: store.getConfig(guildId, name) });
     }
 
     const memberMatch = pathname.match(/^\/discord\/guilds\/([^/]+)\/members$/);

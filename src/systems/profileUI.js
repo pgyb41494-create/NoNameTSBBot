@@ -262,7 +262,7 @@ async function startAdminProfileWizard({ guild, actor, member, targetUser, displ
     embeds: [
       surface({
         title: "Profile setup",
-        description: `Creating profile for ${targetUser}. Select their primary region.`,
+        description: `Creating profile for ${targetUser} with the same setup steps (region, country, character). Bio verification is skipped.`,
       }),
     ],
     components: [regionRow()],

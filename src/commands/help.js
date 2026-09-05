@@ -31,7 +31,7 @@ function helpEmbed() {
       "",
       "**Profile & coach**",
       `\`/profile\` · \`${p}profile\` — view yours, or look up by Roblox name / code / @user`,
-      `\`/profile-create\` · \`${p}createprofile @user RobloxName\` — admins create profiles without a bio code`,
+      `\`/profile-create\` · \`${p}createprofile @user RobloxName\` — admins create profiles with the same setup flow (no bio code)`,
       `\`/tsbcoach\` · \`${p}tsbcoach\` (aliases: coach, vod)`,
       `\`${p}ask\` / \`/ask\` — chat (can also answer TSBCC rules)`,
       `\`${p}rules\` / \`/rules\` — TSBCC rulebook (blacklist, bail, wars, FAQ)`,

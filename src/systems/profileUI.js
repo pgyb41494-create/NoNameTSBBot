@@ -13,7 +13,7 @@ const api = require("../utils/loadApi");
 const { surface, danger, ok, brand } = require("../utils/embeds");
 const { isOwner, isAdminOrOwner } = require("../utils/permissions");
 const { REGIONS } = api.regions;
-const { CHARACTERS, getCharacterLabel } = api.characters;
+const { CHARACTERS } = api.characters;
 const { profileDividerAttachment } = require("./profileDivider");
 const { resolveCountry } = require("./profileCountries");
 
@@ -189,9 +189,9 @@ async function payloadFor(guild, userId) {
   };
 }
 
-function createModal() {
+function createModal(customId = "asc:profile:create") {
   return new ModalBuilder()
-    .setCustomId("asc:profile:create")
+    .setCustomId(customId)
     .setTitle("Create profile")
     .addComponents(
       new ActionRowBuilder().addComponents(
@@ -213,108 +213,60 @@ function createModal() {
     );
 }
 
-function adminCreateModal(targetId) {
-  return new ModalBuilder()
-    .setCustomId(`asc:profile:admin_create:${targetId}`)
-    .setTitle("Create member profile")
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("display_name")
-          .setLabel("Display name (optional)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(32)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("roblox_username")
-          .setLabel("Roblox username or profile URL")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-          .setMaxLength(200)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("region")
-          .setLabel("Region value or name (optional)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setPlaceholder("miami, virginia, London")
-          .setMaxLength(40)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("country")
-          .setLabel("Country (optional)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setPlaceholder("United States, Brazil, US")
-          .setMaxLength(40)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("character")
-          .setLabel("Main character (optional)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setPlaceholder("The Strongest Hero, Hero Hunter, Tech Prodigy")
-          .setMaxLength(40)
-      )
-    );
+function profileSubjectId(session, interaction) {
+  return session?.targetUserId || interaction?.user?.id || null;
 }
 
-function resolveAdminRegion(input) {
-  const value = String(input || "").trim().toLowerCase();
-  if (!value) return null;
-  const found = REGIONS.find(
-    (region) => region.value.toLowerCase() === value || region.label.toLowerCase() === value
-  );
-  return found?.value || null;
+async function verificationRequired(guildId) {
+  try {
+    const { getLeaderboardConfig } = require("./tsb/leaderboard/config");
+    const cfg = await getLeaderboardConfig(guildId);
+    return cfg?.requireRobloxVerification !== false;
+  } catch {
+    return true;
+  }
 }
 
-function resolveAdminCharacter(input) {
-  const value = String(input || "").trim().toLowerCase();
-  if (!value) return null;
-  const label = getCharacterLabel(value);
-  return CHARACTERS.find((character) => character.toLowerCase() === label.toLowerCase()) || null;
-}
-
-async function createAdminProfile({ guild, actor, member, targetUser, displayName, robloxUsername, region, country, character }) {
+/**
+ * Start the same multi-step profile wizard used for self-registration,
+ * but save the finished profile onto targetUser.
+ */
+async function startAdminProfileWizard({ guild, actor, member, targetUser, displayName, robloxUsername }) {
   if (!isAdminOrOwner(member, guild)) {
     throw new Error("Only server administrators can create profiles for other members.");
   }
   if (!targetUser?.id) throw new Error("Choose a Discord member first.");
+  if (!actor?.id) throw new Error("Missing admin actor.");
 
   const roblox = await api.roblox.resolveRobloxUser(String(robloxUsername || "").trim());
-  const resolvedRegion = resolveAdminRegion(region);
-  if (region && !resolvedRegion) {
-    throw new Error("Unknown region. Use a region value like `miami` or `virginia`.");
-  }
-  const resolvedCountry = country ? resolveCountry(country) : null;
-  if (country && !resolvedCountry) {
-    throw new Error("Unknown country. Use a full country name or a two-letter code.");
-  }
-  const resolvedCharacter = character ? resolveAdminCharacter(character) : null;
-  if (character && !resolvedCharacter) {
-    throw new Error(`Unknown character. Choose one of: ${CHARACTERS.join(", ")}.`);
-  }
+  const resolvedDisplay =
+    String(displayName || "").trim() ||
+    targetUser.globalName ||
+    targetUser.username ||
+    roblox.displayName;
 
-  await maybe(api.profiles.saveProfile(guild.id, targetUser.id, {
-    display_name: String(displayName || "").trim() || targetUser.globalName || targetUser.username || roblox.displayName,
-    roblox_username: roblox.name,
-    roblox_display_name: roblox.displayName,
-    roblox_id: roblox.id,
-    roblox_avatar_url: roblox.avatarUrl,
-    region: resolvedRegion,
-    country: resolvedCountry?.name || null,
-    country_flag: resolvedCountry?.flag || null,
-    main_character: resolvedCharacter,
-    verified_at: new Date().toISOString(),
-  }));
+  const session = {
+    displayName: resolvedDisplay,
+    robloxUsername: roblox.name,
+    roblox,
+    guildId: guild.id,
+    targetUserId: String(targetUser.id),
+    adminCreating: true,
+    step: "region",
+  };
+  sessions.set(String(actor.id), session);
+  rememberGuild(actor.id, guild.id);
   rememberGuild(targetUser.id, guild.id);
-  refreshBoards(guild, targetUser.id);
-  return payloadFor(guild, targetUser.id);
+
+  return {
+    embeds: [
+      surface({
+        title: "Profile setup",
+        description: `Creating profile for ${targetUser}. Select their primary region.`,
+      }),
+    ],
+    components: [regionRow()],
+  };
 }
 
 function countryModal() {
@@ -375,17 +327,6 @@ function registerPrompt(userId) {
   };
 }
 
-function verificationRequired(guildId) {
-  try {
-    const { getLeaderboardConfig } = require("./tsb/leaderboard/config");
-    const cfg = getLeaderboardConfig(guildId);
-    if (cfg && typeof cfg.then === "function") return true;
-    return cfg.requireRobloxVerification !== false;
-  } catch {
-    return true;
-  }
-}
-
 function genVerifyCode() {
   const chars = "ABCDEF0123456789";
   let code = "";
@@ -400,7 +341,7 @@ function refreshBoards(guild, userId) {
   } catch {}
 }
 
-async function persistSession(guild, userId, session) {
+async function persistSession(guild, userId, session, actorId = null) {
   rememberGuild(userId, guild.id);
   await maybe(
     api.profiles.saveProfile(guild.id, userId, {
@@ -416,8 +357,9 @@ async function persistSession(guild, userId, session) {
       verified_at: new Date().toISOString(),
     })
   );
-  sessions.delete(userId);
-  sessions.set(userId, { guildId: guild.id, completedAt: Date.now() });
+  sessions.delete(String(userId));
+  if (actorId && String(actorId) !== String(userId)) sessions.delete(String(actorId));
+  sessions.set(String(userId), { guildId: guild.id, completedAt: Date.now() });
   refreshBoards(guild, userId);
   if (!process.env.API_SERVER_URL && !process.env.API_URL) {
     try {
@@ -439,6 +381,7 @@ async function persistSession(guild, userId, session) {
 }
 
 function verifyPayload(session) {
+  const forOther = Boolean(session?.adminCreating && session?.targetUserId);
   return {
     content: null,
     embeds: [
@@ -447,7 +390,9 @@ function verifyPayload(session) {
         thumbnail: session.roblox?.avatarUrl,
         description:
           `Found **${session.roblox.displayName}** (@${session.roblox.name}).\n\n` +
-          `Add this exact phrase to your Roblox **About / bio**, then confirm within 10 minutes:\n\n\`${session.code}\``,
+          (forOther
+            ? `Have them add this exact phrase to their Roblox **About / bio**, then confirm within 10 minutes:\n\n\`${session.code}\``
+            : `Add this exact phrase to your Roblox **About / bio**, then confirm within 10 minutes:\n\n\`${session.code}\``),
       }),
     ],
     components: [
@@ -599,7 +544,7 @@ async function handleProfileInteraction(interaction) {
         ephemeral: true,
       }));
     }
-    return interaction.showModal(adminCreateModal(targetId));
+    return interaction.showModal(createModal(`asc:profile:admin_create:${targetId}`));
   }
 
   if (id === "asc:profile:start") {
@@ -659,29 +604,35 @@ async function handleProfileInteraction(interaction) {
         ephemeral: true,
       }));
     }
+    const displayName = interaction.fields.getTextInputValue("display_name").trim();
+    const robloxUsername = interaction.fields.getTextInputValue("roblox_username").trim();
+    let roblox;
     try {
-      const payload = await createAdminProfile({
-        guild: interaction.guild,
-        actor: interaction.user,
-        member: interaction.member,
-        targetUser,
-        displayName: interaction.fields.getTextInputValue("display_name"),
-        robloxUsername: interaction.fields.getTextInputValue("roblox_username"),
-        region: interaction.fields.getTextInputValue("region"),
-        country: interaction.fields.getTextInputValue("country"),
-        character: interaction.fields.getTextInputValue("character"),
-      });
-      return interaction.reply(withEphemeral(interaction, {
-        ...payload,
-        content: `Profile created for ${targetUser}. No Roblox bio code was required.`,
-        ephemeral: true,
-      }));
+      roblox = await api.roblox.resolveRobloxUser(robloxUsername);
     } catch (err) {
-      return interaction.reply(withEphemeral(interaction, {
-        embeds: [danger("Could not create profile", err.message || "Profile creation failed.")],
-        ephemeral: true,
-      }));
+      return interaction.reply(withEphemeral(interaction, { embeds: [danger("Roblox lookup failed", err.message)], ephemeral: true }));
     }
+    sessions.set(interaction.user.id, {
+      displayName: displayName || targetUser.globalName || targetUser.username || roblox.displayName,
+      robloxUsername,
+      roblox,
+      guildId: interaction.guildId,
+      targetUserId: String(targetUser.id),
+      adminCreating: true,
+      step: "region",
+    });
+    rememberGuild(interaction.user.id, interaction.guildId);
+    rememberGuild(targetUser.id, interaction.guildId);
+    return interaction.reply(withEphemeral(interaction, {
+      ephemeral: true,
+      embeds: [
+        surface({
+          title: "Profile setup",
+          description: `Creating profile for ${targetUser}. Select their primary region.`,
+        }),
+      ],
+      components: [regionRow()],
+    }));
   }
 
   if (id === "asc:profile:region" && interaction.isStringSelectMenu()) {
@@ -749,9 +700,15 @@ async function handleProfileInteraction(interaction) {
     if (!session) return expiredSession(interaction);
     session.step = "character";
     sessions.set(interaction.user.id, session);
+    const forOther = Boolean(session.adminCreating);
     return interaction.update({
       content: null,
-      embeds: [surface({ title: "Profile setup", description: "Select your main TSB character." })],
+      embeds: [
+        surface({
+          title: "Profile setup",
+          description: forOther ? "Select their main TSB character." : "Select your main TSB character.",
+        }),
+      ],
       components: [characterRow()],
     });
   }
@@ -760,8 +717,6 @@ async function handleProfileInteraction(interaction) {
     const session = getSession(interaction);
     if (!session) return expiredSession(interaction);
     session.mainCharacter = interaction.values[0];
-    session.step = "verify";
-    session.code = genVerifyCode();
     sessions.set(interaction.user.id, session);
 
     const guild = await resolveGuild(interaction, session);
@@ -772,10 +727,18 @@ async function handleProfileInteraction(interaction) {
         components: [],
       });
     }
-    if (!verificationRequired(guild.id)) {
-      const payload = await persistSession(guild, interaction.user.id, session);
-      return interaction.update({ ...payload, content: null });
+    const subjectId = profileSubjectId(session, interaction);
+    // Admins creating for someone else: same wizard, but never require bio verification.
+    if (session.adminCreating || !(await verificationRequired(guild.id))) {
+      const payload = await persistSession(guild, subjectId, session, interaction.user.id);
+      return interaction.update({
+        ...payload,
+        content: session.adminCreating ? `Profile created for <@${subjectId}> (no bio verification required).` : null,
+      });
     }
+    session.step = "verify";
+    session.code = genVerifyCode();
+    sessions.set(interaction.user.id, session);
     return interaction.update(verifyPayload(session));
   }
 
@@ -810,8 +773,12 @@ async function handleProfileInteraction(interaction) {
         components: [],
       });
     }
-    const payload = await persistSession(guild, interaction.user.id, session);
-    return interaction.update({ ...payload, content: null });
+    const subjectId = profileSubjectId(session, interaction);
+    const payload = await persistSession(guild, subjectId, session, interaction.user.id);
+    return interaction.update({
+      ...payload,
+      content: session.adminCreating ? `Profile created for <@${subjectId}>.` : null,
+    });
   }
 
   if (id === "asc:profile:verify:cancel") {
@@ -942,5 +909,5 @@ module.exports = {
   registerPrompt,
   rememberGuild,
   sendProfileToUser,
-  createAdminProfile,
+  startAdminProfileWizard,
 };

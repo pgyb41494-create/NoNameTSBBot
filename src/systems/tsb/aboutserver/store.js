@@ -55,6 +55,42 @@ function normalizeAction(action) {
   return "ephemeral";
 }
 
+function normalizeReplyFormat(value) {
+  return String(value || "text").toLowerCase() === "embed" ? "embed" : "text";
+}
+
+function normalizeReplyEmbed(raw = {}) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const colorRaw = String(source.color || "5865F2").replace(/^#/, "").trim();
+  const color = /^[0-9a-fA-F]{6}$/.test(colorRaw) ? colorRaw.toUpperCase() : "5865F2";
+  const sections = Array.isArray(source.sections)
+    ? source.sections
+        .map((section, index) => {
+          if (!section || typeof section !== "object") return null;
+          const text = safeText(section.text, 4000).trim();
+          if (!text) return null;
+          return {
+            id: String(section.id || `rs${index + 1}`).slice(0, 40),
+            text,
+            thumbnail: safeUrl(section.thumbnail),
+            components: [],
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 25)
+    : [];
+  return {
+    title: safeText(source.title || "", 256),
+    body: safeText(source.body || "", 3900),
+    footer: safeText(source.footer || "", 2048),
+    gif: safeUrl(source.gif || ""),
+    thumbnail: safeUrl(source.thumbnail || ""),
+    color,
+    sections,
+    components: [],
+  };
+}
+
 function normalizeSelectOption(opt = {}, index = 0) {
   return {
     id: String(opt.id || `opt${index + 1}`).slice(0, 40),
@@ -63,6 +99,8 @@ function normalizeSelectOption(opt = {}, index = 0) {
     emoji: safeText(opt.emoji || "", 80),
     action: normalizeAction(opt.action),
     reply: safeText(opt.reply || "", 2000),
+    replyFormat: normalizeReplyFormat(opt.replyFormat),
+    replyEmbed: normalizeReplyEmbed(opt.replyEmbed),
     targetEmbed: normalizeName(opt.targetEmbed || ""),
     includeComponents: Boolean(opt.includeComponents),
   };
@@ -82,6 +120,8 @@ function normalizeComponent(comp = {}, index = 0) {
     emoji: safeText(comp.emoji || "", 80),
     action,
     reply: safeText(comp.reply || "", 2000),
+    replyFormat: normalizeReplyFormat(comp.replyFormat),
+    replyEmbed: normalizeReplyEmbed(comp.replyEmbed),
     targetEmbed: normalizeName(comp.targetEmbed || ""),
     includeComponents: Boolean(comp.includeComponents),
     url: safeUrl(comp.url || ""),
@@ -308,6 +348,8 @@ module.exports = {
   parseColor,
   normalizeName,
   normalizeAction,
+  normalizeReplyFormat,
+  normalizeReplyEmbed,
   normalizeComponent,
   normalizeComponents,
   normalizeSection,

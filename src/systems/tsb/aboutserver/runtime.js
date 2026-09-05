@@ -432,6 +432,41 @@ async function runComponentAction(interaction, actionCfg, sourceEmbedName) {
     return;
   }
 
+  const replyFormat = String(actionCfg?.replyFormat || "text").toLowerCase() === "embed" ? "embed" : "text";
+  if (replyFormat === "embed") {
+    const replyEmbed = actionCfg?.replyEmbed && typeof actionCfg.replyEmbed === "object" ? actionCfg.replyEmbed : {};
+    const inlineCfg = {
+      name: `reply-${sourceEmbedName || "embed"}`,
+      title: replyEmbed.title || "",
+      body: replyEmbed.body || actionCfg?.reply || "",
+      footer: replyEmbed.footer || "",
+      gif: replyEmbed.gif || "",
+      thumbnail: replyEmbed.thumbnail || "",
+      color: replyEmbed.color || "5865F2",
+      sections: Array.isArray(replyEmbed.sections) ? replyEmbed.sections : [],
+      components: [],
+    };
+    const hasContent =
+      String(inlineCfg.title || "").trim()
+      || String(inlineCfg.body || "").trim()
+      || String(inlineCfg.footer || "").trim()
+      || String(inlineCfg.gif || "").trim()
+      || (inlineCfg.sections || []).some((s) => String(s?.text || "").trim());
+    if (!hasContent) {
+      inlineCfg.body = fill(
+        actionCfg?.reply || `You pressed **${actionCfg?.label || "this"}**.`,
+        vars,
+        2000
+      ).trim() || `Selected from \`${sourceEmbedName}\`.`;
+    }
+    const payload = await buildPayload(interaction.guild, inlineCfg, { stripComponents: true });
+    await interaction.reply({
+      ...payload,
+      flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   const replyText = fill(actionCfg?.reply || `You pressed **${actionCfg?.label || "this"}**.`, vars, 2000).trim()
     || `Selected from \`${sourceEmbedName}\`.`;
   await interaction.reply({ content: replyText, ephemeral: true });

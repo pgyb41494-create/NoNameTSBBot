@@ -18,7 +18,7 @@ function defaultConfig(guildId) {
     guildId,
     setupCompleted: false,
     commandName: "stage",
-    tierLabel: "Phase",
+    tierLabel: "Stage",
     tierCount: 5,
     applicantEnabled: true,
     leaderboardIntegration: true,
@@ -51,6 +51,7 @@ function getConfig(guildId) {
   const db = store.load();
   const cfg = { ...defaultConfig(guildId), ...(db[guildId] || {}) };
   cfg.commandName = normalizeCommandName(cfg.commandName || "stage");
+  if (!cfg.tierLabel || /^phase$/i.test(String(cfg.tierLabel).trim())) cfg.tierLabel = "Stage";
   if (!cfg.subranks?.length && cfg.subtiers?.length) cfg.subranks = cfg.subtiers;
   if (!cfg.authorizedRoles?.length && cfg.authorizedRoleIds?.length) {
     cfg.authorizedRoles = cfg.authorizedRoleIds;

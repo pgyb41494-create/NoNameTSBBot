@@ -104,7 +104,7 @@ function profileEmbed(profile, extras = {}) {
       { name: "Main Character", value: profile.main_character || "—", inline: true },
       { name: "Region", value: api.regions.regionLabel(profile.region), inline: true },
       { name: "Country", value: country, inline: true },
-      { name: "Phase", value: extras.stage || "No phase", inline: true },
+      { name: "Stage", value: extras.stage || "No stage", inline: true },
       { name: "Cooldown", value: cooldown, inline: true },
       { name: "1v1 Score", value: record, inline: false },
       { name: "Autowin", value: autowin, inline: true }

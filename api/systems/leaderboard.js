@@ -16,7 +16,7 @@ function defaultConfig(guildId) {
     slotCount: 10,
     topPerChannel: 10,
     suffix: "default",
-    rankLabel: "Phase",
+    rankLabel: "Stage",
     requireRobloxVerification: true,
     topPlayerRoleId: null,
     rankRequirements: [],
@@ -44,7 +44,9 @@ function defaultConfig(guildId) {
 
 function getConfig(guildId) {
   const db = store.load();
-  return db[guildId] || defaultConfig(guildId);
+  const cfg = { ...(db[guildId] || defaultConfig(guildId)) };
+  if (!cfg.rankLabel || /^phase$/i.test(String(cfg.rankLabel).trim())) cfg.rankLabel = "Stage";
+  return cfg;
 }
 
 function updateConfig(guildId, patch) {

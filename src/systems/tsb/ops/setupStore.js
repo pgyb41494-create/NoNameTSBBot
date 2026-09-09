@@ -5,7 +5,7 @@ const { publicStaffAlerts, applyStaffAlertsPatch } = require("./store");
 
 const EVENT_OPTIONS = [
   { label: "Profile registered", value: "profile" },
-  { label: "Rank / phase change", value: "phase" },
+  { label: "Rank / stage change", value: "phase" },
   { label: "Score logged", value: "score" },
   { label: "Challenge opened", value: "challenge" },
   { label: "Duplicate Roblox", value: "duplicateRoblox" },

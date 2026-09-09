@@ -28,7 +28,7 @@ function defaultData() {
         allowedRoles: [],
         topPerChannel: 10,
         suffix: "default",
-        rankLabel: "Phase",
+        rankLabel: "Stage",
         requireRobloxVerification: true,
         topPlayerRoleId: null,
         topBoardRoles: [],
@@ -51,7 +51,7 @@ async function getSession(guildId) {
                 allowedRoles: saved.allowedRoles || [],
                 topPerChannel: saved.topPerChannel || 10,
                 suffix: saved.suffix || "default",
-                rankLabel: saved.rankLabel || "Phase",
+                rankLabel: saved.rankLabel || "Stage",
                 requireRobloxVerification: saved.requireRobloxVerification !== false,
                 topPlayerRoleId: saved.topPlayerRoleId || null,
                 topBoardRoles: normalizeTopBoardRoles(
@@ -435,7 +435,7 @@ async function stepPayload(interaction) {
       name: "Preview Player",
       discordTag: "@player",
       position: 1,
-      stage: data.rankLabel ? `${data.rankLabel} 2` : "Phase 2",
+      stage: data.rankLabel ? `${data.rankLabel} 2` : "Stage 2",
       region: "Miami",
       robloxUsername: "example",
       wins: 12,
@@ -852,8 +852,8 @@ async function handleLeaderboardAction(interaction, id) {
                     label: "Rank label",
                     style: 1,
                     required: true,
-                    value: session.data.rankLabel || "Phase",
-                    placeholder: "Phase",
+                    value: session.data.rankLabel || "Stage",
+                    placeholder: "Stage",
                     max_length: 32
                 }]
             }]
@@ -892,7 +892,7 @@ async function handleLeaderboardAction(interaction, id) {
                     style: 2,
                     required: false,
                     value: (session.data.rankRequirements || []).join(", "),
-                    placeholder: "e.g. Phase1, Phase2"
+                    placeholder: "e.g. Stage1, Stage2"
                 }]
             }]
         });
@@ -1004,7 +1004,8 @@ async function handleLeaderboardModal(interaction) {
     } else if (id === "tsb:lb:modal:suffix") {
         data.suffix = interaction.fields.getTextInputValue("suffix").trim() || "default";
     } else if (id === "tsb:lb:modal:ranklabel") {
-        data.rankLabel = interaction.fields.getTextInputValue("rank_label").trim() || "Phase";
+        const label = interaction.fields.getTextInputValue("rank_label").trim();
+        data.rankLabel = !label || /^phase$/i.test(label) ? "Stage" : label;
     } else if (id === "tsb:lb:modal:verify") {
         data.requireRobloxVerification = yesNo(interaction.fields.getTextInputValue("force_verify"));
     } else if (id === "tsb:lb:modal:requirements") {

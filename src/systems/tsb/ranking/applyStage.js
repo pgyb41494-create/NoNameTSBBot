@@ -29,11 +29,11 @@ function formatRolePart(role, fallback) {
 
 function displayTierLabel(tsbRanking, invokedName) {
     const invoked = String(invokedName || "").toLowerCase();
-    if (invoked === "phase") return "Phase";
+    if (invoked === "phase") return "Stage";
     if (invoked === "tier") return "Tier";
     if (invoked === "rank") return "Rank";
     if (invoked === "stage") return "Stage";
-    return String(tsbRanking?.tierLabel || "Phase").trim() || "Phase";
+    return String(tsbRanking?.tierLabel || "Stage").trim() || "Stage";
 }
 
 function findPhaseRole(guild, phaseNum) {
@@ -214,7 +214,7 @@ async function applyStageRoles({
     if (asApplicant) {
         let applicantRole = resolveApplicantRole();
         if (!applicantRole && tsbRanking?.autoCreateRoles !== false) {
-            const label = tsbRanking?.tierLabel || "Phase";
+            const label = tsbRanking?.tierLabel || "Stage";
             applicantRole = await ensureNamedRole(guild, `${label} 1 Applicant`);
         }
         if (!applicantRole) {
@@ -304,11 +304,11 @@ async function applyStageRoles({
     }
     if (!phaseRole) phaseRole = findPhaseRole(guild, phaseNum);
     if (!phaseRole && tsbRanking?.autoCreateRoles !== false) {
-        const label = tsbRanking?.tierLabel || "Phase";
+        const label = tsbRanking?.tierLabel || "Stage";
         phaseRole = await ensureNamedRole(guild, `${label} ${phaseNum}`);
     }
 
-    const phaseLabel = `${tsbRanking?.tierLabel || "Phase"} ${phaseNum}`;
+    const phaseLabel = `${tsbRanking?.tierLabel || "Stage"} ${phaseNum}`;
     if (phaseRole) {
         if (me && phaseRole.position < me.roles.highest.position) {
             try {
@@ -424,7 +424,7 @@ async function resolveTwoHighStrong(guild, tsbRanking) {
         : null;
     if (!phaseRole) phaseRole = findPhaseRole(guild, 2);
     if (!phaseRole && tsbRanking?.autoCreateRoles !== false) {
-        const label = tsbRanking?.tierLabel || "Phase";
+        const label = tsbRanking?.tierLabel || "Stage";
         phaseRole = await ensureNamedRole(guild, `${label} 2`);
     }
 

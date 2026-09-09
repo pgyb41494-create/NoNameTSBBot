@@ -84,7 +84,7 @@ function defaultConfig(guildId) {
 function normalizeLeaderboardConfig(cfg) {
   if (!cfg.topPerChannel) cfg.topPerChannel = cfg.slotCount || 10;
   if (cfg.suffix == null) cfg.suffix = "default";
-  if (!cfg.rankLabel) cfg.rankLabel = "Phase";
+  if (!cfg.rankLabel || /^phase$/i.test(String(cfg.rankLabel).trim())) cfg.rankLabel = "Stage";
   if (!cfg.allowedRoles) cfg.allowedRoles = [];
   if (!cfg.rankRequirements) cfg.rankRequirements = [];
   if (!cfg.boardPages) cfg.boardPages = [];

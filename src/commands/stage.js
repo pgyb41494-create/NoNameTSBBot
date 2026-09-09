@@ -41,7 +41,7 @@ function invokedFromPrefix(message) {
 function slashCommand(name) {
   return new SlashCommandBuilder()
     .setName(name)
-    .setDescription("Assign phase / stage / sub-tier roles")
+    .setDescription("Assign stage / sub-tier roles")
     .addUserOption((o) => o.setName("user").setDescription("Player").setRequired(true))
     .addStringOption((o) => o.setName("stage").setDescription("e.g. 2 High Weak or 1 applicant").setRequired(true))
     .addStringOption((o) => o.setName("notes").setDescription("Optional ranking-log notes").setRequired(false))
@@ -117,7 +117,7 @@ async function applyStageCommand(ctx, guild, user, stageInput, actor, actorMembe
         ctx,
         danger(
           "Above tryout cap",
-          `Your stage is **${assignerStage}**. Max you can assign is **${cap}** (TSBCC: own phase, ceiling 2 High Strong).`
+          `Your stage is **${assignerStage}**. Max you can assign is **${cap}** (TSBCC: own stage, ceiling 2 High Strong).`
         )
       );
     }

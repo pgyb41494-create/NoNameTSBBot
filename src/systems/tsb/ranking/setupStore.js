@@ -282,7 +282,7 @@ async function autoDetectAndCreateRankingRoles(guild, data) {
 function defaultData() {
     return {
         commandName: "stage",
-        tierLabel: "Phase",
+        tierLabel: "Stage",
         tierCount: 5,
         applicantEnabled: true,
         leaderboardIntegration: true,
@@ -326,7 +326,7 @@ function sessionFromSaved(saved) {
         data: {
             ...defaultData(),
             commandName: normalizeCommandName(saved.commandName || "stage"),
-            tierLabel: saved.tierLabel || "Phase",
+            tierLabel: saved.tierLabel || "Stage",
             tierCount: saved.tierCount ?? 5,
             applicantEnabled: saved.applicantEnabled !== false,
             leaderboardIntegration: saved.leaderboardIntegration !== false,
@@ -1263,7 +1263,8 @@ async function handleRankingModal(interaction) {
 
     if (id === "tsb:rank:modal:basic") {
         data.commandName = normalizeCommandName(interaction.fields.getTextInputValue("command_name"));
-        data.tierLabel = interaction.fields.getTextInputValue("tier_label");
+        const label = interaction.fields.getTextInputValue("tier_label").trim();
+        data.tierLabel = !label || /^phase$/i.test(label) ? "Stage" : label;
         data.tierCount = Math.max(1, Math.min(20, parseInt(interaction.fields.getTextInputValue("tier_count"), 10) || 5));
         data.applicantEnabled = yesNo(interaction.fields.getTextInputValue("applicant_enabled"));
         data.leaderboardIntegration = yesNo(interaction.fields.getTextInputValue("leaderboard"));

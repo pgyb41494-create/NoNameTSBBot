@@ -14,7 +14,6 @@ const { surface, danger, ok, brand } = require("../utils/embeds");
 const { isOwner, isAdminOrOwner } = require("../utils/permissions");
 const { REGIONS } = api.regions;
 const { CHARACTERS } = api.characters;
-const { profileDividerAttachment } = require("./profileDivider");
 const { resolveCountry } = require("./profileCountries");
 
 const sessions = new Map();
@@ -174,18 +173,9 @@ async function payloadFor(guild, userId) {
     autowinThreshold,
     autowinEnabled,
   });
-  const files = [];
-  const divider = await profileDividerAttachment();
-  if (divider) {
-    embed.setImage("attachment://profile-divider.png");
-    files.push(divider);
-  } else if (brand.defaultGif) {
-    embed.setImage(brand.defaultGif);
-  }
   return {
     embeds: [embed],
     components: [manageRow(userId)],
-    files,
   };
 }
 

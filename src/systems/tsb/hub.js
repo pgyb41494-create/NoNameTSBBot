@@ -1,9 +1,14 @@
 const { isAdminOrOwner } = require("./shared/permissions");
+const { brand } = require("../../utils/loadApi");
 
 const HUB_CUSTOM_ID = "tsb:hub";
 
+function statusEmoji(ok) {
+  return ok ? "✅" : "❌";
+}
+
 function statusLabel(ok) {
-  return ok ? "Configured" : "Not configured";
+  return ok ? "In use · configured" : "Not set up yet";
 }
 
 async function buildModuleOptions(guildId) {
@@ -44,15 +49,21 @@ async function buildModuleOptions(guildId) {
     alerts = !!(cfg.channelId || cfg.fallbackChannelId);
   } catch {}
 
-  return [
-    { label: "Top Leaderboard", value: "leaderboard_setup", description: statusLabel(lb).slice(0, 100) },
-    { label: "Ranking Setup", value: "ranking_setup", description: statusLabel(rank).slice(0, 100) },
-    { label: "1v1 Score Setup", value: "score_setup", description: statusLabel(score).slice(0, 100) },
-    { label: "Line Up Management", value: "lineup_setup", description: statusLabel(lineup).slice(0, 100) },
-    { label: "Tryouts", value: "tryout_setup", description: statusLabel(tryout).slice(0, 100) },
-    { label: "Verification", value: "verify_setup", description: statusLabel(verify).slice(0, 100) },
-    { label: "Staff Alerts", value: "alerts_setup", description: statusLabel(alerts).slice(0, 100) },
+  const modules = [
+    { label: "Top Leaderboard", value: "leaderboard_setup", ok: lb },
+    { label: "Ranking Setup", value: "ranking_setup", ok: rank },
+    { label: "1v1 Score Setup", value: "score_setup", ok: score },
+    { label: "Line Up Management", value: "lineup_setup", ok: lineup },
+    { label: "Tryouts", value: "tryout_setup", ok: tryout },
+    { label: "Verification", value: "verify_setup", ok: verify },
+    { label: "Staff Alerts", value: "alerts_setup", ok: alerts },
   ];
+
+  return modules.map((mod) => ({
+    label: `${statusEmoji(mod.ok)} ${mod.label}`.slice(0, 100),
+    value: mod.value,
+    description: statusLabel(mod.ok).slice(0, 100),
+  }));
 }
 
 async function hubPayload(guildId = null) {
@@ -60,30 +71,30 @@ async function hubPayload(guildId = null) {
   const options = guildId
     ? await buildModuleOptions(guildId)
     : [
-        { label: "Top Leaderboard", value: "leaderboard_setup", description: "Boards & drafts" },
-        { label: "Ranking Setup", value: "ranking_setup", description: "Tiers & cooldowns" },
-        { label: "1v1 Score Setup", value: "score_setup", description: "Match scoring" },
-        { label: "Line Up Management", value: "lineup_setup", description: "Regional lineups" },
-        { label: "Tryouts", value: "tryout_setup", description: "Signup sessions" },
-        { label: "Verification", value: "verify_setup", description: "Profile tickets" },
-        { label: "Staff Alerts", value: "alerts_setup", description: "TSB staff feed" },
+        { label: "❌ Top Leaderboard", value: "leaderboard_setup", description: "Not set up yet" },
+        { label: "❌ Ranking Setup", value: "ranking_setup", description: "Not set up yet" },
+        { label: "❌ 1v1 Score Setup", value: "score_setup", description: "Not set up yet" },
+        { label: "❌ Line Up Management", value: "lineup_setup", description: "Not set up yet" },
+        { label: "❌ Tryouts", value: "tryout_setup", description: "Not set up yet" },
+        { label: "❌ Verification", value: "verify_setup", description: "Not set up yet" },
+        { label: "❌ Staff Alerts", value: "alerts_setup", description: "Not set up yet" },
       ];
 
   return {
     embeds: [
       tsbEmbed({
-        title: "TSB Systems",
+        title: "Server setup",
         color: COLOR_PRIMARY,
+        thumbnail: brand.thumbnail,
+        image: brand.banner,
         description:
-          "Configure **The Strongest Battlegrounds** modules for this server.\n\n" +
-          "Pick a module below. Wizards require **Administrator** or server owner.\n\n" +
-          "> **Leaderboard:** type `draft` in `#tsb-boards`, edit, then `send` → **Confirm**\n" +
-          "> **Ranking:** tier roles on boards and lineups (`'stage` / `/stage` — name is set in Ranking Setup)\n" +
-          "> **Score:** `/score` records matches and auto-bumps the board\n" +
-          "> **Lineups:** `#tsb-lineups` management + `#lineup-{region}` boards\n" +
-          "> **Tryouts:** signup channel + ping role · runtime `/tryout`\n" +
-          "> **Verification:** `/verify` · DM `/profile` · staff ticket\n" +
-          "> **Staff Alerts:** profiles, ranks, scores, challenges, duplicate Roblox",
+          "Set up Ascendant for this server in a few short steps.\n\n" +
+          "**1.** Pick a module below\n" +
+          "**2.** Follow the buttons in that module\n" +
+          "**3.** Come back here until everything shows ✅\n\n" +
+          "✅ = already in use · ❌ = still needs setup\n\n" +
+          "> Tip: start with **Top Leaderboard**, then Ranking / Score if you need them.",
+        footer: "Administrator or server owner required",
       }),
     ],
     components: [{
@@ -91,7 +102,7 @@ async function hubPayload(guildId = null) {
       components: [{
         type: 3,
         custom_id: HUB_CUSTOM_ID,
-        placeholder: "Select a TSB module",
+        placeholder: "Choose a module to set up",
         options,
       }],
     }],

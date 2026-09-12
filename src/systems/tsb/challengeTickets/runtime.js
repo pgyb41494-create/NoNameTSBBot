@@ -22,7 +22,9 @@ const { buildTicketTranscript, transcriptAuditEmbed } = require("../shared/trans
 
 const START_ID = "tsb:chaltix:start";
 const PICK_ID = "tsb:chaltix:pick";
+const PICK_BTN_PREFIX = "tsb:chaltix:pickbtn:";
 const CLOSE_ID = "tsb:chaltix:close";
+const DELETE_ID = "tsb:chaltix:delete";
 const YES_ID = "tsb:chaltix:yes";
 const NO_ID = "tsb:chaltix:no";
 const FMT_FT5_ID = "tsb:chaltix:fmt:ft5";
@@ -258,8 +260,28 @@ function ticketOverwrites(guild, user, staffRoleIds) {
 
 function closeRow() {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(CLOSE_ID).setLabel("Close ticket").setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId(CLOSE_ID).setLabel("Close ticket").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(DELETE_ID).setLabel("Delete ticket").setStyle(ButtonStyle.Danger)
   );
+}
+
+function pickButtonRows(namedTargets) {
+  const rows = [];
+  const slice = namedTargets.slice(0, 25);
+  for (let i = 0; i < slice.length; i += 5) {
+    const chunk = slice.slice(i, i + 5);
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        ...chunk.map((slot) =>
+          new ButtonBuilder()
+            .setCustomId(`${PICK_BTN_PREFIX}${slot.discordId}`)
+            .setLabel(`#${slot.position} ${slot.name}`.slice(0, 80))
+            .setStyle(ButtonStyle.Primary)
+        )
+      )
+    );
+  }
+  return rows;
 }
 
 function acceptRow(remaining) {
@@ -557,38 +579,45 @@ async function ticketPayload(guild, userId) {
     description:
       `${shortBoardLines(slots, busy)}\n\n` +
       (targets.length
-        ? "Use the menu below to challenge **one** player in your range."
+        ? "Tap a **player button** below to challenge **one** player in your range."
         : emptyNote),
     fields: [
       fv("Your spot", myPos ? `#${myPos}` : "—"),
       fv("Your range", `up to ${ahead} ahead (${range})`),
       fv("Available", `${targets.length} player${targets.length === 1 ? "" : "s"}`),
     ],
-    footer: targets.length ? "Select one player · Close ticket anytime" : emptyNote,
+    footer: targets.length ? "Tap a player · Close or Delete anytime" : emptyNote,
   });
 
   const components = [];
   if (targets.length) {
-    const options = [];
+    // Discord select menus do not fire when re-selecting the only option.
+    // Prefer buttons so one-player ranges always work.
+    const named = [];
     for (const slot of targets.slice(0, 25)) {
       const member = await guild.members.fetch(slot.discordId).catch(() => null);
       const name = member?.displayName || member?.user?.username || slot.discordId;
-      options.push({
-        label: `#${slot.position} ${name}`.slice(0, 100),
-        description: `Spot #${slot.position}`.slice(0, 100),
-        value: slot.discordId,
-      });
+      named.push({ ...slot, name });
     }
-    components.push(
-      new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId(PICK_ID)
-          .setPlaceholder("Choose 1 player ahead of you")
-          .setMinValues(1)
-          .setMaxValues(1)
-          .addOptions(options)
-      )
-    );
+    components.push(...pickButtonRows(named));
+    if (named.length > 5) {
+      components.push(
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(PICK_ID)
+            .setPlaceholder("Or choose from the full list")
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(
+              named.map((slot) => ({
+                label: `#${slot.position} ${slot.name}`.slice(0, 100),
+                description: `Spot #${slot.position}`.slice(0, 100),
+                value: slot.discordId,
+              }))
+            )
+        )
+      );
+    }
   }
   components.push(closeRow());
   return { embeds: [embed], components };
@@ -624,8 +653,8 @@ async function openTicket(interaction) {
 
   let busy = await busySet(guild.id);
   if (busy.has(String(interaction.user.id))) {
-    const openTicket = findOpenTicket(guild.id, interaction.user.id);
-    if (!openTicket) {
+    const openRow = findOpenTicket(guild.id, interaction.user.id);
+    if (!openRow) {
       try {
         if (api.challenges.clearInvolving) {
           await Promise.resolve(api.challenges.clearInvolving(guild.id, interaction.user.id));
@@ -692,7 +721,7 @@ async function openTicket(interaction) {
   return interaction.editReply({ content: `Ticket opened: ${channel}` });
 }
 
-async function pickTarget(interaction) {
+async function pickTarget(interaction, forcedTargetId = null) {
   const ticket = getTicket(interaction.guild.id, interaction.channel.id);
   const userId = ticket?.userId || interaction.channel.topic?.replace(/^challenge:/, "");
   if (!userId) {
@@ -706,10 +735,24 @@ async function pickTarget(interaction) {
     return interaction.reply({ content: "This ticket already has a challenge.", ephemeral: true });
   }
 
-  const targetId = interaction.values[0];
+  const targetId = forcedTargetId || interaction.values?.[0];
+  if (!targetId) {
+    return interaction.reply({ content: "Pick a player first.", ephemeral: true });
+  }
   const ticketsCfg = challengeTicketsOf(cfg);
   const slots = await filledSlots(interaction.guild.id);
-  const busy = await busySet(interaction.guild.id);
+  let busy = await busySet(interaction.guild.id);
+  // Clear stale challenge rows that block picks when no live ticket exists.
+  if (busy.has(String(userId))) {
+    try {
+      if (api.challenges.clearInvolving) {
+        await Promise.resolve(api.challenges.clearInvolving(interaction.guild.id, userId));
+      } else if (api.challenges.clearChallenge) {
+        await Promise.resolve(api.challenges.clearChallenge(interaction.guild.id, userId));
+      }
+      busy = await busySet(interaction.guild.id);
+    } catch {}
+  }
   const allowed = validTargets(slots, userId, ticketsCfg, busy);
   if (!allowed.some((slot) => slot.discordId === String(targetId))) {
     return interaction.reply({
@@ -897,7 +940,7 @@ async function handleDecline(interaction) {
   }, 5000);
 }
 
-async function closeTicket(interaction) {
+async function closeTicket(interaction, immediateDelete = false) {
   const cfg = await getLeaderboardConfig(interaction.guild.id);
   const ticket = getTicket(interaction.guild.id, interaction.channel.id);
   const userId = ticket?.userId || interaction.channel.topic?.replace(/^challenge:/, "");
@@ -923,52 +966,63 @@ async function closeTicket(interaction) {
       } else if (api.challenges.clearChallenge) {
         await Promise.resolve(api.challenges.clearChallenge(interaction.guild.id, userId));
       }
+      if (ticket?.targetId && api.challenges.clearInvolving) {
+        await Promise.resolve(api.challenges.clearInvolving(interaction.guild.id, ticket.targetId));
+      }
     } catch {}
     setPending(interaction.guild.id, userId, null);
   }
-  setTicket(interaction.guild.id, interaction.channel.id, { status: "closed" });
+  setTicket(interaction.guild.id, interaction.channel.id, null);
 
+  const delayMs = immediateDelete ? 1500 : 5000;
   await interaction.reply({
     embeds: [challengeCard({
-      title: "Ticket closed",
+      title: immediateDelete ? "Ticket deleted" : "Ticket closed",
       color: COLOR_DANGER,
-      description: "Saving transcript, then this channel will be deleted.",
-      footer: "Closing in 5 seconds",
+      description: immediateDelete
+        ? "Clearing this channel now."
+        : "Saving transcript, then this channel will be deleted.",
+      footer: `Closing in ${Math.round(delayMs / 1000)} seconds`,
     })],
   });
 
-  const history = await buildTicketTranscript(interaction.channel, {
-    openerId: userId,
-    closedById: interaction.user.id,
-    panelName: "challenge-tickets",
-  }).catch(() => null);
+  if (!immediateDelete) {
+    const history = await buildTicketTranscript(interaction.channel, {
+      openerId: userId,
+      closedById: interaction.user.id,
+      panelName: "challenge-tickets",
+    }).catch(() => null);
 
-  const ticketsCfg = challengeTicketsOf(cfg);
-  const logId = ticketsCfg.auditLogChannelId || cfg.managementChannelId;
-  if (logId && history?.file) {
-    const logChannel = await interaction.guild.channels.fetch(logId).catch(() => null);
-    if (logChannel?.isTextBased?.()) {
-      await logChannel.send({
-        embeds: [
-          transcriptAuditEmbed({
-            title: "Challenge ticket closed",
-            channel: interaction.channel,
-            closedBy: interaction.user,
-            openerId: userId,
-            panelName: "challenge",
-            history,
-            extraFields: ticket?.targetId
-              ? [{ name: "Target", value: `<@${ticket.targetId}>`, inline: true }]
-              : [],
-          }),
-        ],
-        files: [history.file],
-      }).catch(() => {});
+    const ticketsCfg = challengeTicketsOf(cfg);
+    const logId = ticketsCfg.auditLogChannelId || cfg.managementChannelId;
+    if (logId && history?.file) {
+      const logChannel = await interaction.guild.channels.fetch(logId).catch(() => null);
+      if (logChannel?.isTextBased?.()) {
+        await logChannel.send({
+          embeds: [
+            transcriptAuditEmbed({
+              title: "Challenge ticket closed",
+              channel: interaction.channel,
+              closedBy: interaction.user,
+              openerId: userId,
+              panelName: "challenge",
+              history,
+              extraFields: ticket?.targetId
+                ? [{ name: "Target", value: `<@${ticket.targetId}>`, inline: true }]
+                : [],
+            }),
+          ],
+          files: [history.file],
+        }).catch(() => {});
+      }
     }
   }
 
   await refreshBoard(interaction.guild);
-  setTimeout(() => interaction.channel.delete("Challenge ticket closed").catch(() => {}), 5000);
+  setTimeout(
+    () => interaction.channel.delete(immediateDelete ? "Challenge ticket deleted" : "Challenge ticket closed").catch(() => {}),
+    delayMs
+  );
 }
 
 function loadLiveTicket(interaction) {
@@ -1276,6 +1330,10 @@ async function handleChallengeTickets(interaction) {
     await pickTarget(interaction);
     return true;
   }
+  if (id.startsWith(PICK_BTN_PREFIX) && interaction.isButton?.()) {
+    await pickTarget(interaction, id.slice(PICK_BTN_PREFIX.length));
+    return true;
+  }
   if (id === YES_ID && interaction.isButton?.()) {
     await handleAccept(interaction);
     return true;
@@ -1284,8 +1342,8 @@ async function handleChallengeTickets(interaction) {
     await handleDecline(interaction);
     return true;
   }
-  if (id === CLOSE_ID && interaction.isButton?.()) {
-    await closeTicket(interaction);
+  if ((id === CLOSE_ID || id === DELETE_ID) && interaction.isButton?.()) {
+    await closeTicket(interaction, id === DELETE_ID);
     return true;
   }
   if (id === FMT_FT5_ID && interaction.isButton?.()) {

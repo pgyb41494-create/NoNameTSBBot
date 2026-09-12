@@ -19,6 +19,7 @@ const {
   emptyItem,
   getPanel,
   savePanel,
+  deletePanel,
   listPanels,
   staffIds,
   resolveOption,
@@ -126,8 +127,9 @@ function panelComponents(panel, ctx = {}) {
           const opt = {
             label: applyVars(option.label, ctx).slice(0, 100),
             value: String(index),
-            description: applyVars(option.description || "Open a ticket", ctx).slice(0, 100),
           };
+          const description = applyVars(option.description || "", ctx).slice(0, 100);
+          if (description) opt.description = description;
           const emoji = parseEmoji(option.emoji, ctx.guild);
           if (emoji) opt.emoji = emoji;
           return opt;
@@ -223,6 +225,22 @@ function homePayload(guildId) {
       )
     );
   }
+  if (panels.length) {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("tsb:tix:delete")
+          .setPlaceholder("Delete a panel")
+          .addOptions(
+            panels.slice(0, 25).map((panel) => ({
+              label: `Delete: ${(panel.title || panel.name)}`.slice(0, 100),
+              value: panel.name,
+              description: `ID: ${panel.name}`.slice(0, 100),
+            }))
+          )
+      )
+    );
+  }
   return { embeds: [embed], components: rows };
 }
 
@@ -255,7 +273,7 @@ function wizardPayload(panel, step, guild = null) {
     4: ["Step 4 of 8 · Staff roles", "Default staff. Each option can override this in step 7."],
     5: ["Step 5 of 8 · Panel message", "Panel embed shown in the channel. Press **Variables** for placeholders."],
     6: ["Step 6 of 8 · Ticket greeting", "Default greeting. Each option can override this in step 7. Press **Variables** for placeholders."],
-    7: ["Step 7 of 8 · Buttons or menu", "Add options, then **Configure option** for its own greeting, staff, and category."],
+    7: ["Step 7 of 8 · Buttons or menu", "Add or **Edit option** for label/emoji, then **Configure option** for greeting, staff, and category."],
     8: ["Step 8 of 8 · Publish", "Review and post (or update) the panel."],
   };
   const [title, hint] = titles[step] || titles[1];
@@ -337,6 +355,19 @@ function wizardPayload(panel, step, guild = null) {
       rows.push(new ActionRowBuilder().addComponents(ops.slice(0, 5)));
       const items = itemsOf(panel);
       if (items.length) {
+        const editHint = panel.componentMode === "dropdown"
+          ? "Label, description, emoji"
+          : "Label, emoji, button color";
+        rows.push(new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`tsb:tix:edititem:${panel.name}`)
+            .setPlaceholder("Edit an option")
+            .addOptions(items.slice(0, 25).map((item, index) => ({
+              label: `Edit: ${item.label}`.slice(0, 100),
+              value: String(index),
+              description: editHint.slice(0, 100),
+            })))
+        ));
         rows.push(new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId(`tsb:tix:cfgopt:${panel.name}`)
@@ -382,7 +413,10 @@ function wizardPayload(panel, step, guild = null) {
                 ? "panel category"
                 : (item.categoryId ? `<#${item.categoryId}>` : "panel category");
               const prefix = item.channelPrefix ? ` · \`${item.channelPrefix}-\`` : "";
-              return `> ${i + 1}. ${emojiLabel}**${item.label}**${item.description ? ` — ${item.description}` : ""}\n> ${staff} · ${greet} · ${cat}${prefix}`;
+              const extra = panel.componentMode === "dropdown"
+                ? (item.description ? ` — ${item.description}` : "")
+                : ` · ${item.style || "blue"}`;
+              return `> ${i + 1}. ${emojiLabel}**${item.label}**${extra}\n> ${staff} · ${greet} · ${cat}${prefix}`;
             }).join("\n")
             : "> No options yet. Add Support, Appeals, or anything you need."
         )
@@ -424,7 +458,8 @@ function optionPayload(panel, index, guild = null) {
           .setMaxValues(1)
       ),
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`tsb:tix:optg:${panel.name}:${index}`).setLabel("Greeting").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`tsb:tix:editlook:${panel.name}:${index}`).setLabel(panel.componentMode === "dropdown" ? "Edit option" : "Edit button").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`tsb:tix:optg:${panel.name}:${index}`).setLabel("Greeting").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(`tsb:tix:optn:${panel.name}:${index}`).setLabel("Channel name").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(`tsb:tix:vars:${panel.name}`).setLabel("Variables").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(`tsb:tix:optreset:${panel.name}:${index}`).setLabel("Use panel defaults").setStyle(ButtonStyle.Danger)
@@ -520,18 +555,49 @@ function colorModal(panel) {
     .addComponents(new ActionRowBuilder().addComponents(field("color", "HEX (#5865F2)", TextInputStyle.Short, colorHex(panel.color), 10, true)));
 }
 
-function itemModal(name) {
-  const emojiInput = field("emoji", "Emoji (ID, :name:, unicode)", TextInputStyle.Short, "", 80);
+function modalField(interaction, customId, fallback = "") {
+  try {
+    const value = interaction.fields.getTextInputValue(customId);
+    return value != null ? String(value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function parseButtonStyle(raw, fallback = "blue") {
+  const style = String(raw || "").trim().toLowerCase();
+  return ["blue", "gray", "green", "red"].includes(style) ? style : fallback;
+}
+
+function itemModal(panel, index = null) {
+  const item = index != null ? itemsOf(panel)[index] : null;
+  const editing = Boolean(item);
+  const isDropdown = panel.componentMode === "dropdown";
+  const emojiInput = field("emoji", "Emoji (ID, :name:, unicode)", TextInputStyle.Short, item?.emoji || "", 80);
   emojiInput.setPlaceholder("e.g. 1423781348568727705 or :support:");
+  const rows = [
+    new ActionRowBuilder().addComponents(field("label", "Label", TextInputStyle.Short, item?.label || "", 80, true)),
+  ];
+  if (isDropdown) {
+    rows.push(new ActionRowBuilder().addComponents(
+      field("description", "Description", TextInputStyle.Short, item?.description || "", 100)
+    ));
+  } else {
+    rows.push(new ActionRowBuilder().addComponents(
+      field("style", "Button color: blue gray green red", TextInputStyle.Short, item?.style || "blue", 12)
+    ));
+  }
+  rows.push(new ActionRowBuilder().addComponents(emojiInput));
+  const customId = editing
+    ? `tsb:tix:modal:item:${panel.name}:${index}`
+    : `tsb:tix:modal:item:${panel.name}`;
+  const title = editing
+    ? (isDropdown ? "Edit menu option" : "Edit button")
+    : (isDropdown ? "Add menu option" : "Add button");
   return new ModalBuilder()
-    .setCustomId(`tsb:tix:modal:item:${name}`)
-    .setTitle("Add option")
-    .addComponents(
-      new ActionRowBuilder().addComponents(field("label", "Label", TextInputStyle.Short, "", 80, true)),
-      new ActionRowBuilder().addComponents(field("description", "Description (dropdown)", TextInputStyle.Short, "Open a ticket", 100)),
-      new ActionRowBuilder().addComponents(emojiInput),
-      new ActionRowBuilder().addComponents(field("style", "Button color: blue gray green red", TextInputStyle.Short, "blue", 12))
-    );
+    .setCustomId(customId)
+    .setTitle(title)
+    .addComponents(...rows);
 }
 
 function importModal() {
@@ -893,6 +959,23 @@ async function handleTickets(interaction) {
     });
     return true;
   }
+  if (interaction.isStringSelectMenu() && id === "tsb:tix:delete") {
+    const name = interaction.values[0];
+    const panel = getPanel(interaction.guildId, name);
+    if (!panel) return interaction.reply({ content: "That panel is already gone.", ephemeral: true });
+
+    if (panel.sendChannelId && panel.messageId) {
+      const channel = await interaction.guild.channels.fetch(panel.sendChannelId).catch(() => null);
+      if (channel?.isTextBased?.()) {
+        const msg = await channel.messages.fetch(panel.messageId).catch(() => null);
+        await msg?.delete().catch(() => {});
+      }
+    }
+
+    deletePanel(interaction.guildId, name);
+    await interaction.update(homePayload(interaction.guildId));
+    return true;
+  }
   if (interaction.isStringSelectMenu() && id === "tsb:tix:pick") {
     const panel = getPanel(interaction.guildId, interaction.values[0]);
     if (!panel) return interaction.reply({ content: "That panel is gone.", ephemeral: true });
@@ -1015,7 +1098,25 @@ async function handleTickets(interaction) {
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:additem:")) {
-    await interaction.showModal(itemModal(id.split(":")[3]));
+    const panel = getPanel(interaction.guildId, id.split(":")[3]);
+    if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
+    await interaction.showModal(itemModal(panel));
+    return true;
+  }
+  if (interaction.isStringSelectMenu() && id.startsWith("tsb:tix:edititem:")) {
+    const panel = getPanel(interaction.guildId, id.split(":")[3]);
+    if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
+    const index = Number(interaction.values[0]);
+    if (!itemsOf(panel)[index]) return interaction.reply({ content: "Option missing.", ephemeral: true });
+    await interaction.showModal(itemModal(panel, index));
+    return true;
+  }
+  if (interaction.isButton() && id.startsWith("tsb:tix:editlook:")) {
+    const name = id.split(":")[3];
+    const index = Number(id.split(":")[4]);
+    const panel = getPanel(interaction.guildId, name);
+    if (!panel || !itemsOf(panel)[index]) return interaction.reply({ content: "Option missing.", ephemeral: true });
+    await interaction.showModal(itemModal(panel, index));
     return true;
   }
   if (interaction.isButton() && id.startsWith("tsb:tix:optg:")) {
@@ -1201,21 +1302,36 @@ async function handleTickets(interaction) {
     return true;
   }
   if (interaction.isModalSubmit() && id.startsWith("tsb:tix:modal:item:")) {
-    const panel = getPanel(interaction.guildId, id.split(":")[4]);
-    if (itemsOf(panel).length >= 25) {
+    const parts = id.split(":");
+    const panel = getPanel(interaction.guildId, parts[4]);
+    if (!panel) return interaction.reply({ content: "Panel missing.", ephemeral: true });
+    const editIndex = parts[5] != null && parts[5] !== "" ? Number(parts[5]) : null;
+    const isDropdown = panel.componentMode === "dropdown";
+    panel.items = itemsOf(panel);
+    if (editIndex == null && panel.items.length >= 25) {
       return interaction.reply({ content: "Max 25 options.", ephemeral: true });
     }
-    const styleRaw = String(interaction.fields.getTextInputValue("style") || "blue").toLowerCase();
-    const style = ["blue", "gray", "green", "red"].includes(styleRaw) ? styleRaw : "blue";
-    const emojiRaw = interaction.fields.getTextInputValue("emoji") || "";
+    if (editIndex != null && !panel.items[editIndex]) {
+      return interaction.reply({ content: "Option missing.", ephemeral: true });
+    }
+    const emojiRaw = modalField(interaction, "emoji");
     const emoji = emojiRaw ? await resolveEmojiStorage(emojiRaw, interaction.guild) : "";
-    panel.items = itemsOf(panel);
-    panel.items.push(emptyItem({
-      label: interaction.fields.getTextInputValue("label"),
-      description: interaction.fields.getTextInputValue("description") || "Open a ticket",
-      emoji,
-      style,
-    }));
+    const label = interaction.fields.getTextInputValue("label");
+    if (editIndex != null) {
+      const item = panel.items[editIndex];
+      item.label = label;
+      item.emoji = emoji;
+      if (isDropdown) item.description = modalField(interaction, "description");
+      else item.style = parseButtonStyle(modalField(interaction, "style"), item.style || "blue");
+      panel.items[editIndex] = item;
+    } else {
+      panel.items.push(emptyItem({
+        label,
+        description: isDropdown ? modalField(interaction, "description") : "",
+        emoji,
+        style: isDropdown ? "blue" : parseButtonStyle(modalField(interaction, "style")),
+      }));
+    }
     savePanel(interaction.guildId, panel);
     await interaction.update(wizardPayload(panel, 7, interaction.guild));
     return true;

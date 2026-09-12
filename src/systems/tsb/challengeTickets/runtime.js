@@ -24,7 +24,6 @@ const START_ID = "tsb:chaltix:start";
 const PICK_ID = "tsb:chaltix:pick";
 const PICK_BTN_PREFIX = "tsb:chaltix:pickbtn:";
 const CLOSE_ID = "tsb:chaltix:close";
-const DELETE_ID = "tsb:chaltix:delete";
 const YES_ID = "tsb:chaltix:yes";
 const NO_ID = "tsb:chaltix:no";
 const FMT_FT5_ID = "tsb:chaltix:fmt:ft5";
@@ -260,8 +259,7 @@ function ticketOverwrites(guild, user, staffRoleIds) {
 
 function closeRow() {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(CLOSE_ID).setLabel("Close ticket").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(DELETE_ID).setLabel("Delete ticket").setStyle(ButtonStyle.Danger)
+    new ButtonBuilder().setCustomId(CLOSE_ID).setLabel("Close ticket").setStyle(ButtonStyle.Secondary)
   );
 }
 
@@ -940,7 +938,7 @@ async function handleDecline(interaction) {
   }, 5000);
 }
 
-async function closeTicket(interaction, immediateDelete = false) {
+async function closeTicket(interaction) {
   const cfg = await getLeaderboardConfig(interaction.guild.id);
   const ticket = getTicket(interaction.guild.id, interaction.channel.id);
   const userId = ticket?.userId || interaction.channel.topic?.replace(/^challenge:/, "");
@@ -974,54 +972,49 @@ async function closeTicket(interaction, immediateDelete = false) {
   }
   setTicket(interaction.guild.id, interaction.channel.id, null);
 
-  const delayMs = immediateDelete ? 1500 : 5000;
   await interaction.reply({
     embeds: [challengeCard({
-      title: immediateDelete ? "Ticket deleted" : "Ticket closed",
+      title: "Ticket closed",
       color: COLOR_DANGER,
-      description: immediateDelete
-        ? "Clearing this channel now."
-        : "Saving transcript, then this channel will be deleted.",
-      footer: `Closing in ${Math.round(delayMs / 1000)} seconds`,
+      description: "Saving transcript, then this channel will be deleted.",
+      footer: "Closing in 5 seconds",
     })],
   });
 
-  if (!immediateDelete) {
-    const history = await buildTicketTranscript(interaction.channel, {
-      openerId: userId,
-      closedById: interaction.user.id,
-      panelName: "challenge-tickets",
-    }).catch(() => null);
+  const history = await buildTicketTranscript(interaction.channel, {
+    openerId: userId,
+    closedById: interaction.user.id,
+    panelName: "challenge-tickets",
+  }).catch(() => null);
 
-    const ticketsCfg = challengeTicketsOf(cfg);
-    const logId = ticketsCfg.auditLogChannelId || cfg.managementChannelId;
-    if (logId && history?.file) {
-      const logChannel = await interaction.guild.channels.fetch(logId).catch(() => null);
-      if (logChannel?.isTextBased?.()) {
-        await logChannel.send({
-          embeds: [
-            transcriptAuditEmbed({
-              title: "Challenge ticket closed",
-              channel: interaction.channel,
-              closedBy: interaction.user,
-              openerId: userId,
-              panelName: "challenge",
-              history,
-              extraFields: ticket?.targetId
-                ? [{ name: "Target", value: `<@${ticket.targetId}>`, inline: true }]
-                : [],
-            }),
-          ],
-          files: [history.file],
-        }).catch(() => {});
-      }
+  const ticketsCfg = challengeTicketsOf(cfg);
+  const logId = ticketsCfg.auditLogChannelId || cfg.managementChannelId;
+  if (logId && history?.file) {
+    const logChannel = await interaction.guild.channels.fetch(logId).catch(() => null);
+    if (logChannel?.isTextBased?.()) {
+      await logChannel.send({
+        embeds: [
+          transcriptAuditEmbed({
+            title: "Challenge ticket closed",
+            channel: interaction.channel,
+            closedBy: interaction.user,
+            openerId: userId,
+            panelName: "challenge",
+            history,
+            extraFields: ticket?.targetId
+              ? [{ name: "Target", value: `<@${ticket.targetId}>`, inline: true }]
+              : [],
+          }),
+        ],
+        files: [history.file],
+      }).catch(() => {});
     }
   }
 
   await refreshBoard(interaction.guild);
   setTimeout(
-    () => interaction.channel.delete(immediateDelete ? "Challenge ticket deleted" : "Challenge ticket closed").catch(() => {}),
-    delayMs
+    () => interaction.channel.delete("Challenge ticket closed").catch(() => {}),
+    5000
   );
 }
 
@@ -1342,8 +1335,8 @@ async function handleChallengeTickets(interaction) {
     await handleDecline(interaction);
     return true;
   }
-  if ((id === CLOSE_ID || id === DELETE_ID) && interaction.isButton?.()) {
-    await closeTicket(interaction, id === DELETE_ID);
+  if (id === CLOSE_ID && interaction.isButton?.()) {
+    await closeTicket(interaction);
     return true;
   }
   if (id === FMT_FT5_ID && interaction.isButton?.()) {

@@ -17,7 +17,7 @@ const { getLeaderboardConfig, updateLeaderboardConfig, challengeTicketsOf, spots
 const { getOrCreateNamedChannel } = require("../shared/channelReuse");
 const { applyMatchResult, canUseScore, parseScore } = require("../score/system");
 const { getScoreConfig } = require("../score/config");
-const { setTicket, getTicket, setPending, findOpenTicket } = require("./store");
+const { setTicket, getTicket, setPending, findOpenTicket, ensureNoStaleOpenTicket } = require("./store");
 const { buildTicketTranscript, transcriptAuditEmbed } = require("../shared/transcript");
 
 const START_ID = "tsb:chaltix:start";
@@ -67,6 +67,20 @@ async function busySet(guildId) {
   } catch {
     return new Set();
   }
+}
+
+async function clearChallengeTicketRecords(guild, userId, channelId) {
+  if (!guild || !userId) return;
+  const guildId = guild.id;
+  setPending(guildId, userId, null);
+  if (channelId) setTicket(guildId, channelId, null);
+  try {
+    if (api.challenges.clearInvolving) {
+      await Promise.resolve(api.challenges.clearInvolving(guildId, userId));
+    } else if (api.challenges.clearChallenge) {
+      await Promise.resolve(api.challenges.clearChallenge(guildId, userId));
+    }
+  } catch {}
 }
 
 function validTargets(slots, challengerId, tickets, busy) {
@@ -597,19 +611,35 @@ async function openTicket(interaction) {
     });
   }
 
-  const busy = await busySet(guild.id);
-  if (busy.has(String(interaction.user.id))) {
-    return interaction.reply({
-      content: "You already have an open challenge.",
-      ephemeral: true,
-    });
-  }
+  await ensureNoStaleOpenTicket(guild, interaction.user.id);
 
   const existing = findOpenTicket(guild.id, interaction.user.id);
   if (existing?.ticketChannelId) {
     const ch = await guild.channels.fetch(existing.ticketChannelId).catch(() => null);
     if (ch) {
       return interaction.reply({ content: `You already have a ticket: ${ch}`, ephemeral: true });
+    }
+    await ensureNoStaleOpenTicket(guild, interaction.user.id);
+  }
+
+  let busy = await busySet(guild.id);
+  if (busy.has(String(interaction.user.id))) {
+    const openTicket = findOpenTicket(guild.id, interaction.user.id);
+    if (!openTicket) {
+      try {
+        if (api.challenges.clearInvolving) {
+          await Promise.resolve(api.challenges.clearInvolving(guild.id, interaction.user.id));
+        } else if (api.challenges.clearChallenge) {
+          await Promise.resolve(api.challenges.clearChallenge(guild.id, interaction.user.id));
+        }
+      } catch {}
+      busy = await busySet(guild.id);
+    }
+    if (busy.has(String(interaction.user.id)) && findOpenTicket(guild.id, interaction.user.id)) {
+      return interaction.reply({
+        content: "You already have an open challenge.",
+        ephemeral: true,
+      });
     }
   }
 
@@ -627,7 +657,9 @@ async function openTicket(interaction) {
     name = `${name}-${String(interaction.user.id).slice(-4)}`;
   }
 
-  const channel = await guild.channels.create({
+  let channel;
+  try {
+    channel = await guild.channels.create({
     name,
     type: ChannelType.GuildText,
     parent: category?.id || null,
@@ -635,6 +667,11 @@ async function openTicket(interaction) {
     permissionOverwrites: ticketOverwrites(guild, interaction.user, ticketStaffRoles(cfg)),
     reason: `Challenge ticket for ${interaction.user.tag || interaction.user.username}`,
   });
+  } catch (err) {
+    return interaction.editReply({
+      content: err.message || "Could not create a challenge ticket channel.",
+    });
+  }
 
   setPending(guild.id, interaction.user.id, {
     status: "open",
@@ -851,7 +888,13 @@ async function handleDecline(interaction) {
   await interaction.channel.send({
     content: "Closing this ticket in 5 seconds.",
   }).catch(() => {});
-  setTimeout(() => interaction.channel.delete("Challenge declined").catch(() => {}), 5000);
+  const declineGuild = interaction.guild;
+  const declineUserId = challengerId;
+  const declineChannelId = interaction.channel.id;
+  setTimeout(() => {
+    interaction.channel.delete("Challenge declined").catch(() => {});
+    clearChallengeTicketRecords(declineGuild, declineUserId, declineChannelId).catch(() => {});
+  }, 5000);
 }
 
 async function closeTicket(interaction) {
@@ -1186,7 +1229,7 @@ async function handlePost(interaction) {
     }
 
     setTicket(interaction.guild.id, interaction.channel.id, { status: "posted" });
-    setPending(interaction.guild.id, ticket.userId, { status: "posted" });
+    setPending(interaction.guild.id, ticket.userId, null);
 
     await interaction.editReply({
       content: `Result posted in ${channel}. This ticket closes in 8 seconds.`,
@@ -1206,7 +1249,13 @@ async function handlePost(interaction) {
       ],
       components: [],
     });
-    setTimeout(() => interaction.channel.delete("Challenge result posted").catch(() => {}), 8000);
+    const postGuild = interaction.guild;
+    const postUserId = ticket.userId;
+    const postChannelId = interaction.channel.id;
+    setTimeout(() => {
+      interaction.channel.delete("Challenge result posted").catch(() => {});
+      clearChallengeTicketRecords(postGuild, postUserId, postChannelId).catch(() => {});
+    }, 8000);
   } catch (err) {
     console.error("challenge post failed:", err);
     return interaction.followUp({

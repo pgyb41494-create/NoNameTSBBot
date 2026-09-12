@@ -7,8 +7,8 @@ function statusLine(ok) {
   return ok ? "> ✅ Configured" : "> ❌ Not set";
 }
 
-function moduleBlock(title, body, ok) {
-  return `**${title}**\n${body}\n${statusLine(ok)}`;
+function moduleBlock(title, ok) {
+  return `**${title}**\n${statusLine(ok)}`;
 }
 
 async function loadModuleStatus(guildId) {
@@ -56,8 +56,7 @@ async function loadModuleStatus(guildId) {
   return status;
 }
 
-function buildHubDescription(status, prefix) {
-  const p = prefix || brand.prefix || "'";
+function buildHubDescription(status) {
   const ready = Object.values(status).filter(Boolean).length;
   const total = 7;
 
@@ -66,52 +65,19 @@ function buildHubDescription(status, prefix) {
     "",
     `**${ready} / ${total}** modules ready. Pick a module below. Wizards need **Administrator** or server owner.`,
     "",
-    moduleBlock(
-      "Leaderboard",
-      [
-        "1. Open the boards channel (`#tsb-boards`)",
-        "2. Type `draft` and edit the board",
-        "3. Type `send`",
-        "4. Confirm to publish",
-      ].join("\n"),
-      status.leaderboard
-    ),
+    moduleBlock("Leaderboard", status.leaderboard),
     "",
-    moduleBlock(
-      "Ranking",
-      `Tier roles on boards and lineups (\`${p}stage\` / \`/stage\` — name is set in Ranking Setup).`,
-      status.ranking
-    ),
+    moduleBlock("Ranking", status.ranking),
     "",
-    moduleBlock(
-      "Score",
-      "`/score` records matches and can auto-bump the board.",
-      status.score
-    ),
+    moduleBlock("Score", status.score),
     "",
-    moduleBlock(
-      "Lineups",
-      "`#tsb-lineups` management plus `#lineup-{region}` boards.",
-      status.lineup
-    ),
+    moduleBlock("Lineups", status.lineup),
     "",
-    moduleBlock(
-      "Tryouts",
-      "Signup channel + ping role · runtime `/tryout`.",
-      status.tryout
-    ),
+    moduleBlock("Tryouts", status.tryout),
     "",
-    moduleBlock(
-      "Verification",
-      "`/verify` · DM `/profile` · staff ticket.",
-      status.verify
-    ),
+    moduleBlock("Verification", status.verify),
     "",
-    moduleBlock(
-      "Staff Alerts",
-      "Profiles, ranks, scores, challenges, and duplicate Roblox.",
-      status.alerts
-    ),
+    moduleBlock("Staff Alerts", status.alerts),
   ].join("\n");
 }
 
@@ -132,10 +98,21 @@ function buildSelectOptions(status) {
   }));
 }
 
-async function hubPayload(guildId = null) {
+function brandIcon(client) {
+  const avatar = client?.user?.displayAvatarURL?.({ extension: "png", size: 256 });
+  return avatar || brand.thumbnail || null;
+}
+
+function brandBanner() {
+  return brand.banner || brand.defaultGif || null;
+}
+
+async function hubPayload(guildId = null, client = null) {
   const { tsbEmbed, COLOR_PRIMARY } = require("./shared/embeds");
   const status = await loadModuleStatus(guildId);
   const options = buildSelectOptions(status);
+  const thumb = brandIcon(client);
+  const banner = brandBanner();
 
   return {
     embeds: [
@@ -143,11 +120,11 @@ async function hubPayload(guildId = null) {
         title: `${brand.name} Setup`,
         color: COLOR_PRIMARY,
         author: false,
-        thumbnail: brand.thumbnail,
-        image: brand.banner,
-        description: buildHubDescription(status, brand.prefix),
+        thumbnail: thumb,
+        image: banner,
+        description: buildHubDescription(status),
         footer: `${brand.name} · The Strongest Battlegrounds`,
-        footerIcon: brand.thumbnail,
+        footerIcon: thumb,
       }),
     ],
     components: [{
@@ -163,7 +140,7 @@ async function hubPayload(guildId = null) {
 }
 
 async function openHub(interaction) {
-  const payload = await hubPayload(interaction.guild?.id);
+  const payload = await hubPayload(interaction.guild?.id, interaction.client);
   if (interaction.replied || interaction.deferred) return interaction.editReply(payload);
   if (interaction.message) return interaction.update(payload);
   return interaction.reply(payload);

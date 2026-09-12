@@ -249,26 +249,56 @@ function createBotApi(client) {
   app.post("/discord/guilds/:guildId/embeds/:name/send", async (req, res) => {
     try {
       const store = require("./systems/tsb/aboutserver/store");
-      const { postOrEdit } = require("./systems/tsb/aboutserver/runtime");
+      const { postOrEdit, buildPayload } = require("./systems/tsb/aboutserver/runtime");
       if (!store.hasConfig(req.params.guildId, req.params.name)) {
         return res.status(404).json({ error: "Embed not found" });
       }
       const channelId = String(req.body?.channelId || req.body?.channel || "").trim();
-      if (!channelId) return res.status(400).json({ error: "channelId is required" });
+      const webhookUrl = String(req.body?.webhookUrl || req.body?.webhook || "").trim();
+      if (!channelId && !webhookUrl) {
+        return res.status(400).json({ error: "channelId or webhookUrl is required" });
+      }
       const client = botBridge.getClient();
       if (!client?.user) return res.status(503).json({ error: "Bot is offline" });
       const guild = await client.guilds.fetch(req.params.guildId).catch(() => null);
       if (!guild) return res.status(404).json({ error: "Guild not found" });
-      const channel = await guild.channels.fetch(channelId).catch(() => null);
-      if (!channel?.isTextBased?.()) return res.status(400).json({ error: "Invalid channel" });
       const cfg = store.getConfig(req.params.guildId, req.params.name);
-      const sent = await postOrEdit(channel, guild, cfg);
-      res.json({
-        ok: true,
-        messageId: sent.id,
-        channelId: channel.id,
-        embed: store.getConfig(req.params.guildId, req.params.name),
-      });
+
+      if (channelId) {
+        const channel = await guild.channels.fetch(channelId).catch(() => null);
+        if (!channel?.isTextBased?.()) return res.status(400).json({ error: "Invalid channel" });
+        const sent = await postOrEdit(channel, guild, cfg);
+        return res.json({
+          ok: true,
+          via: "bot",
+          messageId: sent.id,
+          channelId: channel.id,
+          embed: store.getConfig(req.params.guildId, req.params.name),
+        });
+      }
+
+      const { WebhookClient } = require("discord.js");
+      const payload = await buildPayload(guild, cfg);
+      const json = {
+        content: payload.content || undefined,
+        embeds: payload.embeds?.map((e) => (typeof e.toJSON === "function" ? e.toJSON() : e)),
+        components: payload.components?.map((row) =>
+          typeof row.toJSON === "function" ? row.toJSON() : row
+        ),
+        flags: payload.flags,
+      };
+      const wh = new WebhookClient({ url: webhookUrl });
+      try {
+        const sent = await wh.send(json);
+        return res.json({
+          ok: true,
+          via: "webhook",
+          messageId: sent?.id || null,
+          embed: store.getConfig(req.params.guildId, req.params.name),
+        });
+      } finally {
+        wh.destroy();
+      }
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }

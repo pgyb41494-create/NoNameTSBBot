@@ -3,98 +3,151 @@ const { brand } = require("../../utils/loadApi");
 
 const HUB_CUSTOM_ID = "tsb:hub";
 
-function statusEmoji(ok) {
-  return ok ? "✅" : "❌";
+function statusLine(ok) {
+  return ok ? "> ✅ Configured" : "> ❌ Not set";
 }
 
-function statusLabel(ok) {
-  return ok ? "In use · configured" : "Not set up yet";
+function moduleBlock(title, body, ok) {
+  return `**${title}**\n${body}\n${statusLine(ok)}`;
 }
 
-async function buildModuleOptions(guildId) {
-  let lb = false;
-  let rank = false;
-  let score = false;
-  let lineup = false;
-  let tryout = false;
-  let verify = false;
+async function loadModuleStatus(guildId) {
+  const status = {
+    leaderboard: false,
+    ranking: false,
+    score: false,
+    lineup: false,
+    tryout: false,
+    verify: false,
+    alerts: false,
+  };
+  if (!guildId) return status;
+
   try {
     const { getLeaderboardConfig } = require("./leaderboard/config");
-    lb = !!(await getLeaderboardConfig(guildId)).setupCompleted;
+    status.leaderboard = !!(await getLeaderboardConfig(guildId)).setupCompleted;
   } catch {}
   try {
     const { isSetupCompleted } = require("./ranking/config");
-    rank = !!(await isSetupCompleted(guildId));
+    status.ranking = !!(await isSetupCompleted(guildId));
   } catch {}
   try {
     const { getScoreConfig } = require("./score/config");
-    score = !!(await getScoreConfig(guildId)).setupCompleted;
+    status.score = !!(await getScoreConfig(guildId)).setupCompleted;
   } catch {}
   try {
     const { getLineupConfig } = require("./lineup/config");
-    lineup = !!(await getLineupConfig(guildId)).setupCompleted;
+    status.lineup = !!(await getLineupConfig(guildId)).setupCompleted;
   } catch {}
   try {
     const { getTryoutSettings } = require("./tryout/settings");
-    tryout = !!getTryoutSettings(guildId).configured;
+    status.tryout = !!getTryoutSettings(guildId).configured;
   } catch {}
   try {
     const { getConfig } = require("./verify/store");
-    verify = !!getConfig(guildId).setupCompleted;
+    status.verify = !!getConfig(guildId).setupCompleted;
   } catch {}
-  let alerts = false;
   try {
     const { publicStaffAlerts } = require("./ops/store");
     const cfg = publicStaffAlerts(guildId);
-    alerts = !!(cfg.channelId || cfg.fallbackChannelId);
+    status.alerts = !!(cfg.channelId || cfg.fallbackChannelId);
   } catch {}
 
-  const modules = [
-    { label: "Top Leaderboard", value: "leaderboard_setup", ok: lb },
-    { label: "Ranking Setup", value: "ranking_setup", ok: rank },
-    { label: "1v1 Score Setup", value: "score_setup", ok: score },
-    { label: "Line Up Management", value: "lineup_setup", ok: lineup },
-    { label: "Tryouts", value: "tryout_setup", ok: tryout },
-    { label: "Verification", value: "verify_setup", ok: verify },
-    { label: "Staff Alerts", value: "alerts_setup", ok: alerts },
-  ];
+  return status;
+}
 
-  return modules.map((mod) => ({
-    label: `${statusEmoji(mod.ok)} ${mod.label}`.slice(0, 100),
-    value: mod.value,
-    description: statusLabel(mod.ok).slice(0, 100),
+function buildHubDescription(status, prefix) {
+  const p = prefix || brand.prefix || "'";
+  const ready = Object.values(status).filter(Boolean).length;
+  const total = 7;
+
+  return [
+    `Ranking, boards, lineups, and tryouts for **The Strongest Battlegrounds**.`,
+    "",
+    `**${ready} / ${total}** modules ready. Pick a module below. Wizards need **Administrator** or server owner.`,
+    "",
+    moduleBlock(
+      "Leaderboard",
+      [
+        "1. Open the boards channel (`#tsb-boards`)",
+        "2. Type `draft` and edit the board",
+        "3. Type `send`",
+        "4. Confirm to publish",
+      ].join("\n"),
+      status.leaderboard
+    ),
+    "",
+    moduleBlock(
+      "Ranking",
+      `Tier roles on boards and lineups (\`${p}stage\` / \`/stage\` — name is set in Ranking Setup).`,
+      status.ranking
+    ),
+    "",
+    moduleBlock(
+      "Score",
+      "`/score` records matches and can auto-bump the board.",
+      status.score
+    ),
+    "",
+    moduleBlock(
+      "Lineups",
+      "`#tsb-lineups` management plus `#lineup-{region}` boards.",
+      status.lineup
+    ),
+    "",
+    moduleBlock(
+      "Tryouts",
+      "Signup channel + ping role · runtime `/tryout`.",
+      status.tryout
+    ),
+    "",
+    moduleBlock(
+      "Verification",
+      "`/verify` · DM `/profile` · staff ticket.",
+      status.verify
+    ),
+    "",
+    moduleBlock(
+      "Staff Alerts",
+      "Profiles, ranks, scores, challenges, and duplicate Roblox.",
+      status.alerts
+    ),
+  ].join("\n");
+}
+
+function buildSelectOptions(status) {
+  const rows = [
+    { label: "Leaderboard", value: "leaderboard_setup", ok: status.leaderboard, hint: "Boards & drafts" },
+    { label: "Ranking", value: "ranking_setup", ok: status.ranking, hint: "Tiers & cooldowns" },
+    { label: "Score", value: "score_setup", ok: status.score, hint: "Match scoring" },
+    { label: "Lineups", value: "lineup_setup", ok: status.lineup, hint: "Regional lineups" },
+    { label: "Tryouts", value: "tryout_setup", ok: status.tryout, hint: "Signup sessions" },
+    { label: "Verification", value: "verify_setup", ok: status.verify, hint: "Profile tickets" },
+    { label: "Staff Alerts", value: "alerts_setup", ok: status.alerts, hint: "TSB staff feed" },
+  ];
+  return rows.map((row) => ({
+    label: `${row.ok ? "✅" : "❌"} ${row.label}`.slice(0, 100),
+    value: row.value,
+    description: (row.ok ? `Configured · ${row.hint}` : `Not set · ${row.hint}`).slice(0, 100),
   }));
 }
 
 async function hubPayload(guildId = null) {
   const { tsbEmbed, COLOR_PRIMARY } = require("./shared/embeds");
-  const options = guildId
-    ? await buildModuleOptions(guildId)
-    : [
-        { label: "❌ Top Leaderboard", value: "leaderboard_setup", description: "Not set up yet" },
-        { label: "❌ Ranking Setup", value: "ranking_setup", description: "Not set up yet" },
-        { label: "❌ 1v1 Score Setup", value: "score_setup", description: "Not set up yet" },
-        { label: "❌ Line Up Management", value: "lineup_setup", description: "Not set up yet" },
-        { label: "❌ Tryouts", value: "tryout_setup", description: "Not set up yet" },
-        { label: "❌ Verification", value: "verify_setup", description: "Not set up yet" },
-        { label: "❌ Staff Alerts", value: "alerts_setup", description: "Not set up yet" },
-      ];
+  const status = await loadModuleStatus(guildId);
+  const options = buildSelectOptions(status);
 
   return {
     embeds: [
       tsbEmbed({
-        title: "Server setup",
+        title: `${brand.name} Setup`,
         color: COLOR_PRIMARY,
+        author: false,
         thumbnail: brand.thumbnail,
         image: brand.banner,
-        description:
-          "Set up Ascendant for this server in a few short steps.\n\n" +
-          "**1.** Pick a module below\n" +
-          "**2.** Follow the buttons in that module\n" +
-          "**3.** Come back here until everything shows ✅\n\n" +
-          "✅ = already in use · ❌ = still needs setup\n\n" +
-          "> Tip: start with **Top Leaderboard**, then Ranking / Score if you need them.",
-        footer: "Administrator or server owner required",
+        description: buildHubDescription(status, brand.prefix),
+        footer: `${brand.name} · The Strongest Battlegrounds`,
+        footerIcon: brand.thumbnail,
       }),
     ],
     components: [{
@@ -102,7 +155,7 @@ async function hubPayload(guildId = null) {
       components: [{
         type: 3,
         custom_id: HUB_CUSTOM_ID,
-        placeholder: "Choose a module to set up",
+        placeholder: `Select an ${brand.name} module`,
         options,
       }],
     }],
@@ -122,7 +175,7 @@ async function handleHubSelect(interaction) {
 
   if (!isAdminOrOwner(interaction.member, interaction.guild)) {
     return interaction.reply({
-      content: "You need **Administrator** or server owner to configure TSB modules.",
+      content: "You need **Administrator** or server owner to configure Ascendant modules.",
       ephemeral: true,
     });
   }

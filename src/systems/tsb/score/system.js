@@ -77,14 +77,14 @@ function cooldownUntilFromDays(days) {
     return new Date(Date.now() + n * 24 * 60 * 60 * 1000);
 }
 
-function boardPosition(guildId, userId) {
-    const cfg = getLeaderboardConfig(guildId);
-    const slots = cfg.slots || [];
+async function boardPosition(guildId, userId, cfg = null) {
+    const config = cfg || (await getLeaderboardConfig(guildId));
+    const slots = config.slots || [];
     const idx = slots.findIndex((s) => s?.discordId && String(s.discordId) === String(userId));
     return idx >= 0 ? idx + 1 : null;
 }
 
-async function loadDisplay(guild, userId) {
+async function loadDisplay(guild, userId, cfg = null) {
     const member = await guild.members.fetch(userId).catch(() => null);
     let profile = await getProfileByDiscordId(guild.id, userId).catch(() => null);
     if (!profile) profile = await getProfileByDiscordId(null, userId).catch(() => null);
@@ -115,7 +115,7 @@ async function loadDisplay(guild, userId) {
         mention: `<@${userId}>`,
         name,
         avatarUrl,
-        position: boardPosition(guild.id, userId),
+        position: await boardPosition(guild.id, userId, cfg),
         profile
     };
 }
@@ -147,13 +147,19 @@ function formatReferees(raw) {
 }
 
 async function bumpLeaderboard(guild, winnerId, loserId) {
-    const cfg = getLeaderboardConfig(guild.id);
-    if (!cfg.setupCompleted || !(cfg.slots || []).length) {
+    const cfg = await getLeaderboardConfig(guild.id);
+    const slots = Array.isArray(cfg.slots) ? cfg.slots : [];
+    const filled = slots.some((s) => s?.discordId);
+
+    if (!cfg.setupCompleted) {
         return { bumped: false, reason: "lb_not_setup" };
     }
+    if (!slots.length || !filled) {
+        return { bumped: false, reason: "lb_empty" };
+    }
 
-    const winnerPos = boardPosition(guild.id, winnerId);
-    const loserPos = boardPosition(guild.id, loserId);
+    const winnerPos = await boardPosition(guild.id, winnerId, cfg);
+    const loserPos = await boardPosition(guild.id, loserId, cfg);
 
     if (!loserPos) {
         return { bumped: false, reason: "loser_off_board", winnerPos, loserPos };
@@ -164,7 +170,7 @@ async function bumpLeaderboard(guild, winnerId, loserId) {
         return { bumped: false, reason: "defense", winnerPos, loserPos };
     }
 
-    const ids = (cfg.slots || []).map((s) => (s?.discordId ? String(s.discordId) : null));
+    const ids = slots.map((s) => (s?.discordId ? String(s.discordId) : null));
     const wIdx = winnerPos ? winnerPos - 1 : -1;
     const lIdx = loserPos - 1;
     const winnerStr = String(winnerId);
@@ -179,12 +185,12 @@ async function bumpLeaderboard(guild, winnerId, loserId) {
         if (droppedId === winnerStr) droppedId = null;
     }
 
-    const slots = ids.map((discordId, i) => ({
+    const nextSlots = ids.map((discordId, i) => ({
         position: i + 1,
         discordId
     }));
 
-    updateLeaderboardConfig(guild.id, { slots });
+    await updateLeaderboardConfig(guild.id, { slots: nextSlots });
     await refreshLeaderboard(guild).catch((err) => {
         console.warn("[Score] leaderboard refresh failed:", err.message);
     });
@@ -301,6 +307,9 @@ function formatLeaderboardBump(bump, winner, loser) {
     if (bump.reason === "lb_not_setup") {
         return "no change (leaderboard not set up)";
     }
+    if (bump.reason === "lb_empty") {
+        return "no change (leaderboard has no players yet — fill it in management / draft)";
+    }
     return "no change";
 }
 
@@ -359,8 +368,9 @@ async function applyMatchResult({
         return { error: `Cooldown active — cannot record this match yet:\n• ${blocked.join("\n• ")}` };
     }
 
-    const p1 = await loadDisplay(guild, participant1Id);
-    const p2 = await loadDisplay(guild, participant2Id);
+    const lbCfg = await getLeaderboardConfig(guild.id);
+    const p1 = await loadDisplay(guild, participant1Id, lbCfg);
+    const p2 = await loadDisplay(guild, participant2Id, lbCfg);
     const winner = String(winnerId) === p1.discordId ? p1 : p2;
     const loser = String(winnerId) === p1.discordId ? p2 : p1;
 

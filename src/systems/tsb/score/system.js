@@ -122,12 +122,9 @@ async function loadDisplay(guild, userId, cfg = null) {
 
 function detectAutowin(score, notes) {
     const noteText = String(notes || "").toLowerCase();
-    if (/\bauto\b/.test(noteText) || noteText.includes("autowin") || noteText.includes("auto win")) {
-        return true;
-    }
-    if (score && (score.left === 0 || score.right === 0) && Math.max(score.left, score.right) >= 10) {
-        if (noteText.includes("w") && noteText.includes("auto")) return true;
-    }
+    // Require an explicit autowin marker — don't treat random "auto" substrings as strikes.
+    if (/\bautowin\b/.test(noteText) || /\bauto\s*win\b/.test(noteText)) return true;
+    if (/(^|[^\w])auto([^\w]|$)/.test(noteText)) return true;
     return false;
 }
 

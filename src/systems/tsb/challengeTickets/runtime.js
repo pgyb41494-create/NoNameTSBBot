@@ -38,6 +38,7 @@ const CHANNEL_ID = "tsb:chaltix:channel";
 const WIN_CHAL_ID = "tsb:chaltix:win:chal";
 const WIN_DEF_ID = "tsb:chaltix:win:def";
 const ENTER_SCORE_ID = "tsb:chaltix:enterscore";
+const AUTOWIN_ID = "tsb:chaltix:autowin";
 const POST_ID = "tsb:chaltix:post";
 const SCORE_MODAL_ID = "tsb:chaltix:scoremodal";
 
@@ -349,6 +350,15 @@ function formatLabel(format) {
   return "Not set";
 }
 
+function autowinScoreForFormat(format) {
+  return format === "ft5" ? "5-0" : "10-0";
+}
+
+function notesWantAutowin(raw) {
+  const text = String(raw || "").toLowerCase();
+  return /\bautowin\b/.test(text) || /\bauto\s*win\b/.test(text) || /(^|[^\w])auto([^\w]|$)/.test(text);
+}
+
 function isCrossRegion(ticket) {
   return Boolean(ticket?.hostCrossRegion);
 }
@@ -490,8 +500,14 @@ function mark(done, label) {
   return `${done ? "✅" : "⬜"} ${label}`;
 }
 
-function scoringPayload(ticket, names) {
-  const ready = ticket.format && hasHost(ticket) && ticket.winnerId && ticket.scoreDisplay && ticket.resultChannelId;
+function scoringPayload(ticket, names, scoreModuleReady = true) {
+  const ready =
+    ticket.format &&
+    hasHost(ticket) &&
+    ticket.winnerId &&
+    ticket.scoreDisplay &&
+    ticket.resultChannelId &&
+    scoreModuleReady;
   const winnerAvatar =
     String(ticket.winnerId) === String(ticket.userId)
       ? names.challengerAvatar
@@ -510,7 +526,7 @@ function scoringPayload(ticket, names) {
     mark(Boolean(ticket.format), "Format"),
     mark(hasHost(ticket), "Host"),
     mark(Boolean(ticket.winnerId), "Winner"),
-    mark(Boolean(ticket.scoreDisplay), "Score"),
+    mark(Boolean(ticket.scoreDisplay), ticket.isAutowin ? "Score (autowin)" : "Score"),
     mark(Boolean(ticket.resultChannelId), "Channel"),
   ].join(" · ");
 
@@ -520,12 +536,30 @@ function scoringPayload(ticket, names) {
     fv("Format", formatLabel(ticket.format)),
     fv("Host", hostLabel(ticket)),
     fv("Winner", ticket.winnerId ? `<@${ticket.winnerId}>` : "Not set"),
-    fv("Score", ticket.scoreDisplay || "Not set"),
+    fv(
+      "Score",
+      ticket.scoreDisplay
+        ? `${ticket.scoreDisplay}${ticket.isAutowin ? " · autowin" : ""}`
+        : "Not set"
+    ),
   ];
   if (isCrossRegion(ticket)) {
     fields.push(fv("Regions", regionLine(ticket) || "Enter both region scores", false));
   }
   fields.push(fv("Post to", ticket.resultChannelId ? `<#${ticket.resultChannelId}>` : "Not set", false));
+  if (!scoreModuleReady) {
+    fields.push(
+      fv(
+        "Score module",
+        "Not set up — an admin must run `'setup` → **Score** before posting.",
+        false
+      )
+    );
+  }
+
+  const baseDescription = isCrossRegion(ticket)
+    ? "Cross-region totals from the two region scores. Winner's games first, like `Chicago 5-3`.\n\nFill each button below — **Post result** unlocks when everything is set."
+    : "Fill each step below. Use **Autowin** for a forfeit, or **Enter score** for a real set — you can switch either way anytime.";
 
   return {
     content: "",
@@ -534,11 +568,15 @@ function scoringPayload(ticket, names) {
       challengeCard({
         title: "Record result",
         color: ready ? COLOR_SUCCESS : COLOR_PRIMARY,
-        description: isCrossRegion(ticket)
-          ? "Cross-region totals from the two region scores. Winner's games first, like `Chicago 5-3`.\n\nFill each button below — **Post result** unlocks when everything is set."
-          : "Fill each step below. **Post result** unlocks when format, host, winner, score, and channel are set.",
+        description: !scoreModuleReady
+          ? `⚠️ **Score isn’t set up yet.**\nAn admin needs to run \`'setup\` → **Score** before this result can be posted.\n\n${baseDescription}`
+          : baseDescription,
         fields,
-        footer: ready ? "Ready to post" : "Tap buttons to fill the result",
+        footer: !scoreModuleReady
+          ? "Enable Score in 'setup first"
+          : ready
+            ? "Ready to post"
+            : "Tap buttons to fill the result",
         thumbnail: winnerAvatar,
       }),
     ],
@@ -561,8 +599,12 @@ function scoringPayload(ticket, names) {
           .setLabel(ticket.scoreDisplay ? "Edit score" : "Enter score")
           .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
+          .setCustomId(AUTOWIN_ID)
+          .setLabel(ticket.isAutowin ? "Autowin ✓" : "Autowin")
+          .setStyle(ticket.isAutowin ? ButtonStyle.Danger : ButtonStyle.Secondary),
+        new ButtonBuilder()
           .setCustomId(POST_ID)
-          .setLabel("Post result")
+          .setLabel(scoreModuleReady ? "Post result" : "Setup Score first")
           .setStyle(ButtonStyle.Success)
           .setDisabled(!ready)
       ),
@@ -573,7 +615,17 @@ function scoringPayload(ticket, names) {
 
 async function refreshMatchMessage(interaction, ticket) {
   const names = await matchNames(interaction.guild, ticket);
-  const payload = ticket.status === "scoring" ? scoringPayload(ticket, names) : setupPayload(ticket, names);
+  let scoreModuleReady = true;
+  try {
+    const scoreCfg = await getScoreConfig(interaction.guild.id);
+    scoreModuleReady = !!scoreCfg?.setupCompleted;
+  } catch {
+    scoreModuleReady = false;
+  }
+  const payload =
+    ticket.status === "scoring"
+      ? scoringPayload(ticket, names, scoreModuleReady)
+      : setupPayload(ticket, names);
   if (interaction.isModalSubmit?.()) {
     const msg = ticket.setupMessageId
       ? await interaction.channel.messages.fetch(ticket.setupMessageId).catch(() => null)
@@ -1085,6 +1137,10 @@ async function handleFormat(interaction, format) {
     return interaction.reply({ content: "Tap **Record result** first, then pick FT5 or FT10.", ephemeral: true });
   }
   const next = { ...ticket, format };
+  if (ticket.isAutowin) {
+    next.scoreDisplay = autowinScoreForFormat(format);
+    next.scoreNotes = "autowin";
+  }
   setTicket(interaction.guild.id, interaction.channel.id, next);
   return refreshMatchMessage(interaction, { ...ticket, ...next });
 }
@@ -1169,7 +1225,7 @@ async function handleEnterScore(interaction) {
   if (!cross) {
     const scoreField = new TextInputBuilder()
       .setCustomId("score")
-      .setLabel("Score (example 5-3)")
+      .setLabel("Score (example 5-3) — replaces autowin")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
       .setMaxLength(12);
@@ -1199,11 +1255,14 @@ async function handleEnterScore(interaction) {
 
   const notes = new TextInputBuilder()
     .setCustomId("notes")
-    .setLabel("Notes (optional)")
+    .setLabel("Notes (optional — type autowin to keep it)")
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(false)
     .setMaxLength(200);
-  if (ticket.scoreNotes) notes.setValue(ticket.scoreNotes);
+  if (ticket.scoreNotes && !ticket.isAutowin) notes.setValue(ticket.scoreNotes);
+  else if (ticket.scoreNotes && ticket.isAutowin && !/^autowin$/i.test(ticket.scoreNotes)) {
+    notes.setValue(ticket.scoreNotes.replace(/\bautowin\b/gi, "").trim());
+  }
   fields.push(new ActionRowBuilder().addComponents(notes));
 
   return interaction.showModal(
@@ -1212,6 +1271,44 @@ async function handleEnterScore(interaction) {
       .setTitle(cross ? "Cross-region scores" : "Match score")
       .addComponents(...fields)
   );
+}
+
+async function handleAutowin(interaction) {
+  const ticket = loadLiveTicket(interaction);
+  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
+    return interaction.reply({ content: "Only staff can mark an autowin.", ephemeral: true });
+  }
+  if (ticket?.status !== "scoring") {
+    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
+  }
+  if (!ticket.format) {
+    return interaction.reply({ content: "Pick **FT5** or **FT10** first, then Autowin.", ephemeral: true });
+  }
+
+  // Toggle off if already autowin — staff can clear and enter a real score
+  if (ticket.isAutowin) {
+    const next = {
+      ...ticket,
+      scoreDisplay: "",
+      scoreNotes: "",
+      isAutowin: false,
+    };
+    setTicket(interaction.guild.id, interaction.channel.id, next);
+    return refreshMatchMessage(interaction, { ...ticket, ...next });
+  }
+
+  const next = {
+    ...ticket,
+    scoreDisplay: autowinScoreForFormat(ticket.format),
+    scoreNotes: "autowin",
+    isAutowin: true,
+    region1: "",
+    region1Score: "",
+    region2: "",
+    region2Score: "",
+  };
+  setTicket(interaction.guild.id, interaction.channel.id, next);
+  return refreshMatchMessage(interaction, { ...ticket, ...next });
 }
 
 async function handleScoreModal(interaction) {
@@ -1238,10 +1335,12 @@ async function handleScoreModal(interaction) {
       });
     }
     const total = combinedCrossScore(r1, r2);
+    const isAutowin = notesWantAutowin(scoreNotes);
     const next = {
       ...ticket,
       scoreDisplay: total.display,
-      scoreNotes,
+      scoreNotes: isAutowin ? (scoreNotes || "autowin") : scoreNotes,
+      isAutowin,
       region1: r1.label,
       region1Score: r1.score.display,
       region2: r2.label,
@@ -1257,10 +1356,12 @@ async function handleScoreModal(interaction) {
     return interaction.reply({ content: "Score must look like `5-3` or `10-8`.", ephemeral: true });
   }
 
+  const isAutowin = notesWantAutowin(scoreNotes);
   const next = {
     ...ticket,
     scoreDisplay: parsed.display,
-    scoreNotes,
+    scoreNotes: isAutowin ? (scoreNotes || "autowin") : scoreNotes,
+    isAutowin,
     region1: "",
     region1Score: "",
     region2: "",
@@ -1282,6 +1383,19 @@ async function handlePost(interaction) {
     return interaction.reply({ content: "Set format, host, winner, score, and channel first.", ephemeral: true });
   }
 
+  let scoreCfg = null;
+  try {
+    scoreCfg = await getScoreConfig(interaction.guild.id);
+  } catch {}
+  if (!scoreCfg?.setupCompleted) {
+    return interaction.reply({
+      content:
+        "Score isn’t set up yet — this result can’t be posted.\n" +
+        "An admin needs to run **`'setup`** → **Score** first, then try again.",
+      ephemeral: true,
+    });
+  }
+
   const channel = await interaction.guild.channels.fetch(ticket.resultChannelId).catch(() => null);
   if (!channel?.isTextBased?.()) {
     return interaction.reply({ content: "That channel is not available.", ephemeral: true });
@@ -1291,7 +1405,11 @@ async function handlePost(interaction) {
 
   try {
     const hostNote = ticket.hostCrossRegion ? "Host: Cross-region" : ticket.hostId ? `Host: <@${ticket.hostId}>` : "";
-    const notes = [formatLabel(ticket.format), hostNote, ticket.scoreNotes].filter(Boolean).join(" · ");
+    let scoreNotes = String(ticket.scoreNotes || "").trim();
+    if (ticket.isAutowin && !notesWantAutowin(scoreNotes)) {
+      scoreNotes = [scoreNotes, "autowin"].filter(Boolean).join(" · ");
+    }
+    const notes = [formatLabel(ticket.format), hostNote, scoreNotes].filter(Boolean).join(" · ");
     const crossregion = isCrossRegion(ticket) || ticket.format === "ft10";
 
     const result = await applyMatchResult({
@@ -1428,6 +1546,10 @@ async function handleChallengeTickets(interaction) {
   }
   if (id === ENTER_SCORE_ID && interaction.isButton?.()) {
     await handleEnterScore(interaction);
+    return true;
+  }
+  if (id === AUTOWIN_ID && interaction.isButton?.()) {
+    await handleAutowin(interaction);
     return true;
   }
   if (id === POST_ID && interaction.isButton?.()) {

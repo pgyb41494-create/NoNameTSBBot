@@ -5,12 +5,14 @@ const {
   ChannelType,
   ChannelSelectMenuBuilder,
   ModalBuilder,
+  OverwriteType,
   PermissionFlagsBits,
   StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
 } = require("discord.js");
 const api = require("../../../utils/loadApi");
+const { brand } = api;
 const { tsbEmbed, COLOR_PRIMARY, COLOR_SURFACE, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARN } = require("../shared/embeds");
 const { isAdminOrOwner, memberHasAnyRole } = require("../shared/permissions");
 const { getLeaderboardConfig, updateLeaderboardConfig, challengeTicketsOf, spotsAheadFor, formatChallengeRules, challengeStaffRoleIds } = require("../leaderboard/config");
@@ -107,19 +109,37 @@ function shortBoardLines(slots, busy, limit = 15) {
   return lines.join("\n") || "*Board is empty.*";
 }
 
+function brandIcon(client) {
+  return (
+    client?.user?.displayAvatarURL?.({ extension: "png", size: 256 }) ||
+    brand?.thumbnail ||
+    null
+  );
+}
+
+function brandBanner() {
+  return brand?.banner || brand?.defaultGif || null;
+}
+
 async function panelPayload(guild) {
   const tickets = challengeTicketsOf(await getLeaderboardConfig(guild.id));
+  const thumb = brandIcon(guild.client);
+  const banner = brandBanner();
   return {
     embeds: [
       challengeCard({
         title: "Challenge tickets",
         color: COLOR_PRIMARY,
-        description: "On the board and want to move up? Open a ticket, pick **one** player ahead of you, and wait for them to accept.",
+        description:
+          "On the board and want to move up?\nOpen a ticket, pick **one** player ahead of you, and wait for them to accept.",
         fields: [
-          fv("Challenge range", formatChallengeRules(tickets), false),
-          fv("Dodges", "2 per player — after that they must accept"),
+          fv("Range", formatChallengeRules(tickets), false),
+          fv("Dodges", "2 per player — then they must accept"),
         ],
-        footer: "Only leaderboard players can open a ticket",
+        footer: "Leaderboard players only",
+        footerIcon: thumb,
+        thumbnail: thumb,
+        image: banner,
       }),
     ],
     components: [
@@ -212,18 +232,27 @@ function canStaff(member, guild, cfg) {
   ]);
 }
 
-function ticketStaffRoles(cfg) {
+function ticketStaffRoles(cfg, guild = null) {
   const tickets = challengeTicketsOf(cfg);
-  const ids = [...(tickets.supportRoleIds || []), ...(cfg.allowedRoles || [])];
-  return [...new Set(ids.map((id) => String(id)).filter(Boolean))];
+  const ids = [...(tickets.supportRoleIds || []), ...(cfg.allowedRoles || [])]
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  const unique = [...new Set(ids)];
+  if (!guild) return unique;
+  return unique.filter((id) => guild.roles.cache.has(id));
 }
 
 function ticketOverwrites(guild, user, staffRoleIds) {
-  const me = guild.members.me;
+  const botId = guild.members.me?.id || guild.client?.user?.id;
   const overwrites = [
-    { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+    {
+      id: guild.id,
+      type: OverwriteType.Role,
+      deny: [PermissionFlagsBits.ViewChannel],
+    },
     {
       id: user.id,
+      type: OverwriteType.Member,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
@@ -232,9 +261,10 @@ function ticketOverwrites(guild, user, staffRoleIds) {
       ],
     },
   ];
-  if (me) {
+  if (botId) {
     overwrites.push({
-      id: me.id,
+      id: botId,
+      type: OverwriteType.Member,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
@@ -245,8 +275,10 @@ function ticketOverwrites(guild, user, staffRoleIds) {
     });
   }
   for (const roleId of staffRoleIds || []) {
+    if (!guild.roles.cache.has(String(roleId))) continue;
     overwrites.push({
-      id: roleId,
+      id: String(roleId),
+      type: OverwriteType.Role,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
@@ -380,15 +412,17 @@ function fv(name, value, inline = true) {
   return { name, value: text.slice(0, 1024), inline };
 }
 
-function challengeCard({ title, color, description, fields, footer, thumbnail }) {
+function challengeCard({ title, color, description, fields, footer, footerIcon, thumbnail, image }) {
   return tsbEmbed({
     title,
     color: color ?? COLOR_SURFACE,
     description,
     fields: (fields || []).filter((field) => field && field.value),
     footer: footer ?? "Ascendant · challenge",
+    footerIcon,
     timestamp: true,
     thumbnail,
+    image,
   });
 }
 
@@ -672,6 +706,12 @@ async function openTicket(interaction) {
 
   await interaction.deferReply({ ephemeral: true });
 
+  try {
+    if (guild.roles.cache.size <= 1) {
+      await guild.roles.fetch().catch(() => null);
+    }
+  } catch {}
+
   const category = await ensureCategory(guild, ticketsCfg);
   if (category?.id && category.id !== ticketsCfg.categoryId) {
     await updateLeaderboardConfig(guild.id, {
@@ -687,17 +727,19 @@ async function openTicket(interaction) {
   let channel;
   try {
     channel = await guild.channels.create({
-    name,
-    type: ChannelType.GuildText,
-    parent: category?.id || null,
-    topic: `challenge:${interaction.user.id}`,
-    permissionOverwrites: ticketOverwrites(guild, interaction.user, ticketStaffRoles(cfg)),
-    reason: `Challenge ticket for ${interaction.user.tag || interaction.user.username}`,
-  });
-  } catch (err) {
-    return interaction.editReply({
-      content: err.message || "Could not create a challenge ticket channel.",
+      name,
+      type: ChannelType.GuildText,
+      parent: category?.id || null,
+      topic: `challenge:${interaction.user.id}`,
+      permissionOverwrites: ticketOverwrites(guild, interaction.user, ticketStaffRoles(cfg, guild)),
+      reason: `Challenge ticket for ${interaction.user.tag || interaction.user.username}`,
     });
+  } catch (err) {
+    const msg = String(err?.message || "");
+    const friendly = /cached User or Role/i.test(msg)
+      ? "Could not open the ticket — a staff role in challenge setup is missing from this server. Re-save support roles in setup, then try again."
+      : (err.message || "Could not create a challenge ticket channel.");
+    return interaction.editReply({ content: friendly });
   }
 
   setPending(guild.id, interaction.user.id, {
@@ -708,7 +750,9 @@ async function openTicket(interaction) {
   setTicket(guild.id, channel.id, { userId: interaction.user.id, status: "open" });
 
   const payload = await ticketPayload(guild, interaction.user.id);
-  const pingRoles = challengeStaffRoleIds(ticketsCfg, cfg.allowedRoles);
+  const pingRoles = challengeStaffRoleIds(ticketsCfg, cfg.allowedRoles)
+    .map(String)
+    .filter((id) => guild.roles.cache.has(id));
   const staffPing = pingRoles.map((id) => `<@&${id}>`).join(" ");
   await channel.send({
     content: `${interaction.user} ${staffPing}`.trim(),
@@ -768,13 +812,20 @@ async function pickTarget(interaction, forcedTargetId = null) {
   setTicket(interaction.guild.id, interaction.channel.id, { status: "picked", targetId });
   setPending(interaction.guild.id, userId, { status: "picked", targetId });
 
-  await interaction.channel.permissionOverwrites
-    .edit(targetId, {
-      ViewChannel: true,
-      SendMessages: true,
-      ReadMessageHistory: true,
-    })
-    .catch(() => {});
+  const targetMember = await interaction.guild.members.fetch(String(targetId)).catch(() => null);
+  if (targetMember) {
+    await interaction.channel.permissionOverwrites
+      .edit(
+        targetMember,
+        {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true,
+        },
+        "Challenge target access"
+      )
+      .catch(() => {});
+  }
 
   await refreshBoard(interaction.guild);
 

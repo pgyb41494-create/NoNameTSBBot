@@ -241,9 +241,11 @@ function buildMatchMessage({
     p1,
     p2,
     winner,
+    loser,
     scoreDisplay,
     referees,
     notes,
+    isAutowin,
     autowinLabel,
     cd1,
     cd2,
@@ -259,17 +261,28 @@ function buildMatchMessage({
         ? `# PVP FOR TOP ${formatRank(topRank)}${regionLabel ? ` ${regionLabel}` : ""}`
         : `# PVP MATCH${regionLabel ? ` ${regionLabel}` : ""}`;
 
+    const scoreLine = isAutowin
+        ? `# Score: Auto win to ${winner.mention}`
+        : `# Score: ${scoreDisplay} to ${winner.mention}`;
+
+    let strikeLine = "N/A";
+    if (isAutowin && autowinLabel && autowinLabel !== "N/A") {
+        strikeLine = loser?.mention
+            ? `${loser.mention} · ${autowinLabel}`
+            : autowinLabel;
+    }
+
     const lines = [
         title,
         `# ${formatPlayerChip(p1)} vs ${formatPlayerChip(p2)}`,
-        `# Score: ${scoreDisplay} to ${winner.mention}`,
+        scoreLine,
         "",
         `- *Referees*: ${formatReferees(referees)}`,
         `- *Cooldowns*:`,
         "",
         `${p1.mention}: ${cd1}, ${p2.mention}: ${cd2}`,
         "",
-        `- *Autowin Strike*: ${autowinLabel || "N/A"}`,
+        `- *Autowin Strike*: ${strikeLine}`,
         `- *Notes*: ${notes && notes !== "None" ? notes : "None"}`,
         `- *Leaderboard*: ${leaderboardLine || "no change"}`
     ];
@@ -328,6 +341,7 @@ async function applyMatchResult({
     region2 = null,
     region2Score = null,
     region2WinnerId = null,
+    isAutowin: forceAutowin = null,
 }) {
     let cfg = getScoreConfig(guild.id);
     if (typeof cfg?.then === "function") cfg = await cfg;
@@ -336,6 +350,7 @@ async function applyMatchResult({
     }
     if (cfg.winnerCooldownDays == null) cfg.winnerCooldownDays = 4;
     if (cfg.loserCooldownDays == null) cfg.loserCooldownDays = 7;
+    if (cfg.autowinThreshold == null) cfg.autowinThreshold = 3;
     if (!cfg.setupCompleted) {
         return { error: "1v1 Score is not set up yet. Use `/tsbsetup` → **1v1 Score Setup**." };
     }
@@ -374,20 +389,25 @@ async function applyMatchResult({
     const prevLoser = await Promise.resolve(getPlayerState(guild.id, loser.discordId));
     const prevWinner = await Promise.resolve(getPlayerState(guild.id, winner.discordId));
 
-    const isAutowin = detectAutowin(score, notes);
+    const isAutowin = forceAutowin === true || forceAutowin === false
+        ? forceAutowin
+        : detectAutowin(score, notes);
+    const threshold = Math.max(1, Number(cfg.autowinThreshold) || 3);
     let autowinLabel = "N/A";
     let loserStrikes = prevLoser.autowinStrikes || 0;
 
-    if (cfg.autowinEnabled) {
+    if (cfg.autowinEnabled !== false) {
         if (isAutowin) {
             loserStrikes = (prevLoser.autowinStrikes || 0) + 1;
-            autowinLabel = `${loserStrikes}/${cfg.autowinThreshold}`;
-            if (loserStrikes >= cfg.autowinThreshold) {
+            autowinLabel = `${loserStrikes}/${threshold}`;
+            if (loserStrikes >= threshold) {
                 autowinLabel += " (threshold reached)";
             }
         } else {
             autowinLabel = "N/A";
         }
+    } else if (isAutowin) {
+        autowinLabel = "disabled in Score setup";
     }
 
     const now = new Date().toISOString();
@@ -411,7 +431,7 @@ async function applyMatchResult({
         lastMatchAt: now,
         lastResult: isAutowin ? "autoloss" : "loss",
         cooldownUntil: loserCdUntil ? loserCdUntil.toISOString() : null,
-        autowinStrikes: cfg.autowinEnabled && isAutowin
+        autowinStrikes: cfg.autowinEnabled !== false && isAutowin
             ? loserStrikes
             : (cfg.autowinSuccessBehavior === "reset" ? 0 : (prevLoser.autowinStrikes || 0))
     }));
@@ -447,9 +467,11 @@ async function applyMatchResult({
         p1: { ...p1 },
         p2: { ...p2 },
         winner: { ...winner },
+        loser: { ...loser },
         scoreDisplay: score.display,
         referees: referees || "None",
         notes: notes || "None",
+        isAutowin,
         autowinLabel,
         cd1,
         cd2,

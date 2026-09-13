@@ -500,7 +500,7 @@ function mark(done, label) {
   return `${done ? "✅" : "⬜"} ${label}`;
 }
 
-function scoringPayload(ticket, names, scoreModuleReady = true) {
+function scoringPayload(ticket, names, scoreModuleReady = true, scoreCfg = null) {
   const ready =
     ticket.format &&
     hasHost(ticket) &&
@@ -530,6 +530,15 @@ function scoringPayload(ticket, names, scoreModuleReady = true) {
     mark(Boolean(ticket.resultChannelId), "Channel"),
   ].join(" · ");
 
+  const threshold = Math.max(1, Number(scoreCfg?.autowinThreshold) || 3);
+  const autowinOn = scoreCfg?.autowinEnabled !== false;
+  const loserId =
+    ticket.winnerId && ticket.userId && ticket.targetId
+      ? String(ticket.winnerId) === String(ticket.userId)
+        ? ticket.targetId
+        : ticket.userId
+      : null;
+
   const fields = [
     fv("Match", `<@${ticket.userId}> vs <@${ticket.targetId}>`, false),
     fv("Progress", checklist, false),
@@ -538,11 +547,24 @@ function scoringPayload(ticket, names, scoreModuleReady = true) {
     fv("Winner", ticket.winnerId ? `<@${ticket.winnerId}>` : "Not set"),
     fv(
       "Score",
-      ticket.scoreDisplay
-        ? `${ticket.scoreDisplay}${ticket.isAutowin ? " · autowin" : ""}`
-        : "Not set"
+      ticket.isAutowin
+        ? `Auto win to ${ticket.winnerId ? `<@${ticket.winnerId}>` : "—"}`
+        : ticket.scoreDisplay || "Not set"
     ),
   ];
+  if (ticket.isAutowin) {
+    fields.push(
+      fv(
+        "Autowin strike",
+        !autowinOn
+          ? "Strikes disabled in Score setup"
+          : loserId
+            ? `<@${loserId}> gets +1 · threshold **${threshold}** (change in \`'setup\` → Score)`
+            : `Loser gets +1 · threshold **${threshold}** (change in \`'setup\` → Score)`,
+        false
+      )
+    );
+  }
   if (isCrossRegion(ticket)) {
     fields.push(fv("Regions", regionLine(ticket) || "Enter both region scores", false));
   }
@@ -559,7 +581,7 @@ function scoringPayload(ticket, names, scoreModuleReady = true) {
 
   const baseDescription = isCrossRegion(ticket)
     ? "Cross-region totals from the two region scores. Winner's games first, like `Chicago 5-3`.\n\nFill each button below — **Post result** unlocks when everything is set."
-    : "Fill each step below. Use **Autowin** for a forfeit, or **Enter score** for a real set — you can switch either way anytime.";
+    : "Fill each step below. **Autowin** posts as *Auto win to* the winner and gives the loser a strike. **Edit score** replaces that with a normal set score.";
 
   return {
     content: "",
@@ -616,15 +638,16 @@ function scoringPayload(ticket, names, scoreModuleReady = true) {
 async function refreshMatchMessage(interaction, ticket) {
   const names = await matchNames(interaction.guild, ticket);
   let scoreModuleReady = true;
+  let scoreCfg = null;
   try {
-    const scoreCfg = await getScoreConfig(interaction.guild.id);
+    scoreCfg = await getScoreConfig(interaction.guild.id);
     scoreModuleReady = !!scoreCfg?.setupCompleted;
   } catch {
     scoreModuleReady = false;
   }
   const payload =
     ticket.status === "scoring"
-      ? scoringPayload(ticket, names, scoreModuleReady)
+      ? scoringPayload(ticket, names, scoreModuleReady, scoreCfg)
       : setupPayload(ticket, names);
   if (interaction.isModalSubmit?.()) {
     const msg = ticket.setupMessageId
@@ -1426,6 +1449,7 @@ async function handlePost(interaction) {
       region1Score: crossregion ? ticket.region1Score || null : null,
       region2: crossregion ? ticket.region2 || null : null,
       region2Score: crossregion ? ticket.region2Score || null : null,
+      isAutowin: !!ticket.isAutowin,
     });
 
     if (result.error) {

@@ -212,19 +212,34 @@ async function stepPayload(interaction) {
             label: `Top ${n}`,
             custom_id: `tsb:lb:spots:${n}`,
         });
+        const titleOn = data.showHeading !== false;
+        const titleText = (data.headingText || "").trim() || "server name Leaderboard";
         return {
             embeds: [{
                 title,
                 description:
                     "How big is the **main** board?\n\n" +
-                    `**${data.topPerChannel}** spots → ${preview}`,
+                    `**${data.topPerChannel}** spots → ${preview}\n` +
+                    `**Heading:** ${titleOn ? "shown" : "hidden"}\n` +
+                    `**Title:** ${titleOn ? `\`${titleText}\`` : "`hidden`"}`,
                 color: COLOR
             }],
             components: [
                 { type: 1, components: [spotBtn(10), spotBtn(20), spotBtn(30), spotBtn(40), spotBtn(50)] },
-                ...navButtons([
-                    { type: 2, style: 2, label: "Custom", custom_id: "tsb:lb:cfg_naming" },
-                ])
+                {
+                    type: 1,
+                    components: [
+                        {
+                            type: 2,
+                            style: titleOn ? 3 : 2,
+                            label: titleOn ? "Title: on" : "Title: off",
+                            custom_id: "tsb:lb:toggle_title",
+                        },
+                        { type: 2, style: 1, label: "Set title", custom_id: "tsb:lb:cfg_title" },
+                        { type: 2, style: 2, label: "Custom", custom_id: "tsb:lb:cfg_naming" },
+                    ],
+                },
+                ...navButtons()
             ]
         };
     }
@@ -233,60 +248,30 @@ async function stepPayload(interaction) {
         const { getPageRanges, pageChannelName } = require("./renderer");
         const extras = extraBoardsOf({ extraBoards: data.extraBoards });
         const extraSuffixOf = (board) => (board.suffix && board.suffix !== "default" ? board.suffix : board.id);
-        const titleOn = data.showHeading !== false;
+        const selectedId = extras.length
+            ? (extras.some((b) => b.id === data.editingExtraId) ? data.editingExtraId : extras[0].id)
+            : null;
+        if (selectedId) data.editingExtraId = selectedId;
+        const selected = selectedId ? extras.find((board) => board.id === selectedId) || extras[0] : null;
+
         const extraPreview = extras.length
             ? extras.map((board) => {
+                const mark = selected && selected.id === board.id ? "→ " : "• ";
                 const ch = getPageRanges(board.slotCount)
                     .map((r) => `\`#${pageChannelName(r.start, r.end, extraSuffixOf(board))}\``)
                     .join(", ");
-                return `• **${board.title || board.id}** · Top ${board.slotCount} · ${ch}`;
+                return `${mark}**${board.title || board.id}** · Top ${board.slotCount} · ${ch}`;
             }).join("\n")
-            : "None. Skip this if you only need one board.";
-        const rows = [
-            {
-                type: 1,
-                components: [
-                    {
-                        type: 2,
-                        style: titleOn ? 3 : 2,
-                        label: titleOn ? "Title: on" : "Title: off",
-                        custom_id: "tsb:lb:toggle_title",
-                    },
-                    { type: 2, style: 1, label: "Set title", custom_id: "tsb:lb:cfg_title" },
-                    {
-                        type: 2,
-                        style: 1,
-                        label: extras.length >= MAX_EXTRA_BOARDS ? "Extra boards full" : "Add extra board",
-                        custom_id: "tsb:lb:add_extra",
-                        disabled: extras.length >= MAX_EXTRA_BOARDS,
-                    },
-                    ...(extras.length
-                        ? [
-                            { type: 2, style: 2, label: "Edit", custom_id: "tsb:lb:edit_extra" },
-                            { type: 2, style: 4, label: "Remove", custom_id: "tsb:lb:rm_extra" },
-                        ]
-                        : []),
-                ],
-            },
-        ];
+            : "_No extra boards yet._";
+
+        const rows = [];
         if (extras.length) {
-            const selectedId = extras.some((b) => b.id === data.editingExtraId)
-                ? data.editingExtraId
-                : extras[0].id;
-            data.editingExtraId = selectedId;
-            const selected = extras.find((board) => board.id === selectedId) || extras[0];
-            const extraSpotBtn = (n) => ({
-                type: 2,
-                style: Number(selected.slotCount) === n ? 3 : 2,
-                label: `Top ${n}`,
-                custom_id: `tsb:lb:extra_spots:${n}`,
-            });
             rows.push({
                 type: 1,
                 components: [{
                     type: 3,
                     custom_id: "tsb:lb:extra_select",
-                    placeholder: "Pick an extra board",
+                    placeholder: "Pick an extra board to configure",
                     options: extras.map((board) => ({
                         label: (board.title || board.id).slice(0, 100),
                         value: board.id,
@@ -295,19 +280,49 @@ async function stepPayload(interaction) {
                     })),
                 }],
             });
+        }
+
+        if (selected) {
+            const extraSpotBtn = (n) => ({
+                type: 2,
+                style: Number(selected.slotCount) === n ? 3 : 2,
+                label: `Top ${n}`,
+                custom_id: `tsb:lb:extra_spots:${n}`,
+            });
+            rows.push({
+                type: 1,
+                components: [
+                    { type: 2, style: 2, label: "Edit", custom_id: "tsb:lb:edit_extra" },
+                    { type: 2, style: 4, label: "Remove", custom_id: "tsb:lb:rm_extra" },
+                ],
+            });
             rows.push({
                 type: 1,
                 components: [extraSpotBtn(10), extraSpotBtn(20), extraSpotBtn(30), extraSpotBtn(40), extraSpotBtn(50)],
             });
         }
-        rows.push(...navButtons());
+
+        rows.push(...navButtons([
+            {
+                type: 2,
+                style: 1,
+                label: extras.length >= MAX_EXTRA_BOARDS ? "Extra boards full" : "Add extra board",
+                custom_id: "tsb:lb:add_extra",
+                disabled: extras.length >= MAX_EXTRA_BOARDS,
+            },
+        ]));
+
         return {
             embeds: [{
                 title,
                 description:
-                    "Optional. Hide the heading on the main board, or add **another** board (separate ranking).\n\n" +
-                    `**Heading:** ${titleOn ? `\`${(data.headingText || "").trim() || "server name Leaderboard"}\`` : "hidden"}\n\n` +
-                    `**Extra boards**\n${extraPreview}`,
+                    "Optional. Add **other boards** (separate ranking / channels).\n\n" +
+                    `**Extra boards**\n${extraPreview}\n\n` +
+                    (selected
+                        ? `> **Editing:** **${selected.title || selected.id}**\n` +
+                          `> **Size:** Top ${selected.slotCount}\n` +
+                          `> **Suffix:** \`${extraSuffixOf(selected)}\``
+                        : "Press **Add extra board**, then pick it from the menu to configure."),
                 color: COLOR
             }],
             components: rows

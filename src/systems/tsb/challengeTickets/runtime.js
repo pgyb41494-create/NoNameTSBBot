@@ -123,7 +123,6 @@ function brandBanner() {
 }
 
 async function panelPayload(guild) {
-  const tickets = challengeTicketsOf(await getLeaderboardConfig(guild.id));
   const thumb = brandIcon(guild.client);
   const banner = brandBanner();
   return {
@@ -131,12 +130,7 @@ async function panelPayload(guild) {
       challengeCard({
         title: "Challenge tickets",
         color: COLOR_PRIMARY,
-        description:
-          "On the board and want to move up?\nOpen a ticket, pick **one** player ahead of you, and wait for them to accept.",
-        fields: [
-          fv("Range", formatChallengeRules(tickets), false),
-          fv("Dodges", "2 per player — then they must accept"),
-        ],
+        description: "Challenge someone on the leaderboard.",
         footer: "Leaderboard players only",
         footerIcon: thumb,
         thumbnail: thumb,

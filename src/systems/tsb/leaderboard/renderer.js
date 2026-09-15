@@ -1,4 +1,4 @@
-const { getLeaderboardConfig, getLeaderboardConfigAsync, updateLeaderboardConfig, ensureSlots } = require("./config");
+const { getLeaderboardConfig, getLeaderboardConfigAsync, updateLeaderboardConfig, ensureSlots, extraBoardsOf } = require("./config");
 const { publishLeaderboard } = require("../../boardPublish");
 const { getOrCreateNamedChannel } = require("../shared/channelReuse");
 const { resolveMaybe } = require("../../../utils/resolveMaybe");
@@ -36,18 +36,25 @@ function pageChannelNames(start, end, suffix) {
   return safe === "default" ? [base, `${base}-default`] : [`${base}-${safe}`, base];
 }
 
-async function getOrCreatePageChannel(guild, start, end, cfg, existingPage = null, { create = true } = {}) {
-  const names = pageChannelNames(start, end, cfg.suffix);
-  const pageIndex = Math.floor((start - 1) / 10);
-  const storedId = existingPage?.channelId
-    || (start === 1 ? cfg.leaderboardChannelId || cfg.publicChannelId : null)
-    || cfg.publicChannelIds?.[pageIndex]
-    || null;
+async function getOrCreatePageChannel(guild, start, end, cfg, existingPage = null, { create = true, allowMainFallback = true } = {}) {
+    const names = allowMainFallback
+      ? pageChannelNames(start, end, cfg.suffix)
+      : [pageChannelName(start, end, cfg.suffix)];
+    const pageIndex = Math.floor((start - 1) / 10);
+    const storedId = existingPage?.channelId
+      || (allowMainFallback && start === 1 ? cfg.leaderboardChannelId || cfg.publicChannelId : null)
+      || (allowMainFallback ? cfg.publicChannelIds?.[pageIndex] : null)
+      || null;
+
+    const suffix = String(cfg.suffix || "default").toLowerCase();
+    const pattern = allowMainFallback
+      ? new RegExp(`^top-${start}-${end}(?:-[a-z0-9_-]+)?$`)
+      : new RegExp(`^top-${start}-${end}-${suffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 
   return getOrCreateNamedChannel(guild, {
     channelId: storedId,
     names,
-    pattern: new RegExp(`^top-${start}-${end}(?:-[a-z0-9_-]+)?$`),
+    pattern,
     createName: pageChannelName(start, end, cfg.suffix),
     topic: `Top ${start}–${end}`,
     reason: "TSB top leaderboard page",
@@ -83,10 +90,38 @@ async function upsertLeaderboard(guild, { createChannels = true } = {}) {
     return { skipped: true, boardPages: [], channelId: null, messageIds: {} };
   }
 
+  const extraBoards = [];
+  for (const board of extraBoardsOf(cfg)) {
+    const extraRanges = getPageRanges(board.slotCount);
+    const extraPages = [];
+    const extraChannelIds = [];
+    for (const range of extraRanges) {
+      const prior = (board.boardPages || []).find((p) => p.start === range.start && p.end === range.end);
+      const channel = await getOrCreatePageChannel(
+        guild,
+        range.start,
+        range.end,
+        { suffix: board.suffix && board.suffix !== "default" ? board.suffix : board.id },
+        prior,
+        { create: createChannels, allowMainFallback: false }
+      );
+      if (!channel || used.has(channel.id)) continue;
+      used.add(channel.id);
+      extraChannelIds.push(channel.id);
+      extraPages.push({ start: range.start, end: range.end, channelId: channel.id });
+    }
+    extraBoards.push({
+      ...board,
+      publicChannelIds: extraChannelIds,
+      boardPages: extraPages,
+    });
+  }
+
   await resolveMaybe(
     updateLeaderboardConfig(guild.id, {
       publicChannelIds,
       boardPages,
+      extraBoards,
       leaderboardChannelId: publicChannelIds[0] || null,
       slotCount: total,
       topPerChannel: total,

@@ -87,33 +87,42 @@ function top10RobloxTag(card) {
   return card.robloxUsername || card.name || "???";
 }
 
-/** Discohook top-10 card body (mention pipes + decorative Roblox tag). */
-function top10EntryBody(card) {
-  if (card.empty) {
-    return [
-      "| Vacant |",
-      "≪≪ | ・Vacant・ | ≫≫",
-      "Region: -",
-      "Stage: -",
-    ].join("\n");
-  }
-  const mention = card.discordTag || "`empty`";
-  return [
-    `| ${mention} |`,
-    `≪≪ | ・${top10RobloxTag(card)}・ | ≫≫`,
-    `Region: ${card.region || "—"}`,
-    `Stage: ${card.stage || "Unranked"}`,
-  ].join("\n");
+function top10Status(card) {
+  if (card.empty) return "Protected (Cant be challenged)";
+  if (card.status === "Challengeable") return "Challengeable";
+  return "Protected (Cant be challenged)";
+}
+
+function top10RobloxLine(card) {
+  const inner = `≪≪ | ・${top10RobloxTag(card)}・ | ≫≫`;
+  if (card.empty || !card.robloxUrl) return inner;
+  return `[${inner}](${card.robloxUrl})`;
 }
 
 function top10CardTitle(card) {
-  return `#${card.position} ${card.empty ? "Vacant" : card.name}`;
+  return `### #${card.position} ${card.empty ? "Vacant" : card.name}`;
+}
+
+/** Discohook top-10 card body (mention pipes + linked Roblox tag). */
+function top10EntryBody(card) {
+  const mention = card.empty ? "Vacant" : (card.discordTag || "`empty`");
+  const wins = card.empty ? "" : (card.wins ?? 0);
+  const losses = card.empty ? "" : (card.losses ?? 0);
+  return [
+    top10CardTitle(card),
+    `| ${mention} |`,
+    top10RobloxLine(card),
+    `Region: ${card.empty ? "-" : (card.region || "—")}`,
+    `Stage: ${card.empty ? "-" : (card.stage || "Unranked")}`,
+    `-# Status: ${top10Status(card)}`,
+    `-# wins: ${wins} losses: ${losses}`,
+  ].join("\n");
 }
 
 /**
  * Banner + title + player cards. Spacing only — no Type 14 divider lines.
  */
-function metallicComponentsV2(guildName, start, end, cards, { sanitizeThumbnail, hasBanner }) {
+function metallicComponentsV2(guildName, start, end, cards, { sanitizeThumbnail, hasBanner, showTitle = true, title } = {}) {
   const container = new ContainerBuilder().setAccentColor(0x2b2d31);
 
   if (hasBanner) {
@@ -125,12 +134,14 @@ function metallicComponentsV2(guildName, start, end, cards, { sanitizeThumbnail,
     );
   }
 
-  container.addTextDisplayComponents((td) =>
-    td.setContent(`# ${guildName} Leaderboard`)
-  );
-  container.addSeparatorComponents((sep) =>
-    sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large)
-  );
+  if (showTitle !== false) {
+    container.addTextDisplayComponents((td) =>
+      td.setContent(`# ${title || `${guildName} Leaderboard`}`)
+    );
+    container.addSeparatorComponents((sep) =>
+      sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large)
+    );
+  }
 
   cards.forEach((card, index) => {
     const body = entryBody(card);

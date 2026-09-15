@@ -4,7 +4,8 @@ const { resolveMaybe } = require("../utils/resolveMaybe");
 const { formatCardDescription, cardTitle, sanitizeThumbnail, CARD_COLOR, VACANT_COLOR } = api.cards;
 const { brand } = api;
 const { generateLeaderboardBanner } = require("./bannerGenerate");
-const { resolveTheme, metallicComponentsV2, entryBody, top10EntryBody, top10CardTitle } = require("./leaderboardThemes");
+const { extraBoardsOf, headingTextOf } = require("./tsb/leaderboard/config");
+const { resolveTheme, metallicComponentsV2, entryBody, top10EntryBody } = require("./leaderboardThemes");
 
 function cardEmbed(card, { mode = "leaderboard", themeId = "classic" } = {}) {
   const thumb = sanitizeThumbnail(card.avatarUrl);
@@ -12,7 +13,6 @@ function cardEmbed(card, { mode = "leaderboard", themeId = "classic" } = {}) {
   if (mode === "leaderboard" && themeId === "top10") {
     const embed = new EmbedBuilder()
       .setColor(card.empty ? VACANT_COLOR : CARD_COLOR)
-      .setAuthor({ name: top10CardTitle(card) })
       .setDescription(top10EntryBody(card))
       .setImage(card.gifUrl || brand.defaultGif);
     if (!card.empty && thumb) embed.setThumbnail(thumb);
@@ -152,30 +152,25 @@ async function replaceMessage(channel, existingId, payload) {
   return sent.id;
 }
 
-async function publishLeaderboard(guild) {
-  const cfg = await resolveMaybe(api.leaderboard.getConfig(guild.id));
-  const theme = resolveTheme(cfg.theme || "classic");
-  const snap = await resolveMaybe(api.snapshot.publicSnapshot(guild.id));
-  const cards = await enrichBoardCards(guild, snap.leaderboard.cards || []);
-  const channelIds = cfg.publicChannelIds?.length
-    ? cfg.publicChannelIds
-    : cfg.publicChannelId
-      ? [cfg.publicChannelId]
-      : [];
-
-  const pageSize = theme.pageSize || 10;
+async function publishBoardMessages({
+  guild,
+  theme,
+  cards,
+  channelIds,
+  messageIds,
+  showHeading,
+  heading,
+  bannerBuffer,
+  pageSize,
+}) {
   const pages = [];
   for (let i = 0; i < cards.length; i += pageSize) {
     pages.push(cards.slice(i, i + pageSize));
   }
   if (!pages.length) pages.push([]);
 
-  const messageIds = { ...(cfg.messageIds || {}) };
-
-  let bannerBuffer = null;
-  if (theme.id === "metallic") {
-    bannerBuffer = await generateLeaderboardBanner(guild.name).catch(() => null);
-  }
+  const nextIds = { ...(messageIds || {}) };
+  const title = heading || `${guild.name} Leaderboard`;
 
   for (let page = 0; page < pages.length; page += 1) {
     const channelId = channelIds[page] || channelIds[0];
@@ -190,7 +185,6 @@ async function publishLeaderboard(guild) {
     const end = slice.at(-1)?.position || start + slice.length - 1;
 
     let payload;
-
     if (theme.id === "metallic") {
       const files = bannerBuffer
         ? [new AttachmentBuilder(bannerBuffer, { name: "leaderboard-banner.png" })]
@@ -198,26 +192,87 @@ async function publishLeaderboard(guild) {
       const v2 = metallicComponentsV2(guild.name, start, end, slice, {
         sanitizeThumbnail,
         hasBanner: Boolean(bannerBuffer),
+        showTitle: showHeading !== false,
+        title,
       });
       payload = { ...v2, files };
-    } else if (theme.id === "top10") {
-      payload = {
-        content: `# ${guild.name} Leaderboard`,
-        embeds: slice.map((card) => cardEmbed(card, { mode: "leaderboard", themeId: "top10" })),
-      };
     } else {
       payload = {
-        content: `# ${guild.name} Leaderboard`,
-        embeds: slice.map((card) => cardEmbed(card, { mode: "leaderboard" })),
+        content: showHeading !== false ? `# ${title}` : "",
+        embeds: slice.map((card) => cardEmbed(card, {
+          mode: "leaderboard",
+          themeId: theme.id === "top10" ? "top10" : "classic",
+        })),
       };
     }
 
-    messageIds[`page-${page}`] = await replaceMessage(channel, messageIds[`page-${page}`], payload);
+    nextIds[`page-${page}`] = await replaceMessage(channel, nextIds[`page-${page}`], payload);
+  }
+
+  return nextIds;
+}
+
+async function publishLeaderboard(guild) {
+  const cfg = await resolveMaybe(api.leaderboard.getConfig(guild.id));
+  const theme = resolveTheme(cfg.theme || "classic");
+  const snap = await resolveMaybe(api.snapshot.publicSnapshot(guild.id));
+  const cards = await enrichBoardCards(guild, snap.leaderboard.cards || []);
+  const channelIds = cfg.publicChannelIds?.length
+    ? cfg.publicChannelIds
+    : cfg.publicChannelId
+      ? [cfg.publicChannelId]
+      : [];
+
+  const pageSize = theme.pageSize || 10;
+  let bannerBuffer = null;
+  if (theme.id === "metallic") {
+    bannerBuffer = await generateLeaderboardBanner(guild.name).catch(() => null);
+  }
+
+  const messageIds = await publishBoardMessages({
+    guild,
+    theme,
+    cards,
+    channelIds,
+    messageIds: cfg.messageIds || {},
+    showHeading: cfg.showHeading !== false,
+    heading: headingTextOf(cfg, guild.name),
+    bannerBuffer,
+    pageSize,
+  });
+
+  const extraBoards = extraBoardsOf(cfg);
+  const snapExtras = Array.isArray(snap.leaderboard?.extraBoards) ? snap.leaderboard.extraBoards : [];
+  const nextExtras = [];
+  for (const board of extraBoards) {
+    const snapBoard = snapExtras.find((entry) => entry.id === board.id);
+    const extraCardSource = snapBoard?.cards?.length
+      ? snapBoard.cards
+      : (typeof api.snapshot.cardsFromSlots === "function"
+        ? api.snapshot.cardsFromSlots(guild.id, board.slots, cfg.cardGifUrl)
+        : (board.slots || []).map((slot) => emptyPlaceholder(slot.position)));
+    const extraCards = await enrichBoardCards(guild, extraCardSource);
+    const extraChannelIds = board.publicChannelIds?.length
+      ? board.publicChannelIds
+      : (board.boardPages || []).map((page) => page.channelId).filter(Boolean);
+    const extraMessageIds = await publishBoardMessages({
+      guild,
+      theme,
+      cards: extraCards,
+      channelIds: extraChannelIds,
+      messageIds: board.messageIds || {},
+      showHeading: board.showTitle !== false,
+      heading: board.title || headingTextOf(cfg, guild.name),
+      bannerBuffer,
+      pageSize,
+    });
+    nextExtras.push({ ...board, messageIds: extraMessageIds });
   }
 
   await resolveMaybe(
     api.leaderboard.updateConfig(guild.id, {
       messageIds,
+      extraBoards: nextExtras,
       setupCompleted: true,
       theme: theme.id,
     })

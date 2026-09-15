@@ -1,5 +1,6 @@
 const profiles = require("./profiles");
 const leaderboard = require("./leaderboard");
+const { extraBoardsOf } = leaderboard;
 const lineup = require("./lineup");
 const ranking = require("./ranking");
 const score = require("./score");
@@ -73,7 +74,16 @@ function publicSnapshot(guildId) {
     leaderboard: {
       setupCompleted: !!lb.setupCompleted,
       gif: lb.cardGifUrl || brand.defaultGif,
+      showHeading: lb.showHeading !== false,
+      headingText: lb.headingText || "",
       cards: cardsFromSlots(guildId, lb.slots, lb.cardGifUrl),
+      extraBoards: extraBoardsOf(lb).map((board) => ({
+        id: board.id,
+        title: board.title,
+        showTitle: board.showTitle !== false,
+        slotCount: board.slotCount,
+        cards: cardsFromSlots(guildId, board.slots, lb.cardGifUrl),
+      })),
     },
     lineup: {
       setupCompleted: !!lu.setupCompleted,

@@ -7,6 +7,12 @@ const {
     parseChallengeRanges,
     challengeTicketsOf,
     formatChallengeRules,
+    extraBoardsOf,
+    normalizeExtraBoard,
+    uniqueBoardId,
+    emptyBoardSlots,
+    sanitizeBoardId,
+    MAX_EXTRA_BOARDS,
 } = require("./config");
 
 const { upsertLeaderboard } = require("./renderer");
@@ -35,6 +41,10 @@ function defaultData() {
         editingTopRoleRange: null,
         rankRequirements: [],
         theme: "classic",
+        showHeading: true,
+        headingText: "",
+        extraBoards: [],
+        editingExtraId: null,
         challengeTickets: defaultChallengeTickets()
     };
 }
@@ -62,6 +72,10 @@ async function getSession(guildId) {
                 editingTopRoleRange: null,
                 rankRequirements: saved.rankRequirements || [],
                 theme: resolveTheme(saved.theme).id,
+                showHeading: saved.showHeading !== false,
+                headingText: saved.headingText || "",
+                extraBoards: extraBoardsOf(saved),
+                editingExtraId: extraBoardsOf(saved)[0]?.id || null,
                 challengeTickets: challengeTicketsOf(saved)
             }
         });
@@ -96,6 +110,10 @@ function configSummary(data) {
         `> **Current channel:** ${data.managementChannelId ? `<#${data.managementChannelId}>` : "not set"}\n` +
         `> **Total top spots:** \`${data.topPerChannel}\` (channels in groups of 10)\n` +
         `> **Current suffix:** \`${data.suffix || "default"}\`\n` +
+        `> **Title:** ${data.showHeading !== false ? `\`${data.headingText?.trim() || "server name"}\`` : "**hidden**"}\n` +
+        `> **Extra boards:** ${extraBoardsOf({ extraBoards: data.extraBoards }).length
+          ? extraBoardsOf({ extraBoards: data.extraBoards }).map((b) => `\`${b.title || b.id}\` (Top ${b.slotCount})`).join(", ")
+          : "none"}\n` +
         `> **Current rank label:** \`${data.rankLabel}\`\n` +
         `> **Current verification:** \`${data.requireRobloxVerification ? "required" : "optional"}\`\n` +
         `> **Top board roles:**\n${formatTopBoardRoles(data.topBoardRoles).split("\n").map((line) => `> ${line}`).join("\n")}\n` +
@@ -195,29 +213,100 @@ async function stepPayload(interaction) {
         const preview = ranges
             .map((r) => `• **#${r.start}–${r.end}** → \`#${pageChannelName(r.start, r.end, data.suffix)}\``)
             .join("\n");
+        const extras = extraBoardsOf({ extraBoards: data.extraBoards });
+        const extraSuffixOf = (board) => (board.suffix && board.suffix !== "default" ? board.suffix : board.id);
+        const extraPreview = extras.length
+            ? extras.map((board) => {
+                const ch = getPageRanges(board.slotCount)
+                    .map((r) => `\`#${pageChannelName(r.start, r.end, extraSuffixOf(board))}\``)
+                    .join(", ");
+                return `• **${board.title || board.id}** · Top ${board.slotCount} · title ${board.showTitle !== false ? "on" : "off"} · ${ch}`;
+            }).join("\n")
+            : "> none yet — **Add extra board** for another Top 10 / 20 / 30 with its own ranking.";
         const spotBtn = (n) => ({
             type: 2,
             style: Number(data.topPerChannel) === n ? 3 : 2,
             label: `Top ${n}`,
             custom_id: `tsb:lb:spots:${n}`,
         });
+        const titleOn = data.showHeading !== false;
+        const rows = [
+            { type: 1, components: [spotBtn(10), spotBtn(20), spotBtn(30), spotBtn(40), spotBtn(50)] },
+            {
+                type: 1,
+                components: [
+                    {
+                        type: 2,
+                        style: titleOn ? 3 : 2,
+                        label: titleOn ? "Title: on" : "Title: off",
+                        custom_id: "tsb:lb:toggle_title",
+                    },
+                    { type: 2, style: 1, label: "Set title", custom_id: "tsb:lb:cfg_title" },
+                    {
+                        type: 2,
+                        style: 1,
+                        label: extras.length >= MAX_EXTRA_BOARDS ? "Extra boards full" : "Add extra board",
+                        custom_id: "tsb:lb:add_extra",
+                        disabled: extras.length >= MAX_EXTRA_BOARDS,
+                    },
+                    ...(extras.length
+                        ? [
+                            { type: 2, style: 2, label: "Edit extra", custom_id: "tsb:lb:edit_extra" },
+                            { type: 2, style: 4, label: "Remove extra", custom_id: "tsb:lb:rm_extra" },
+                        ]
+                        : []),
+                ],
+            },
+        ];
+        if (extras.length) {
+            const selectedId = extras.some((b) => b.id === data.editingExtraId)
+                ? data.editingExtraId
+                : extras[0].id;
+            data.editingExtraId = selectedId;
+            const selected = extras.find((board) => board.id === selectedId) || extras[0];
+            const extraSpotBtn = (n) => ({
+                type: 2,
+                style: Number(selected.slotCount) === n ? 3 : 2,
+                label: `Extra ${n}`,
+                custom_id: `tsb:lb:extra_spots:${n}`,
+            });
+            rows.push({
+                type: 1,
+                components: [{
+                    type: 3,
+                    custom_id: "tsb:lb:extra_select",
+                    placeholder: "Pick an extra board",
+                    options: extras.map((board) => ({
+                        label: (board.title || board.id).slice(0, 100),
+                        value: board.id,
+                        description: `Top ${board.slotCount} · ${board.suffix}`.slice(0, 100),
+                        default: board.id === selectedId,
+                    })),
+                }],
+            });
+            rows.push({
+                type: 1,
+                components: [extraSpotBtn(10), extraSpotBtn(20), extraSpotBtn(30), extraSpotBtn(40), extraSpotBtn(50)],
+            });
+        }
+        rows.push(...navButtons([
+            { type: 2, style: 1, label: "Custom size + suffix", custom_id: "tsb:lb:cfg_naming" },
+            { type: 2, style: 2, label: "Suffix only", custom_id: "tsb:lb:cfg_suffix" },
+        ]));
         return {
             embeds: [{
                 title,
                 description:
-                    "How many top spots? Each **10** get their own channel (`top-1-10`, `top-11-20`, …).\n\n" +
+                    "How many top spots on the **main** board? Each **10** get their own channel.\n" +
+                    "Turn the big heading off, or add **extra boards** (Top 10 / 20 / 30…, separate ranking).\n\n" +
                     `**Selected:** \`${data.topPerChannel}\` spots\n` +
-                    `**Suffix:** \`${data.suffix || "default"}\`\n\n` +
-                    `${preview || "Pick a size above."}`,
+                    `**Suffix:** \`${data.suffix || "default"}\`\n` +
+                    `**Title:** ${titleOn ? `\`${(data.headingText || "").trim() || "server name Leaderboard"}\`` : "**hidden**"}\n\n` +
+                    `${preview || "Pick a size above."}\n\n` +
+                    `**Extra boards**\n${extraPreview}`,
                 color: COLOR
             }],
-            components: [
-                { type: 1, components: [spotBtn(10), spotBtn(20), spotBtn(30), spotBtn(40), spotBtn(50)] },
-                ...navButtons([
-                    { type: 2, style: 1, label: "Custom size + suffix", custom_id: "tsb:lb:cfg_naming" },
-                    { type: 2, style: 2, label: "Suffix only", custom_id: "tsb:lb:cfg_suffix" },
-                ])
-            ]
+            components: rows
         };
     }
 
@@ -428,22 +517,6 @@ async function stepPayload(interaction) {
     // step 9 confirm
     const chal = challengeTicketsOf({ challengeTickets: data.challengeTickets });
     const theme = resolveTheme(data.theme);
-    const { cardEmbed } = require("../../boardPublish");
-    const { brand } = require("../../../utils/loadApi");
-    const previewCard = cardEmbed({
-      empty: false,
-      name: "Preview Player",
-      discordTag: "@player",
-      position: 1,
-      stage: data.rankLabel ? `${data.rankLabel} 2` : "Stage 2",
-      region: "Miami",
-      robloxUsername: "example",
-      wins: 12,
-      losses: 3,
-      gifUrl: brand.defaultGif,
-      avatarUrl: null,
-    }, { mode: "leaderboard" });
-    previewCard.setFooter({ text: "Live preview · what a board card looks like" });
 
     return {
         embeds: [{
@@ -453,6 +526,10 @@ async function stepPayload(interaction) {
                 `**Allowed Roles:** ${data.allowedRoles.length}\n` +
                 `**Total top spots:** ${data.topPerChannel}\n` +
                 `**Suffix:** ${data.suffix}\n` +
+                `**Title:** ${data.showHeading !== false ? (data.headingText?.trim() || "server name Leaderboard") : "hidden"}\n` +
+                `**Extra boards:** ${extraBoardsOf({ extraBoards: data.extraBoards }).length
+                  ? extraBoardsOf({ extraBoards: data.extraBoards }).map((b) => `${b.title || b.id} (Top ${b.slotCount})`).join(", ")
+                  : "none"}\n` +
                 `**Rank Label:** ${data.rankLabel}\n` +
                 `**Roblox verification:** ${data.requireRobloxVerification ? "required" : "optional"}\n` +
                 `**Top board roles:**\n${formatTopBoardRoles(data.topBoardRoles)}\n` +
@@ -463,7 +540,7 @@ async function stepPayload(interaction) {
                 `**Challenge audit log:** ${chal.auditLogChannelId ? `<#${chal.auditLogChannelId}>` : "management channel"}\n\n` +
                 "Confirm to create/update board channels and publish. After that use `/republish` anytime.",
             color: COLOR
-        }, previewCard],
+        }],
         components: [
             themeSelectRow(data.theme),
             ...navButtons(
@@ -554,13 +631,14 @@ async function confirmAndPublish(interaction) {
     await ensureSlots(guild.id, data.topPerChannel);
 
     const currentForSlots = await getLeaderboardConfig(guild.id);
-    const { editingTopRoleRange: _editingRange, ...persistData } = data;
+    const { editingTopRoleRange: _editingRange, editingExtraId: _editingExtra, ...persistData } = data;
     const topBoardRoles = normalizeTopBoardRoles(data.topBoardRoles, null, data.topPerChannel || 10);
     await setLeaderboardConfig(guild.id, {
         ...persistData,
         managementChannelId: managementChannel.id,
         topBoardRoles,
         topPlayerRoleId: null,
+        extraBoards: extraBoardsOf({ extraBoards: data.extraBoards }),
         slots: currentForSlots.slots
     });
 
@@ -601,9 +679,11 @@ async function confirmAndPublish(interaction) {
 
     sessions.delete(guild.id);
 
-    const channelList = (published.boardPages || [])
-        .map((p) => `• Top ${p.start}–${p.end}: <#${p.channelId}>`)
-        .join("\n");
+    const channelList = [
+        ...(published.boardPages || []).map((p) => `• Top ${p.start}–${p.end}: <#${p.channelId}>`),
+        ...extraBoardsOf({ extraBoards: (await getLeaderboardConfig(guild.id)).extraBoards })
+            .flatMap((board) => (board.boardPages || []).map((p) => `• ${board.title || board.id} ${p.start}–${p.end}: <#${p.channelId}>`)),
+    ].join("\n");
 
     return interaction.editReply({
         embeds: [{
@@ -626,6 +706,65 @@ async function confirmAndPublish(interaction) {
             ]
         }]
     });
+}
+
+function extraBoardModal(board = null) {
+    return {
+        title: board ? "Edit extra board" : "Add extra board",
+        custom_id: board ? "tsb:lb:modal:extra_edit" : "tsb:lb:modal:extra_add",
+        components: [
+            {
+                type: 1,
+                components: [{
+                    type: 4,
+                    custom_id: "title",
+                    label: "Board title",
+                    style: 1,
+                    required: true,
+                    value: board?.title || "",
+                    max_length: 80,
+                    placeholder: "SA Leaderboard",
+                }],
+            },
+            {
+                type: 1,
+                components: [{
+                    type: 4,
+                    custom_id: "size",
+                    label: "Top spots (10, 20, 30…)",
+                    style: 1,
+                    required: true,
+                    value: String(board?.slotCount || 10),
+                    max_length: 2,
+                }],
+            },
+            {
+                type: 1,
+                components: [{
+                    type: 4,
+                    custom_id: "suffix",
+                    label: "Channel suffix (unique)",
+                    style: 1,
+                    required: true,
+                    value: board?.suffix || "",
+                    max_length: 24,
+                    placeholder: "sa",
+                }],
+            },
+            {
+                type: 1,
+                components: [{
+                    type: 4,
+                    custom_id: "show_title",
+                    label: "Show title above cards (yes/no)",
+                    style: 1,
+                    required: true,
+                    value: board && board.showTitle === false ? "no" : "yes",
+                    max_length: 3,
+                }],
+            },
+        ],
+    };
 }
 
 async function handleLeaderboardButton(interaction) {
@@ -721,6 +860,76 @@ async function handleLeaderboardAction(interaction, id) {
                 session.data.editingTopRoleRange = pages[0] || null;
             }
         }
+        return renderStep(interaction);
+    }
+
+    if (id.startsWith("tsb:lb:extra_spots:")) {
+        const n = parseInt(id.split(":")[3], 10);
+        const extras = extraBoardsOf({ extraBoards: session.data.extraBoards });
+        const current = extras.find((entry) => entry.id === session.data.editingExtraId) || extras[0];
+        if (current && Number.isFinite(n)) {
+            const size = Math.max(1, Math.min(50, n));
+            const next = extras.map((entry) => {
+                if (entry.id !== current.id) return entry;
+                return normalizeExtraBoard({
+                    ...entry,
+                    slotCount: size,
+                    slots: emptyBoardSlots(size).map((slot, index) => ({
+                        position: index + 1,
+                        discordId: entry.slots[index]?.discordId || null,
+                    })),
+                });
+            });
+            session.data.extraBoards = next;
+            session.data.editingExtraId = current.id;
+        }
+        return renderStep(interaction);
+    }
+
+    if (id === "tsb:lb:toggle_title") {
+        session.data.showHeading = session.data.showHeading === false;
+        return renderStep(interaction);
+    }
+
+    if (id === "tsb:lb:cfg_title") {
+        return interaction.showModal({
+            title: "Board title",
+            custom_id: "tsb:lb:modal:title",
+            components: [{
+                type: 1,
+                components: [{
+                    type: 4,
+                    custom_id: "heading_text",
+                    label: "Title text (blank = server name)",
+                    style: 1,
+                    required: false,
+                    value: session.data.headingText || "",
+                    max_length: 80,
+                    placeholder: "Caribbean Leaderboard",
+                }],
+            }],
+        });
+    }
+
+    if (id === "tsb:lb:add_extra") {
+        return interaction.showModal(extraBoardModal(null));
+    }
+
+    if (id === "tsb:lb:edit_extra") {
+        const extras = extraBoardsOf({ extraBoards: session.data.extraBoards });
+        const board = extras.find((entry) => entry.id === session.data.editingExtraId) || extras[0];
+        if (!board) {
+            return interaction.reply({ content: "Add an extra board first.", ephemeral: true });
+        }
+        session.data.editingExtraId = board.id;
+        return interaction.showModal(extraBoardModal(board));
+    }
+
+    if (id === "tsb:lb:rm_extra") {
+        const extras = extraBoardsOf({ extraBoards: session.data.extraBoards });
+        const next = extras.filter((entry) => entry.id !== session.data.editingExtraId);
+        session.data.extraBoards = next;
+        session.data.editingExtraId = next[0]?.id || null;
         return renderStep(interaction);
     }
 
@@ -968,6 +1177,11 @@ async function handleLeaderboardSelect(interaction) {
         return renderStep(interaction);
     }
 
+    if (interaction.customId === "tsb:lb:extra_select") {
+        session.data.editingExtraId = interaction.values[0] || null;
+        return renderStep(interaction);
+    }
+
     if (interaction.customId === "tsb:lb:theme") {
         session.data.theme = resolveTheme(interaction.values[0]).id;
         return renderStep(interaction);
@@ -1014,6 +1228,61 @@ async function handleLeaderboardModal(interaction) {
             .split(",")
             .map((v) => v.trim())
             .filter(Boolean);
+    } else if (id === "tsb:lb:modal:title") {
+        data.headingText = String(interaction.fields.getTextInputValue("heading_text") || "").trim();
+    } else if (id === "tsb:lb:modal:extra_add" || id === "tsb:lb:modal:extra_edit") {
+        const extras = extraBoardsOf({ extraBoards: data.extraBoards });
+        const title = String(interaction.fields.getTextInputValue("title") || "").trim();
+        const size = Math.max(1, Math.min(50, parseInt(interaction.fields.getTextInputValue("size"), 10) || 10));
+        const suffixRaw = sanitizeBoardId(interaction.fields.getTextInputValue("suffix")) || sanitizeBoardId(title) || "board";
+        const showTitle = yesNo(interaction.fields.getTextInputValue("show_title"));
+        const takenSuffixes = new Set(
+            extras
+                .filter((entry) => id === "tsb:lb:modal:extra_add" || entry.id !== data.editingExtraId)
+                .map((entry) => entry.suffix)
+        );
+        let suffix = suffixRaw === "default" ? "board" : suffixRaw;
+        let n = 2;
+        while (takenSuffixes.has(suffix)) {
+            suffix = `${suffixRaw}-${n}`.slice(0, 24);
+            n += 1;
+        }
+        if (id === "tsb:lb:modal:extra_add") {
+            if (extras.length >= MAX_EXTRA_BOARDS) {
+                return interaction.reply({ content: `Max ${MAX_EXTRA_BOARDS} extra boards.`, ephemeral: true });
+            }
+            const board = normalizeExtraBoard({
+                id: uniqueBoardId(suffix, extras),
+                title,
+                suffix,
+                slotCount: size,
+                showTitle,
+                slots: emptyBoardSlots(size),
+            });
+            extras.push(board);
+            data.editingExtraId = board.id;
+            data.extraBoards = extras;
+        } else {
+            const current = extras.find((entry) => entry.id === data.editingExtraId) || extras[0];
+            if (!current) {
+                return interaction.reply({ content: "That extra board is gone.", ephemeral: true });
+            }
+            const others = extras.filter((entry) => entry.id !== current.id);
+            const next = normalizeExtraBoard({
+                ...current,
+                title,
+                suffix,
+                slotCount: size,
+                showTitle,
+                slots: emptyBoardSlots(size).map((slot, index) => ({
+                    position: index + 1,
+                    discordId: current.slots[index]?.discordId || null,
+                })),
+            });
+            data.extraBoards = [...others, next];
+            data.editingExtraId = next.id;
+        }
+        data.extraBoards = extraBoardsOf({ extraBoards: data.extraBoards });
     } else if (id === "tsb:lb:modal:chal_rules") {
         const spots = parseInt(interaction.fields.getTextInputValue("spots_ahead"), 10);
         const ranges = parseChallengeRanges(interaction.fields.getTextInputValue("range_rules") || "");

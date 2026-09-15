@@ -19,7 +19,7 @@ const { upsertLeaderboard } = require("./renderer");
 const { listThemes, resolveTheme } = require("../../leaderboardThemes");
 const { pageRangesFor, normalizeTopBoardRoles, formatTopBoardRoles } = require("./boardRoles");
 
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 10;
 const COLOR = 0x2B2D31;
 const sessions = new Map();
 
@@ -105,19 +105,13 @@ function navButtons(extra = [], { disableNext = false } = {}) {
 }
 
 function configSummary(data) {
+    const extras = extraBoardsOf({ extraBoards: data.extraBoards });
     return (
-        "**Current Configuration**\n" +
-        `> **Current channel:** ${data.managementChannelId ? `<#${data.managementChannelId}>` : "not set"}\n` +
-        `> **Total top spots:** \`${data.topPerChannel}\` (channels in groups of 10)\n` +
-        `> **Current suffix:** \`${data.suffix || "default"}\`\n` +
-        `> **Title:** ${data.showHeading !== false ? `\`${data.headingText?.trim() || "server name"}\`` : "**hidden**"}\n` +
-        `> **Extra boards:** ${extraBoardsOf({ extraBoards: data.extraBoards }).length
-          ? extraBoardsOf({ extraBoards: data.extraBoards }).map((b) => `\`${b.title || b.id}\` (Top ${b.slotCount})`).join(", ")
-          : "none"}\n` +
-        `> **Current rank label:** \`${data.rankLabel}\`\n` +
-        `> **Current verification:** \`${data.requireRobloxVerification ? "required" : "optional"}\`\n` +
-        `> **Top board roles:**\n${formatTopBoardRoles(data.topBoardRoles).split("\n").map((line) => `> ${line}`).join("\n")}\n` +
-        `> **Theme:** ${resolveTheme(data.theme).label}`
+        `> Channel: ${data.managementChannelId ? `<#${data.managementChannelId}>` : "not set"}\n` +
+        `> Main board: Top ${data.topPerChannel}` +
+        (extras.length
+            ? `\n> Extra: ${extras.map((b) => `${b.title || b.id} (Top ${b.slotCount})`).join(", ")}`
+            : "")
     );
 }
 
@@ -209,29 +203,46 @@ async function stepPayload(interaction) {
 
     if (step === 3) {
         const { getPageRanges, pageChannelName } = require("./renderer");
-        const ranges = getPageRanges(data.topPerChannel);
-        const preview = ranges
-            .map((r) => `• **#${r.start}–${r.end}** → \`#${pageChannelName(r.start, r.end, data.suffix)}\``)
-            .join("\n");
-        const extras = extraBoardsOf({ extraBoards: data.extraBoards });
-        const extraSuffixOf = (board) => (board.suffix && board.suffix !== "default" ? board.suffix : board.id);
-        const extraPreview = extras.length
-            ? extras.map((board) => {
-                const ch = getPageRanges(board.slotCount)
-                    .map((r) => `\`#${pageChannelName(r.start, r.end, extraSuffixOf(board))}\``)
-                    .join(", ");
-                return `• **${board.title || board.id}** · Top ${board.slotCount} · title ${board.showTitle !== false ? "on" : "off"} · ${ch}`;
-            }).join("\n")
-            : "> none yet — **Add extra board** for another Top 10 / 20 / 30 with its own ranking.";
+        const preview = getPageRanges(data.topPerChannel)
+            .map((r) => `\`#${pageChannelName(r.start, r.end, data.suffix)}\``)
+            .join(" · ");
         const spotBtn = (n) => ({
             type: 2,
             style: Number(data.topPerChannel) === n ? 3 : 2,
             label: `Top ${n}`,
             custom_id: `tsb:lb:spots:${n}`,
         });
+        return {
+            embeds: [{
+                title,
+                description:
+                    "How big is the **main** board?\n\n" +
+                    `**${data.topPerChannel}** spots → ${preview}`,
+                color: COLOR
+            }],
+            components: [
+                { type: 1, components: [spotBtn(10), spotBtn(20), spotBtn(30), spotBtn(40), spotBtn(50)] },
+                ...navButtons([
+                    { type: 2, style: 2, label: "Custom", custom_id: "tsb:lb:cfg_naming" },
+                ])
+            ]
+        };
+    }
+
+    if (step === 4) {
+        const { getPageRanges, pageChannelName } = require("./renderer");
+        const extras = extraBoardsOf({ extraBoards: data.extraBoards });
+        const extraSuffixOf = (board) => (board.suffix && board.suffix !== "default" ? board.suffix : board.id);
         const titleOn = data.showHeading !== false;
+        const extraPreview = extras.length
+            ? extras.map((board) => {
+                const ch = getPageRanges(board.slotCount)
+                    .map((r) => `\`#${pageChannelName(r.start, r.end, extraSuffixOf(board))}\``)
+                    .join(", ");
+                return `• **${board.title || board.id}** · Top ${board.slotCount} · ${ch}`;
+            }).join("\n")
+            : "None. Skip this if you only need one board.";
         const rows = [
-            { type: 1, components: [spotBtn(10), spotBtn(20), spotBtn(30), spotBtn(40), spotBtn(50)] },
             {
                 type: 1,
                 components: [
@@ -251,8 +262,8 @@ async function stepPayload(interaction) {
                     },
                     ...(extras.length
                         ? [
-                            { type: 2, style: 2, label: "Edit extra", custom_id: "tsb:lb:edit_extra" },
-                            { type: 2, style: 4, label: "Remove extra", custom_id: "tsb:lb:rm_extra" },
+                            { type: 2, style: 2, label: "Edit", custom_id: "tsb:lb:edit_extra" },
+                            { type: 2, style: 4, label: "Remove", custom_id: "tsb:lb:rm_extra" },
                         ]
                         : []),
                 ],
@@ -267,7 +278,7 @@ async function stepPayload(interaction) {
             const extraSpotBtn = (n) => ({
                 type: 2,
                 style: Number(selected.slotCount) === n ? 3 : 2,
-                label: `Extra ${n}`,
+                label: `Top ${n}`,
                 custom_id: `tsb:lb:extra_spots:${n}`,
             });
             rows.push({
@@ -279,7 +290,7 @@ async function stepPayload(interaction) {
                     options: extras.map((board) => ({
                         label: (board.title || board.id).slice(0, 100),
                         value: board.id,
-                        description: `Top ${board.slotCount} · ${board.suffix}`.slice(0, 100),
+                        description: `Top ${board.slotCount}`.slice(0, 100),
                         default: board.id === selectedId,
                     })),
                 }],
@@ -289,20 +300,13 @@ async function stepPayload(interaction) {
                 components: [extraSpotBtn(10), extraSpotBtn(20), extraSpotBtn(30), extraSpotBtn(40), extraSpotBtn(50)],
             });
         }
-        rows.push(...navButtons([
-            { type: 2, style: 1, label: "Custom size + suffix", custom_id: "tsb:lb:cfg_naming" },
-            { type: 2, style: 2, label: "Suffix only", custom_id: "tsb:lb:cfg_suffix" },
-        ]));
+        rows.push(...navButtons());
         return {
             embeds: [{
                 title,
                 description:
-                    "How many top spots on the **main** board? Each **10** get their own channel.\n" +
-                    "Turn the big heading off, or add **extra boards** (Top 10 / 20 / 30…, separate ranking).\n\n" +
-                    `**Selected:** \`${data.topPerChannel}\` spots\n` +
-                    `**Suffix:** \`${data.suffix || "default"}\`\n` +
-                    `**Title:** ${titleOn ? `\`${(data.headingText || "").trim() || "server name Leaderboard"}\`` : "**hidden**"}\n\n` +
-                    `${preview || "Pick a size above."}\n\n` +
+                    "Optional. Hide the heading on the main board, or add **another** board (separate ranking).\n\n" +
+                    `**Heading:** ${titleOn ? `\`${(data.headingText || "").trim() || "server name Leaderboard"}\`` : "hidden"}\n\n` +
                     `**Extra boards**\n${extraPreview}`,
                 color: COLOR
             }],
@@ -310,7 +314,7 @@ async function stepPayload(interaction) {
         };
     }
 
-    if (step === 4) {
+    if (step === 5) {
         return {
             embeds: [{
                 title,
@@ -325,7 +329,7 @@ async function stepPayload(interaction) {
         };
     }
 
-    if (step === 5) {
+    if (step === 6) {
         return {
             embeds: [{
                 title,
@@ -345,7 +349,7 @@ async function stepPayload(interaction) {
         };
     }
 
-    if (step === 6) {
+    if (step === 7) {
         const pages = pageRangesFor(data.topPerChannel || 10);
         const roles = normalizeTopBoardRoles(data.topBoardRoles, null, data.topPerChannel || 10);
         if (!data.editingTopRoleRange && pages[0]) {
@@ -414,7 +418,7 @@ async function stepPayload(interaction) {
         };
     }
 
-    if (step === 7) {
+    if (step === 8) {
         const reqText = data.rankRequirements?.length
             ? data.rankRequirements.map((r) => `\`${r}\``).join(", ")
             : "**None**";
@@ -438,7 +442,7 @@ async function stepPayload(interaction) {
         };
     }
 
-    if (step === 8) {
+    if (step === 9) {
         const chal = challengeTicketsOf({ challengeTickets: data.challengeTickets });
         return {
             embeds: [{
@@ -514,7 +518,7 @@ async function stepPayload(interaction) {
         };
     }
 
-    // step 9 confirm
+    // step 10 confirm
     const chal = challengeTicketsOf({ challengeTickets: data.challengeTickets });
     const theme = resolveTheme(data.theme);
 

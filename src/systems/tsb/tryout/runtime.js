@@ -1,5 +1,4 @@
 const {
-  EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -10,35 +9,58 @@ const {
   PermissionFlagsBits,
 } = require("discord.js");
 const api = require("../../../utils/loadApi");
+const { resolveMaybe } = require("../../../utils/resolveMaybe");
 const { getTryoutSettings } = require("./settings");
 const { addTryoutCooldownRole } = require("../ranking/tryoutCooldown");
 const { getRankingConfig } = require("../ranking/config");
+const { hasAccessPerm } = require("../access/store");
+const {
+  tsbEmbed,
+  COLOR_PRIMARY,
+  COLOR_SURFACE,
+  COLOR_SUCCESS,
+  COLOR_WARN,
+  COLOR_DANGER,
+} = require("../shared/embeds");
 
 const live = new Map();
+const hydratedGuilds = new Set();
 
 function genToken() {
-  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function sanitize(raw) {
   if (!raw || typeof raw !== "object" || !raw.token || !raw.guildId) return null;
+  const requiredSignups = Math.max(0, Number(raw.requiredSignups) || 0);
+  let maxSignups = Math.max(0, Number(raw.maxSignups) || 0);
+  if (maxSignups && requiredSignups && maxSignups < requiredSignups) {
+    maxSignups = requiredSignups;
+  }
   return {
     token: String(raw.token),
     guildId: String(raw.guildId),
     creatorId: String(raw.creatorId || ""),
     creatorName: String(raw.creatorName || "Unknown"),
-    link: String(raw.link || ""),
+    title: String(raw.title || "").trim().slice(0, 80),
+    note: String(raw.note || "").trim().slice(0, 200),
+    link: String(raw.link || "").trim(),
     channelId: String(raw.channelId || ""),
     messageId: raw.messageId ? String(raw.messageId) : null,
     ended: !!raw.ended,
     endedBy: raw.endedBy ? String(raw.endedBy) : null,
-    requiredSignups: Number(raw.requiredSignups) || 0,
-    maxSignups: Number(raw.maxSignups) || 0,
-    reminderMessage: String(raw.reminderMessage || ""),
+    requiredSignups,
+    maxSignups,
+    reminderMessage: String(raw.reminderMessage || "").trim().slice(0, 250),
     notifiedReady: !!raw.notifiedReady,
     pingRoleId: String(raw.pingRoleId || ""),
     signups: Array.isArray(raw.signups)
-      ? raw.signups.map((s) => ({ userId: String(s.userId || ""), username: String(s.username || "") })).filter((s) => s.username)
+      ? raw.signups
+          .map((s) => ({
+            userId: String(s.userId || ""),
+            username: String(s.username || "").trim().slice(0, 64),
+          }))
+          .filter((s) => s.userId && s.username)
       : [],
     createdAt: Number(raw.createdAt) || Date.now(),
     updatedAt: Number(raw.updatedAt) || Date.now(),
@@ -60,83 +82,224 @@ function persist(session) {
   return clean;
 }
 
-function buildEmbed(session) {
-  const count = session.signups.length;
-  const list = session.signups.slice(0, 8).map((s, i) => `**${i + 1}.** ${s.username}${s.userId ? ` (<@${s.userId}>)` : ""}`);
-  const signupsValue = list.length
-    ? `${list.join("\n")}${session.signups.length > 8 ? `\n…and ${session.signups.length - 8} more` : ""}`
-    : "*No signups yet.*";
-  const enough = !session.requiredSignups || count >= session.requiredSignups;
-  const maxReached = session.maxSignups && count >= session.maxSignups;
-  const status = session.ended
-    ? `Closed by <@${session.endedBy || session.creatorId}>`
-    : maxReached
-      ? "Full — no more signups"
-      : enough
-        ? "Open — link unlocked"
-        : `Waiting for ${Math.max(session.requiredSignups - count, 0)} more signup(s) to unlock the link`;
-  const fields = [
-    {
-      name: "TSB Link",
-      value: session.ended || enough ? `[Join tryout](${session.link})` : `*Unlocks after ${session.requiredSignups} signup(s)*`,
-      inline: true,
-    },
-    { name: "Hosted by", value: `<@${session.creatorId}>`, inline: true },
-    { name: "Status", value: status, inline: true },
-  ];
-  if (session.requiredSignups) fields.push({ name: "Required signups", value: `${session.requiredSignups}`, inline: true });
-  if (session.maxSignups) fields.push({ name: "Max signups", value: `${session.maxSignups}`, inline: true });
-  if (session.pingRoleId) fields.push({ name: "Ready ping", value: `<@&${session.pingRoleId}>`, inline: true });
-  fields.push({ name: session.maxSignups ? `Signups (${count}/${session.maxSignups})` : `Signups (${count})`, value: signupsValue });
-
-  return new EmbedBuilder()
-    .setColor(session.ended ? 0x8b0000 : maxReached ? 0xfee75c : 0x5865f2)
-    .setTitle("⚔️ TSB Tryout")
-    .setDescription("**The Strongest Battlegrounds** — click **Join Tryout** with your Roblox username.")
-    .addFields(fields)
-    .setFooter({ text: `TSB tryout by ${session.creatorName} · ${session.token}` })
-    .setTimestamp(session.createdAt || Date.now());
+async function hydrateGuild(guildId) {
+  const id = String(guildId || "");
+  if (!id || hydratedGuilds.has(id)) return;
+  try {
+    let sessions = [];
+    if (typeof api.tryouts?.listSessions === "function") {
+      sessions = (await resolveMaybe(api.tryouts.listSessions(id))) || [];
+    } else {
+      const settings = await getTryoutSettings(id);
+      sessions = Object.values(settings.sessions || {});
+    }
+    for (const raw of sessions) {
+      const clean = sanitize(raw);
+      if (clean) live.set(clean.token, clean);
+    }
+  } catch (err) {
+    console.warn("[Tryout] hydrate failed:", err.message);
+  }
+  hydratedGuilds.add(id);
 }
 
-function buildRow(session) {
-  const canOpen = session.ended || !session.requiredSignups || session.signups.length >= session.requiredSignups;
-  const maxReached = session.maxSignups && session.signups.length >= session.maxSignups;
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`tryout_open_${session.token}`).setLabel("Open Link").setStyle(ButtonStyle.Secondary).setDisabled(!canOpen),
-    new ButtonBuilder().setCustomId(`tryout_join_${session.token}`).setLabel("Join Tryout").setStyle(ButtonStyle.Primary).setDisabled(session.ended || maxReached),
-    new ButtonBuilder().setCustomId(`tryout_reminder_${session.token}`).setLabel("Edit Reminder").setStyle(ButtonStyle.Secondary).setDisabled(session.ended),
-    new ButtonBuilder().setCustomId(`tryout_end_${session.token}`).setLabel("End Tryout").setStyle(ButtonStyle.Danger).setDisabled(session.ended)
+async function getSession(token, guildId = null) {
+  const key = String(token || "");
+  if (!key) return null;
+  if (live.has(key)) return live.get(key);
+  if (guildId) await hydrateGuild(guildId);
+  return live.get(key) || null;
+}
+
+function isValidLink(link) {
+  const value = String(link || "").trim();
+  if (!value || value.length > 300) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isValidRobloxUsername(name) {
+  return /^[A-Za-z0-9_]{3,20}$/.test(String(name || "").trim());
+}
+
+function canManageSession(member, guild, session) {
+  if (!member || !session) return false;
+  if (String(member.id) === String(session.creatorId)) return true;
+  if (guild?.ownerId === member.id) return true;
+  if (member.permissions?.has?.(PermissionFlagsBits.Administrator)) return true;
+  if (hasAccessPerm(guild.id, member.id, "TRYOUTS")) return true;
+  return member.permissions?.has?.(PermissionFlagsBits.ManageMessages);
+}
+
+function progressLine(session) {
+  const count = session.signups.length;
+  if (session.maxSignups) return `${count} / ${session.maxSignups}`;
+  if (session.requiredSignups) return `${count} / ${session.requiredSignups} to unlock`;
+  return `${count} signed up`;
+}
+
+function statusText(session) {
+  const count = session.signups.length;
+  const enough = !session.requiredSignups || count >= session.requiredSignups;
+  const full = session.maxSignups && count >= session.maxSignups;
+  if (session.ended) return `Closed by <@${session.endedBy || session.creatorId}>`;
+  if (full) return "Full — signups closed";
+  if (enough) return "Open — link unlocked";
+  return `Need ${Math.max(session.requiredSignups - count, 0)} more to unlock the link`;
+}
+
+function embedColor(session) {
+  const count = session.signups.length;
+  const enough = !session.requiredSignups || count >= session.requiredSignups;
+  const full = session.maxSignups && count >= session.maxSignups;
+  if (session.ended) return COLOR_DANGER;
+  if (full) return COLOR_WARN;
+  if (enough) return COLOR_SUCCESS;
+  return COLOR_PRIMARY;
+}
+
+function buildEmbed(session) {
+  const count = session.signups.length;
+  const list = session.signups.slice(0, 12).map((s, i) => {
+    const who = s.userId ? `<@${s.userId}>` : s.username;
+    return `**${i + 1}.** \`${s.username}\` · ${who}`;
+  });
+  const signupsValue = list.length
+    ? `${list.join("\n")}${count > 12 ? `\n…and ${count - 12} more` : ""}`
+    : "_Nobody has joined yet._";
+
+  const enough = !session.requiredSignups || count >= session.requiredSignups;
+  const linkValue = session.ended || enough
+    ? `[Open private server](${session.link})`
+    : `_Unlocks at **${session.requiredSignups}** signup${session.requiredSignups === 1 ? "" : "s"}_`;
+
+  const fields = [
+    { name: "Status", value: statusText(session), inline: false },
+    { name: "Link", value: linkValue, inline: true },
+    { name: "Host", value: `<@${session.creatorId}>`, inline: true },
+    { name: "Signups", value: progressLine(session), inline: true },
+  ];
+  if (session.requiredSignups) {
+    fields.push({ name: "Unlock at", value: `\`${session.requiredSignups}\``, inline: true });
+  }
+  if (session.maxSignups) {
+    fields.push({ name: "Capacity", value: `\`${session.maxSignups}\``, inline: true });
+  }
+  if (session.pingRoleId) {
+    fields.push({ name: "Ready ping", value: `<@&${session.pingRoleId}>`, inline: true });
+  }
+  fields.push({ name: "Players", value: signupsValue, inline: false });
+
+  const title = session.title
+    ? session.title
+    : "Tryout signup";
+  const description = [
+    session.note || "Press **Join** with your Roblox username. The host link unlocks when the signup goal is met.",
+    session.ended ? "" : "",
+  ].filter(Boolean).join("\n\n");
+
+  return tsbEmbed({
+    title,
+    description,
+    color: embedColor(session),
+    fields,
+    footer: `Hosted by ${session.creatorName} · ${session.token}`,
+    timestamp: session.createdAt || Date.now(),
+  });
+}
+
+function buildRows(session) {
+  const count = session.signups.length;
+  const canOpen = session.ended || !session.requiredSignups || count >= session.requiredSignups;
+  const full = !!(session.maxSignups && count >= session.maxSignups);
+  const closed = !!session.ended;
+
+  const publicRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`tryout_join_${session.token}`)
+      .setLabel(closed || full ? "Join" : "Join")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(closed || full),
+    new ButtonBuilder()
+      .setCustomId(`tryout_leave_${session.token}`)
+      .setLabel("Leave")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(closed),
+    new ButtonBuilder()
+      .setCustomId(`tryout_open_${session.token}`)
+      .setLabel(canOpen ? "Get link" : "Link locked")
+      .setStyle(canOpen ? ButtonStyle.Success : ButtonStyle.Secondary)
+      .setDisabled(closed ? false : !canOpen)
   );
+
+  const hostRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`tryout_reminder_${session.token}`)
+      .setLabel("Reminder DM")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(closed),
+    new ButtonBuilder()
+      .setCustomId(`tryout_end_${session.token}`)
+      .setLabel(closed ? "Ended" : "End tryout")
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(closed)
+  );
+
+  return [publicRow, hostRow];
+}
+
+/** @deprecated use buildRows */
+function buildRow(session) {
+  return buildRows(session)[0];
 }
 
 function listPayload(sessions) {
   const sorted = [...sessions].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const active = sorted.filter((s) => !s.ended);
-  const ended = sorted.filter((s) => s.ended);
-  const embed = new EmbedBuilder().setColor(0x5865f2).setTitle("⚔️ TSB Tryout Sessions").setTimestamp();
-  if (active.length) {
-    embed.addFields({
-      name: "Active tryouts",
-      value: active.map((s, i) => `**${i + 1}.** \`${s.token}\` <#${s.channelId}> — ${s.signups.length}${s.maxSignups ? `/${s.maxSignups}` : ""}`).join("\n"),
-    });
-  } else {
-    embed.addFields({ name: "Active tryouts", value: "*No active tryouts.*" });
-  }
+  const ended = sorted.filter((s) => s.ended).slice(0, 8);
+
+  const activeValue = active.length
+    ? active.map((s, i) => {
+      const label = s.title || "Tryout";
+      return `**${i + 1}.** ${label} · <#${s.channelId}> · ${progressLine(s)} · <@${s.creatorId}>`;
+    }).join("\n")
+    : "_No active tryouts._";
+
+  const fields = [{ name: "Active", value: activeValue.slice(0, 1024) }];
   if (ended.length) {
-    embed.addFields({
-      name: "Ended tryouts",
-      value: ended.slice(0, 10).map((s, i) => `**${i + 1}.** <#${s.channelId}> by <@${s.creatorId}> — closed`).join("\n"),
+    fields.push({
+      name: "Recently ended",
+      value: ended.map((s, i) => {
+        const label = s.title || "Tryout";
+        return `**${i + 1}.** ${label} · <@${s.creatorId}> · ${s.signups.length} joined`;
+      }).join("\n").slice(0, 1024),
     });
   }
+
+  const embed = tsbEmbed({
+    title: "Tryouts",
+    description: active.length
+      ? `${active.length} active session${active.length === 1 ? "" : "s"}. Use the menu to end one, or \`/tryout end\`.`
+      : "No active tryouts. Create one with `/tryout create`.",
+    color: COLOR_SURFACE,
+    fields,
+    footer: "Ascendant · tryouts",
+    timestamp: true,
+  });
+
   const components = [];
   if (active.length) {
     components.push(new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId("tryout_end_selected")
-        .setPlaceholder("Select a tryout to end")
+        .setPlaceholder("End an active tryout")
         .addOptions(active.slice(0, 25).map((s, i) => ({
-          label: `#${i + 1} ${s.creatorName}`.slice(0, 100),
-          description: `Signups ${s.signups.length}`.slice(0, 100),
+          label: `${s.title || `Tryout #${i + 1}`}`.slice(0, 100),
+          description: `${progressLine(s)} · ${s.creatorName}`.slice(0, 100),
           value: s.token,
         })))
     ));
@@ -150,26 +313,38 @@ async function refreshMessage(client, session) {
   if (!channel?.isTextBased?.()) return;
   const message = await channel.messages.fetch(session.messageId).catch(() => null);
   if (!message) return;
-  await message.edit({ embeds: [buildEmbed(session)], components: [buildRow(session)] }).catch(() => {});
+  await message.edit({ embeds: [buildEmbed(session)], components: buildRows(session) }).catch(() => {});
 }
 
 async function notifyReady(client, session) {
-  const dmText = session.reminderMessage || "Your TSB tryout is ready! The required signups have been reached.";
+  const dmText = session.reminderMessage
+    || "Your tryout is ready — the signup goal was reached. Use **Get link** on the tryout message.";
   for (const signup of session.signups) {
     if (!signup.userId) continue;
     const user = await client.users.fetch(signup.userId).catch(() => null);
-    if (user) await user.send({ content: `⚔️ **TSB Tryout Ready**\n${dmText}\n\nLink: ${session.link}` }).catch(() => {});
+    if (user) {
+      await user.send({
+        content: `**Tryout ready**${session.title ? ` · ${session.title}` : ""}\n${dmText}\n${session.link}`,
+      }).catch(() => {});
+    }
   }
   const creator = await client.users.fetch(session.creatorId).catch(() => null);
-  if (creator) await creator.send({ content: `⚔️ **Your TSB tryout is ready**\n${dmText}\n\nLink: ${session.link}` }).catch(() => {});
+  if (creator) {
+    await creator.send({
+      content: `**Your tryout is ready**${session.title ? ` · ${session.title}` : ""}\n${dmText}\n${session.link}`,
+    }).catch(() => {});
+  }
   const channel = await client.channels.fetch(session.channelId).catch(() => null);
   if (channel?.isTextBased?.() && session.pingRoleId) {
-    await channel.send({ content: `<@&${session.pingRoleId}> TSB tryout is ready!`, allowedMentions: { roles: [session.pingRoleId] } }).catch(() => {});
+    await channel.send({
+      content: `<@&${session.pingRoleId}> tryout is ready — link unlocked.`,
+      allowedMentions: { roles: [session.pingRoleId] },
+    }).catch(() => {});
   }
 }
 
 async function closeSession(client, token, endedBy) {
-  const session = live.get(token);
+  const session = live.get(token) || await getSession(token);
   if (!session) return null;
   if (!session.ended) {
     session.ended = true;
@@ -181,41 +356,71 @@ async function closeSession(client, token, endedBy) {
   return session;
 }
 
-function guildSessions(guildId) {
-  return [...live.values()].filter((s) => s.guildId === guildId);
+async function guildSessions(guildId) {
+  await hydrateGuild(guildId);
+  return [...live.values()].filter((s) => s.guildId === String(guildId));
 }
 
 async function createTryout(interaction, options) {
   const settings = await getTryoutSettings(interaction.guild.id);
   if (!settings.channelId) {
-    return interaction.editReply({ content: "No tryout channel is configured. Use `'serversetup` → **Tryouts**." });
+    return interaction.editReply({
+      content: "Tryouts aren’t configured yet. Use `'setup` → **Tryouts** and pick a channel.",
+    });
   }
   const channel = await interaction.guild.channels.fetch(settings.channelId).catch(() => null);
   if (!channel?.isTextBased?.()) {
-    return interaction.editReply({ content: "The configured tryout channel is not available." });
+    return interaction.editReply({ content: "The tryout channel is missing. Re-select it in `'setup` → **Tryouts**." });
   }
+
+  const link = String(options.link || "").trim();
+  if (!isValidLink(link)) {
+    return interaction.editReply({ content: "Link must be a valid `http://` or `https://` URL." });
+  }
+
+  let requiredSignups = options.requiredSignups;
+  if (requiredSignups == null) requiredSignups = settings.defaultRequiredSignups || 0;
+  requiredSignups = Math.max(0, Number(requiredSignups) || 0);
+
+  let maxSignups = options.maxSignups;
+  if (maxSignups == null) maxSignups = settings.defaultMaxSignups || 0;
+  maxSignups = Math.max(0, Number(maxSignups) || 0);
+  if (maxSignups && requiredSignups && maxSignups < requiredSignups) {
+    return interaction.editReply({
+      content: `Max signups (\`${maxSignups}\`) can’t be lower than required (\`${requiredSignups}\`).`,
+    });
+  }
+
   const session = persist({
     token: genToken(),
     guildId: interaction.guild.id,
     creatorId: interaction.user.id,
-    creatorName: interaction.user.tag,
-    link: options.link,
+    creatorName: interaction.member?.displayName || interaction.user.username,
+    title: options.title || "",
+    note: options.note || "",
+    link,
     channelId: channel.id,
     messageId: null,
     ended: false,
-    requiredSignups: options.requiredSignups ?? settings.defaultRequiredSignups ?? 0,
-    maxSignups: options.maxSignups ?? settings.defaultMaxSignups ?? 0,
+    requiredSignups,
+    maxSignups,
     pingRoleId: options.pingRoleId || settings.pingRoleId || "",
     signups: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
-  const message = await channel.send({ embeds: [buildEmbed(session)], components: [buildRow(session)] });
+
+  const message = await channel.send({
+    embeds: [buildEmbed(session)],
+    components: buildRows(session),
+  });
   session.messageId = message.id;
   persist(session);
-  const capText = session.maxSignups ? ` · max ${session.maxSignups}` : "";
-  const reqText = session.requiredSignups ? ` · unlocks at ${session.requiredSignups} signup(s)` : "";
-  return interaction.editReply({ content: `TSB tryout created in <#${channel.id}>${reqText}${capText}.` });
+
+  return interaction.editReply({
+    content: `Tryout posted in ${channel}.`,
+    embeds: [buildEmbed(session)],
+  });
 }
 
 async function handleTryoutRuntime(interaction) {
@@ -223,118 +428,204 @@ async function handleTryoutRuntime(interaction) {
 
   if (interaction.isStringSelectMenu() && id === "tryout_end_selected") {
     const token = interaction.values?.[0];
-    const session = live.get(token);
+    const session = await getSession(token, interaction.guild.id);
     if (!session || session.guildId !== interaction.guild.id) {
       return interaction.reply({ content: "Tryout not found.", ephemeral: true });
     }
+    if (!canManageSession(interaction.member, interaction.guild, session)) {
+      return interaction.reply({ content: "You can’t end that tryout.", ephemeral: true });
+    }
     await closeSession(interaction.client, token, interaction.user.id);
-    return interaction.update({ content: `Ended tryout by <@${session.creatorId}>.`, embeds: [buildEmbed(session)], components: [] });
+    const sessions = await guildSessions(interaction.guild.id);
+    const { embed, components } = listPayload(sessions);
+    return interaction.update({
+      content: `Ended **${session.title || "tryout"}** hosted by <@${session.creatorId}>.`,
+      embeds: [embed],
+      components,
+    });
   }
 
   if (interaction.isButton() && id.startsWith("tryout_join_")) {
     const token = id.slice("tryout_join_".length);
-    const session = live.get(token);
+    const session = await getSession(token, interaction.guild?.id);
     if (!session || session.ended) {
       return interaction.reply({ content: "This tryout is closed or missing.", ephemeral: true });
     }
+    if (session.maxSignups && session.signups.length >= session.maxSignups
+      && !session.signups.some((s) => s.userId === interaction.user.id)) {
+      return interaction.reply({ content: "This tryout is full.", ephemeral: true });
+    }
+    const existing = session.signups.find((s) => s.userId === interaction.user.id);
     return interaction.showModal(
       new ModalBuilder()
         .setCustomId(`tryout_join_modal_${token}`)
-        .setTitle("Join Tryout")
+        .setTitle(existing ? "Update Roblox username" : "Join tryout")
         .addComponents(new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId("tryout_username").setLabel("Your TSB Roblox username").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(64)
+          new TextInputBuilder()
+            .setCustomId("tryout_username")
+            .setLabel("Roblox username")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMinLength(3)
+            .setMaxLength(20)
+            .setPlaceholder("Exact Roblox username")
+            .setValue(existing?.username || "")
         ))
     );
   }
 
-  if (interaction.isButton() && id.startsWith("tryout_open_")) {
-    const session = live.get(id.slice("tryout_open_".length));
+  if (interaction.isButton() && id.startsWith("tryout_leave_")) {
+    const token = id.slice("tryout_leave_".length);
+    const session = await getSession(token, interaction.guild?.id);
     if (!session) return interaction.reply({ content: "Tryout no longer exists.", ephemeral: true });
-    if (session.ended || !session.requiredSignups || session.signups.length >= session.requiredSignups) {
-      return interaction.reply({ content: `Tryout link: ${session.link}`, ephemeral: true });
+    if (session.ended) return interaction.reply({ content: "This tryout is already closed.", ephemeral: true });
+    const before = session.signups.length;
+    session.signups = session.signups.filter((s) => s.userId !== interaction.user.id);
+    if (session.signups.length === before) {
+      return interaction.reply({ content: "You’re not on this tryout.", ephemeral: true });
     }
-    return interaction.reply({ content: `Link unlocks after ${session.requiredSignups} signups.`, ephemeral: true });
+    session.updatedAt = Date.now();
+    persist(session);
+    await refreshMessage(interaction.client, session);
+    return interaction.reply({ content: "You left the tryout.", ephemeral: true });
+  }
+
+  if (interaction.isButton() && id.startsWith("tryout_open_")) {
+    const session = await getSession(id.slice("tryout_open_".length), interaction.guild?.id);
+    if (!session) return interaction.reply({ content: "Tryout no longer exists.", ephemeral: true });
+    const unlocked = session.ended
+      || !session.requiredSignups
+      || session.signups.length >= session.requiredSignups;
+    if (!unlocked) {
+      return interaction.reply({
+        content: `Link unlocks at **${session.requiredSignups}** signup${session.requiredSignups === 1 ? "" : "s"} (${session.signups.length}/${session.requiredSignups}).`,
+        ephemeral: true,
+      });
+    }
+    return interaction.reply({
+      content: `**Tryout link**\n${session.link}`,
+      ephemeral: true,
+    });
   }
 
   if (interaction.isButton() && id.startsWith("tryout_end_")) {
     const token = id.slice("tryout_end_".length);
-    const session = live.get(token);
+    const session = await getSession(token, interaction.guild?.id);
     if (!session) return interaction.reply({ content: "Tryout no longer exists.", ephemeral: true });
-    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
-    const { hasAccessPerm } = require("../access/store");
-    if (
-      interaction.user.id !== session.creatorId
-      && !isAdmin
-      && !hasAccessPerm(interaction.guild.id, interaction.user.id, "TRYOUTS")
-    ) {
-      return interaction.reply({ content: "Only the creator or an admin can end this tryout.", ephemeral: true });
+    if (!canManageSession(interaction.member, interaction.guild, session)) {
+      return interaction.reply({ content: "Only the host, TRYOUTS staff, or an admin can end this.", ephemeral: true });
     }
     await closeSession(interaction.client, token, interaction.user.id);
-    return interaction.update({ embeds: [buildEmbed(session)], components: [buildRow(session)] });
+    return interaction.update({ embeds: [buildEmbed(session)], components: buildRows(session) });
   }
 
   if (interaction.isButton() && id.startsWith("tryout_reminder_")) {
     const token = id.slice("tryout_reminder_".length);
-    const session = live.get(token);
+    const session = await getSession(token, interaction.guild?.id);
     if (!session) return interaction.reply({ content: "Tryout no longer exists.", ephemeral: true });
-    const input = new TextInputBuilder().setCustomId("tryout_reminder_text").setLabel("Reminder DM text").setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(250);
+    if (!canManageSession(interaction.member, interaction.guild, session)) {
+      return interaction.reply({ content: "Only the host or staff can edit the reminder.", ephemeral: true });
+    }
+    const input = new TextInputBuilder()
+      .setCustomId("tryout_reminder_text")
+      .setLabel("Reminder DM (sent when unlocked)")
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(false)
+      .setMaxLength(250)
+      .setPlaceholder("Optional message players get when the link unlocks");
     if (session.reminderMessage) input.setValue(session.reminderMessage);
     return interaction.showModal(
-      new ModalBuilder().setCustomId(`tryout_reminder_modal_${token}`).setTitle("Edit Reminder DM")
+      new ModalBuilder()
+        .setCustomId(`tryout_reminder_modal_${token}`)
+        .setTitle("Reminder DM")
         .addComponents(new ActionRowBuilder().addComponents(input))
     );
   }
 
   if (interaction.isModalSubmit() && id.startsWith("tryout_reminder_modal_")) {
-    const session = live.get(id.slice("tryout_reminder_modal_".length));
+    const session = await getSession(id.slice("tryout_reminder_modal_".length), interaction.guild?.id);
     if (!session) return interaction.reply({ content: "Tryout no longer exists.", ephemeral: true });
+    if (!canManageSession(interaction.member, interaction.guild, session)) {
+      return interaction.reply({ content: "Only the host or staff can edit the reminder.", ephemeral: true });
+    }
     session.reminderMessage = interaction.fields.getTextInputValue("tryout_reminder_text").trim();
+    session.updatedAt = Date.now();
     persist(session);
     await refreshMessage(interaction.client, session);
-    return interaction.reply({ content: "Reminder DM text updated.", ephemeral: true });
+    return interaction.reply({
+      content: session.reminderMessage ? "Reminder DM updated." : "Reminder DM cleared (default text will be used).",
+      ephemeral: true,
+    });
   }
 
   if (interaction.isModalSubmit() && id.startsWith("tryout_join_modal_")) {
     const token = id.slice("tryout_join_modal_".length);
-    const session = live.get(token);
-    if (!session || session.ended) return interaction.reply({ content: "This tryout is closed.", ephemeral: true });
+    const session = await getSession(token, interaction.guild?.id);
+    if (!session || session.ended) {
+      return interaction.reply({ content: "This tryout is closed.", ephemeral: true });
+    }
     const username = interaction.fields.getTextInputValue("tryout_username").trim();
-    if (!username) return interaction.reply({ content: "Enter your Roblox username.", ephemeral: true });
+    if (!isValidRobloxUsername(username)) {
+      return interaction.reply({
+        content: "Roblox usernames are 3–20 characters: letters, numbers, underscore only.",
+        ephemeral: true,
+      });
+    }
+
     const existing = session.signups.find((s) => s.userId === interaction.user.id);
     if (!existing && session.maxSignups && session.signups.length >= session.maxSignups) {
       return interaction.reply({ content: "This tryout is full.", ephemeral: true });
     }
-    if (existing) existing.username = username;
-    else {
+
+    const taken = session.signups.find(
+      (s) => s.userId !== interaction.user.id && s.username.toLowerCase() === username.toLowerCase()
+    );
+    if (taken) {
+      return interaction.reply({
+        content: `Someone already signed up as \`${username}\`.`,
+        ephemeral: true,
+      });
+    }
+
+    let joinedFresh = false;
+    if (existing) {
+      existing.username = username;
+    } else {
       session.signups.push({ userId: interaction.user.id, username });
+      joinedFresh = true;
       try {
-        const rankingCfg = getRankingConfig(interaction.guild.id);
-        if (rankingCfg) {
-          const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-          if (member) await addTryoutCooldownRole(member, rankingCfg, "Joined TSB tryout");
+        const rankingCfg = await getRankingConfig(interaction.guild.id);
+        const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+        if (member && rankingCfg) {
+          await addTryoutCooldownRole(member, rankingCfg, "Joined tryout");
         }
       } catch {}
     }
+
+    session.updatedAt = Date.now();
     persist(session);
     await refreshMessage(interaction.client, session);
+
     if (session.requiredSignups && !session.notifiedReady && session.signups.length >= session.requiredSignups) {
       session.notifiedReady = true;
       persist(session);
       await notifyReady(interaction.client, session);
     }
-    return interaction.reply({ content: "You have joined the TSB tryout.", ephemeral: true });
+
+    return interaction.reply({
+      content: joinedFresh
+        ? `You’re in as \`${username}\`.`
+        : `Updated your username to \`${username}\`.`,
+      ephemeral: true,
+    });
   }
 
   return false;
 }
 
-function restoreFromStore(guildId) {
-  try {
-    for (const session of api.tryouts.listSessions(guildId) || []) {
-      const clean = sanitize(session);
-      if (clean) live.set(clean.token, clean);
-    }
-  } catch {}
+async function restoreFromStore(guildId) {
+  hydratedGuilds.delete(String(guildId || ""));
+  await hydrateGuild(guildId);
 }
 
 module.exports = {
@@ -345,4 +636,9 @@ module.exports = {
   listPayload,
   persist,
   restoreFromStore,
+  getSession,
+  buildEmbed,
+  buildRows,
+  buildRow,
+  isValidLink,
 };

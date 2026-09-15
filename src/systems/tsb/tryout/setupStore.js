@@ -8,14 +8,14 @@ const COLOR = 0x2B2D31;
 async function summary(guildId) {
     const s = await getTryoutSettings(guildId);
     return (
-        "**Current Configuration**\n" +
+        "**Current**\n" +
         `> **Channel:** ${s.channelId ? `<#${s.channelId}>` : "`not set`"}\n` +
         `> **Ping role:** ${s.pingRoleId ? `<@&${s.pingRoleId}>` : "`none`"}\n` +
-        `> **Default required signups:** \`${s.defaultRequiredSignups || 0}\`\n` +
-        `> **Default max signups:** \`${s.defaultMaxSignups || 0}\`\n\n` +
-        `**Status**\n${s.configured ? "Configured" : "Not configured"}\n\n` +
-        "Runtime: `/tryout create` · `/tryout list` · `/tryout end`\n" +
-        "Join cooldown role is set in **Ranking Setup** (tryout cooldown)."
+        `> **Default unlock at:** \`${s.defaultRequiredSignups || 0}\` signup(s)\n` +
+        `> **Default max:** \`${s.defaultMaxSignups || 0}\` ${s.defaultMaxSignups ? "" : "(unlimited)"}\n\n` +
+        `**Status:** ${s.configured ? "Configured" : "Not configured — pick a channel"}\n\n` +
+        "Staff: `/tryout create` · `/tryout list` · `/tryout end`\n" +
+        "Join cooldown role is set in **Ranking Setup**."
     );
 }
 
@@ -24,7 +24,7 @@ async function overviewPayload(guildId) {
         embeds: [{
             title: "Tryouts",
             description:
-                "Configure where TSB tryout signup posts go, ping role, and default signup limits.\n\n" +
+                "Pick where signup posts go, optional ready ping, and default limits.\n\n" +
                 await summary(guildId),
             color: COLOR,
             author: { name: "Ascendant · TSB" },

@@ -44,7 +44,7 @@ function helpEmbed() {
       `\`${p}cd @user\` / \`/cd\` — cooldown and autowin strikes`,
       `\`${p}removecd @user\` / \`/removecd\` — clear 1v1 cooldown (score staff)`,
       `\`${p}dupes\` / \`/dupes\` — scan duplicate Roblox profiles (score staff)`,
-      `\`${p}tryout\` / \`/tryout\` — create · list · end`,
+      `\`${p}tryout\` / \`/tryout\` — create · list · end · ping`,
       `\`${p}challenge\` / \`/challenge\``,
       "",
       "**Moderation**",

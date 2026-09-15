@@ -146,6 +146,46 @@ function headingTextOf(cfg, guildName) {
   return custom || `${guildName || "Server"} Leaderboard`;
 }
 
+function listBoards(cfg) {
+  const mainTitle = String(cfg?.headingText || "").trim() || "Main board";
+  return [
+    {
+      id: "main",
+      title: mainTitle,
+      slots: Array.isArray(cfg?.slots) ? cfg.slots : [],
+    },
+    ...extraBoardsOf(cfg).map((board) => ({
+      id: board.id,
+      title: board.title || board.id,
+      slots: Array.isArray(board.slots) ? board.slots : [],
+    })),
+  ];
+}
+
+function getBoardById(cfg, boardId = "main") {
+  const id = String(boardId || "main");
+  return listBoards(cfg).find((board) => board.id === id) || null;
+}
+
+function boardsForUser(cfg, userId) {
+  const uid = String(userId || "");
+  if (!uid) return [];
+  return listBoards(cfg).filter((board) =>
+    (board.slots || []).some((slot) => slot?.discordId && String(slot.discordId) === uid)
+  );
+}
+
+function filledSlotsOf(board) {
+  return (board?.slots || [])
+    .filter((slot) => slot?.discordId)
+    .map((slot) => ({
+      position: Number(slot.position) || 0,
+      discordId: String(slot.discordId),
+    }))
+    .filter((slot) => slot.position > 0)
+    .sort((a, b) => a.position - b.position);
+}
+
 function defaultConfig(guildId) {
   return api.leaderboard.defaultConfig
     ? api.leaderboard.defaultConfig(guildId)
@@ -261,6 +301,10 @@ module.exports = {
   uniqueBoardId,
   emptyBoardSlots,
   headingTextOf,
+  listBoards,
+  getBoardById,
+  boardsForUser,
+  filledSlotsOf,
   MAX_EXTRA_BOARDS,
   challengeStaffRoleIds,
 };

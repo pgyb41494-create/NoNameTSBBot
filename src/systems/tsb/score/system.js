@@ -9,7 +9,9 @@ const {
 
 const {
     getLeaderboardConfig,
-    updateLeaderboardConfig
+    updateLeaderboardConfig,
+    getBoardById,
+    extraBoardsOf,
 } = require("../leaderboard/config");
 
 const { refreshLeaderboard } = require("../leaderboard/renderer");
@@ -77,14 +79,15 @@ function cooldownUntilFromDays(days) {
     return new Date(Date.now() + n * 24 * 60 * 60 * 1000);
 }
 
-async function boardPosition(guildId, userId, cfg = null) {
+async function boardPosition(guildId, userId, cfg = null, boardId = "main") {
     const config = cfg || (await getLeaderboardConfig(guildId));
-    const slots = config.slots || [];
+    const board = getBoardById(config, boardId || "main");
+    const slots = board?.slots || [];
     const idx = slots.findIndex((s) => s?.discordId && String(s.discordId) === String(userId));
     return idx >= 0 ? idx + 1 : null;
 }
 
-async function loadDisplay(guild, userId, cfg = null) {
+async function loadDisplay(guild, userId, cfg = null, boardId = "main") {
     const member = await guild.members.fetch(userId).catch(() => null);
     let profile = await getProfileByDiscordId(guild.id, userId).catch(() => null);
     if (!profile) profile = await getProfileByDiscordId(null, userId).catch(() => null);
@@ -115,7 +118,7 @@ async function loadDisplay(guild, userId, cfg = null) {
         mention: `<@${userId}>`,
         name,
         avatarUrl,
-        position: await boardPosition(guild.id, userId, cfg),
+        position: await boardPosition(guild.id, userId, cfg, boardId),
         profile
     };
 }
@@ -143,9 +146,11 @@ function formatReferees(raw) {
     return text;
 }
 
-async function bumpLeaderboard(guild, winnerId, loserId) {
+async function bumpLeaderboard(guild, winnerId, loserId, { boardId = "main" } = {}) {
     const cfg = await getLeaderboardConfig(guild.id);
-    const slots = Array.isArray(cfg.slots) ? cfg.slots : [];
+    const activeBoardId = boardId || "main";
+    const board = getBoardById(cfg, activeBoardId);
+    const slots = Array.isArray(board?.slots) ? board.slots : [];
     const filled = slots.some((s) => s?.discordId);
 
     if (!cfg.setupCompleted) {
@@ -155,8 +160,8 @@ async function bumpLeaderboard(guild, winnerId, loserId) {
         return { bumped: false, reason: "lb_empty" };
     }
 
-    const winnerPos = await boardPosition(guild.id, winnerId, cfg);
-    const loserPos = await boardPosition(guild.id, loserId, cfg);
+    const winnerPos = await boardPosition(guild.id, winnerId, cfg, activeBoardId);
+    const loserPos = await boardPosition(guild.id, loserId, cfg, activeBoardId);
 
     if (!loserPos) {
         return { bumped: false, reason: "loser_off_board", winnerPos, loserPos };
@@ -187,7 +192,14 @@ async function bumpLeaderboard(guild, winnerId, loserId) {
         discordId
     }));
 
-    await updateLeaderboardConfig(guild.id, { slots: nextSlots });
+    if (activeBoardId === "main") {
+        await updateLeaderboardConfig(guild.id, { slots: nextSlots });
+    } else {
+        const extras = extraBoardsOf(cfg).map((entry) =>
+            entry.id === activeBoardId ? { ...entry, slots: nextSlots } : entry
+        );
+        await updateLeaderboardConfig(guild.id, { extraBoards: extras });
+    }
     await refreshLeaderboard(guild).catch((err) => {
         console.warn("[Score] leaderboard refresh failed:", err.message);
     });
@@ -195,6 +207,7 @@ async function bumpLeaderboard(guild, winnerId, loserId) {
     return {
         bumped: true,
         swapped: true,
+        boardId: activeBoardId,
         winnerPos: loserPos,
         previousWinnerPos: winnerPos,
         loserFrom: loserPos,
@@ -342,6 +355,7 @@ async function applyMatchResult({
     region2Score = null,
     region2WinnerId = null,
     isAutowin: forceAutowin = null,
+    boardId = "main",
 }) {
     let cfg = getScoreConfig(guild.id);
     if (typeof cfg?.then === "function") cfg = await cfg;
@@ -381,8 +395,9 @@ async function applyMatchResult({
     }
 
     const lbCfg = await getLeaderboardConfig(guild.id);
-    const p1 = await loadDisplay(guild, participant1Id, lbCfg);
-    const p2 = await loadDisplay(guild, participant2Id, lbCfg);
+    const activeBoardId = boardId || "main";
+    const p1 = await loadDisplay(guild, participant1Id, lbCfg, activeBoardId);
+    const p2 = await loadDisplay(guild, participant2Id, lbCfg, activeBoardId);
     const winner = String(winnerId) === p1.discordId ? p1 : p2;
     const loser = String(winnerId) === p1.discordId ? p2 : p1;
 
@@ -436,7 +451,7 @@ async function applyMatchResult({
             : (cfg.autowinSuccessBehavior === "reset" ? 0 : (prevLoser.autowinStrikes || 0))
     }));
 
-    const swap = await bumpLeaderboard(guild, winner.discordId, loser.discordId);
+    const swap = await bumpLeaderboard(guild, winner.discordId, loser.discordId, { boardId: activeBoardId });
     try {
       const api = require("../../../utils/loadApi");
       if (api.challenges?.clearInvolving) {

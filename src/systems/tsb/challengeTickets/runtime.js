@@ -15,7 +15,7 @@ const api = require("../../../utils/loadApi");
 const { brand } = api;
 const { tsbEmbed, COLOR_PRIMARY, COLOR_SURFACE, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARN } = require("../shared/embeds");
 const { isAdminOrOwner, memberHasAnyRole } = require("../shared/permissions");
-const { getLeaderboardConfig, updateLeaderboardConfig, challengeTicketsOf, spotsAheadFor, formatChallengeRules, challengeStaffRoleIds } = require("../leaderboard/config");
+const { getLeaderboardConfig, updateLeaderboardConfig, challengeTicketsOf, spotsAheadFor, formatChallengeRules, challengeStaffRoleIds, boardsForUser, getBoardById, filledSlotsOf } = require("../leaderboard/config");
 const { getOrCreateNamedChannel } = require("../shared/channelReuse");
 const { applyMatchResult, canUseScore, parseScore } = require("../score/system");
 const { getScoreConfig } = require("../score/config");
@@ -23,6 +23,7 @@ const { setTicket, getTicket, setPending, findOpenTicket, ensureNoStaleOpenTicke
 const { buildTicketTranscript, transcriptAuditEmbed } = require("../shared/transcript");
 
 const START_ID = "tsb:chaltix:start";
+const BOARD_PICK_ID = "tsb:chaltix:board";
 const PICK_ID = "tsb:chaltix:pick";
 const PICK_BTN_PREFIX = "tsb:chaltix:pickbtn:";
 const CLOSE_ID = "tsb:chaltix:close";
@@ -42,16 +43,24 @@ const AUTOWIN_ID = "tsb:chaltix:autowin";
 const POST_ID = "tsb:chaltix:post";
 const SCORE_MODAL_ID = "tsb:chaltix:scoremodal";
 
-async function filledSlots(guildId) {
+async function filledSlots(guildId, boardId = "main") {
   const cfg = await getLeaderboardConfig(guildId);
-  return (cfg.slots || [])
-    .filter((slot) => slot?.discordId)
-    .map((slot) => ({ position: Number(slot.position), discordId: String(slot.discordId) }))
-    .sort((a, b) => a.position - b.position);
+  const board = getBoardById(cfg, boardId || "main");
+  return filledSlotsOf(board);
 }
 
 function positionOf(slots, userId) {
   return slots.find((slot) => slot.discordId === String(userId))?.position || null;
+}
+
+function resolveTicketBoardId(cfg, userId, preferredBoardId = null) {
+  const mine = boardsForUser(cfg, userId);
+  if (!mine.length) return null;
+  if (preferredBoardId && mine.some((board) => board.id === preferredBoardId)) {
+    return preferredBoardId;
+  }
+  if (mine.length === 1) return mine[0].id;
+  return preferredBoardId || null;
 }
 
 async function busySet(guildId) {
@@ -656,10 +665,52 @@ async function refreshMatchMessage(interaction, ticket) {
   return interaction.update(payload);
 }
 
-async function ticketPayload(guild, userId) {
+async function ticketPayload(guild, userId, boardId = null) {
   const cfg = await getLeaderboardConfig(guild.id);
   const tickets = challengeTicketsOf(cfg);
-  const slots = await filledSlots(guild.id);
+  const mine = boardsForUser(cfg, userId);
+  const resolvedBoardId = resolveTicketBoardId(cfg, userId, boardId);
+
+  if (!resolvedBoardId && mine.length > 1) {
+    return {
+      embeds: [
+        challengeCard({
+          title: "Pick your board",
+          color: COLOR_PRIMARY,
+          description:
+            "You're on more than one leaderboard. Choose which board this challenge is for.",
+          fields: [
+            fv("Your boards", mine.map((board) => `• **${board.title}**`).join("\n"), false),
+          ],
+          footer: "Challenges only use players from the board you pick",
+        }),
+      ],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(BOARD_PICK_ID)
+            .setPlaceholder("Select a leaderboard")
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(
+              mine.slice(0, 25).map((board) => {
+                const pos = positionOf(filledSlotsOf(board), userId);
+                return {
+                  label: String(board.title || board.id).slice(0, 100),
+                  value: board.id,
+                  description: (pos ? `You're #${pos}` : board.id).slice(0, 100),
+                };
+              })
+            )
+        ),
+        closeRow(),
+      ],
+    };
+  }
+
+  const activeBoardId = resolvedBoardId || mine[0]?.id || "main";
+  const board = getBoardById(cfg, activeBoardId) || mine[0];
+  const slots = filledSlotsOf(board);
   const busy = await busySet(guild.id);
   const myPos = positionOf(slots, userId);
   const targets = validTargets(slots, userId, tickets, busy);
@@ -678,6 +729,7 @@ async function ticketPayload(guild, userId) {
     title: "Pick who to challenge",
     color: COLOR_PRIMARY,
     description:
+      `**Board:** ${board?.title || "Main board"}\n\n` +
       `${shortBoardLines(slots, busy)}\n\n` +
       (targets.length
         ? "Tap a **player button** below to challenge **one** player in your range."
@@ -732,14 +784,14 @@ async function openTicket(interaction) {
     return interaction.reply({ content: "Challenge tickets are not set up.", ephemeral: true });
   }
 
-  const slots = await filledSlots(guild.id);
-  const myPos = positionOf(slots, interaction.user.id);
-  if (!myPos) {
+  const mine = boardsForUser(cfg, interaction.user.id);
+  if (!mine.length) {
     return interaction.reply({
-      content: "You must be on the leaderboard to open a challenge ticket.",
+      content: "You must be on a leaderboard to open a challenge ticket.",
       ephemeral: true,
     });
   }
+  const boardId = mine.length === 1 ? mine[0].id : null;
 
   await ensureNoStaleOpenTicket(guild, interaction.user.id);
 
@@ -814,11 +866,12 @@ async function openTicket(interaction) {
   setPending(guild.id, interaction.user.id, {
     status: "open",
     ticketChannelId: channel.id,
+    boardId,
     at: Date.now(),
   });
-  setTicket(guild.id, channel.id, { userId: interaction.user.id, status: "open" });
+  setTicket(guild.id, channel.id, { userId: interaction.user.id, status: "open", boardId });
 
-  const payload = await ticketPayload(guild, interaction.user.id);
+  const payload = await ticketPayload(guild, interaction.user.id, boardId);
   const pingRoles = challengeStaffRoleIds(ticketsCfg, cfg.allowedRoles)
     .map(String)
     .filter((id) => guild.roles.cache.has(id));
@@ -851,7 +904,14 @@ async function pickTarget(interaction, forcedTargetId = null) {
     return interaction.reply({ content: "Pick a player first.", ephemeral: true });
   }
   const ticketsCfg = challengeTicketsOf(cfg);
-  const slots = await filledSlots(interaction.guild.id);
+  const boardId = resolveTicketBoardId(cfg, userId, ticket?.boardId);
+  if (!boardId) {
+    return interaction.reply({
+      content: "Pick which leaderboard this challenge is for first.",
+      ephemeral: true,
+    });
+  }
+  const slots = await filledSlots(interaction.guild.id, boardId);
   let busy = await busySet(interaction.guild.id);
   // Clear stale challenge rows that block picks when no live ticket exists.
   if (busy.has(String(userId))) {
@@ -878,8 +938,8 @@ async function pickTarget(interaction, forcedTargetId = null) {
     return interaction.reply({ content: err.message || "Could not create that challenge.", ephemeral: true });
   }
 
-  setTicket(interaction.guild.id, interaction.channel.id, { status: "picked", targetId });
-  setPending(interaction.guild.id, userId, { status: "picked", targetId });
+  setTicket(interaction.guild.id, interaction.channel.id, { status: "picked", targetId, boardId });
+  setPending(interaction.guild.id, userId, { status: "picked", targetId, boardId });
 
   const targetMember = await interaction.guild.members.fetch(String(targetId)).catch(() => null);
   if (targetMember) {
@@ -1444,6 +1504,7 @@ async function handlePost(interaction) {
       region2: crossregion ? ticket.region2 || null : null,
       region2Score: crossregion ? ticket.region2Score || null : null,
       isAutowin: !!ticket.isAutowin,
+      boardId: ticket.boardId || "main",
     });
 
     if (result.error) {
@@ -1499,11 +1560,46 @@ async function handlePost(interaction) {
   }
 }
 
+async function pickBoard(interaction) {
+  const ticket = getTicket(interaction.guild.id, interaction.channel.id);
+  const userId = ticket?.userId || interaction.channel.topic?.replace(/^challenge:/, "");
+  if (!userId) {
+    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
+  }
+  const cfg = await getLeaderboardConfig(interaction.guild.id);
+  if (String(interaction.user.id) !== String(userId) && !canStaff(interaction.member, interaction.guild, cfg)) {
+    return interaction.reply({ content: "Only the challenger can pick the board.", ephemeral: true });
+  }
+  if (ticket?.status === "picked" || ticket?.status === "accepted") {
+    return interaction.reply({ content: "This ticket already has a challenge.", ephemeral: true });
+  }
+  const boardId = interaction.values?.[0];
+  const mine = boardsForUser(cfg, userId);
+  if (!boardId || !mine.some((board) => board.id === boardId)) {
+    return interaction.reply({ content: "Pick one of your boards.", ephemeral: true });
+  }
+  setTicket(interaction.guild.id, interaction.channel.id, {
+    userId,
+    status: ticket?.status || "open",
+    boardId,
+  });
+  setPending(interaction.guild.id, userId, {
+    status: ticket?.status || "open",
+    ticketChannelId: interaction.channel.id,
+    boardId,
+  });
+  return interaction.update(await ticketPayload(interaction.guild, userId, boardId));
+}
+
 async function handleChallengeTickets(interaction) {
   const id = interaction.customId || "";
   if (!id.startsWith("tsb:chaltix:")) return false;
   if (id === START_ID && interaction.isButton?.()) {
     await openTicket(interaction);
+    return true;
+  }
+  if (id === BOARD_PICK_ID && interaction.isStringSelectMenu?.()) {
+    await pickBoard(interaction);
     return true;
   }
   if (id === PICK_ID && interaction.isStringSelectMenu?.()) {

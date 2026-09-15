@@ -5,8 +5,8 @@ const {
 
 const COLOR = 0x2B2D31;
 
-function summary(guildId) {
-    const s = getTryoutSettings(guildId);
+async function summary(guildId) {
+    const s = await getTryoutSettings(guildId);
     return (
         "**Current Configuration**\n" +
         `> **Channel:** ${s.channelId ? `<#${s.channelId}>` : "`not set`"}\n` +
@@ -19,13 +19,13 @@ function summary(guildId) {
     );
 }
 
-function overviewPayload(guildId) {
+async function overviewPayload(guildId) {
     return {
         embeds: [{
             title: "Tryouts",
             description:
                 "Configure where TSB tryout signup posts go, ping role, and default signup limits.\n\n" +
-                summary(guildId),
+                await summary(guildId),
             color: COLOR,
             author: { name: "Ascendant · TSB" },
         }],
@@ -63,8 +63,8 @@ function overviewPayload(guildId) {
     };
 }
 
-function openDefaultsModal(interaction) {
-    const s = getTryoutSettings(interaction.guild.id);
+async function openDefaultsModal(interaction) {
+    const s = await getTryoutSettings(interaction.guild.id);
     return interaction.showModal({
         title: "Tryout Defaults",
         custom_id: "tsb:tryout:modal:defaults",
@@ -97,7 +97,7 @@ function openDefaultsModal(interaction) {
     });
 }
 
-function openTryoutModule(interaction) {
+async function openTryoutModule(interaction) {
     if (
         !interaction.member?.permissions?.has?.("Administrator") &&
         interaction.guild?.ownerId !== interaction.user?.id
@@ -108,7 +108,7 @@ function openTryoutModule(interaction) {
         });
     }
 
-    const payload = overviewPayload(interaction.guild.id);
+    const payload = await overviewPayload(interaction.guild.id);
     if (interaction.replied || interaction.deferred) return interaction.editReply(payload);
     if (interaction.message) return interaction.update(payload);
     return interaction.reply({ ...payload, ephemeral: true });
@@ -125,8 +125,8 @@ async function handleTryoutButton(interaction) {
         return openHub(interaction);
     }
     if (id === "tsb:tryout:clear_ping") {
-        patchTryoutSettings(interaction.guild.id, { pingRoleId: "" });
-        return interaction.update(overviewPayload(interaction.guild.id));
+        await patchTryoutSettings(interaction.guild.id, { pingRoleId: "" });
+        return interaction.update(await overviewPayload(interaction.guild.id));
     }
     if (id === "tsb:tryout:cfg_defaults") {
         return openDefaultsModal(interaction);
@@ -138,13 +138,13 @@ async function handleTryoutSelect(interaction) {
     const id = interaction.customId;
     if (id === "tsb:tryout:channel") {
         const channelId = interaction.values?.[0] || "";
-        patchTryoutSettings(interaction.guild.id, { channelId });
-        return interaction.update(overviewPayload(interaction.guild.id));
+        await patchTryoutSettings(interaction.guild.id, { channelId });
+        return interaction.update(await overviewPayload(interaction.guild.id));
     }
     if (id === "tsb:tryout:ping_role") {
         const pingRoleId = interaction.values?.[0] || "";
-        patchTryoutSettings(interaction.guild.id, { pingRoleId });
-        return interaction.update(overviewPayload(interaction.guild.id));
+        await patchTryoutSettings(interaction.guild.id, { pingRoleId });
+        return interaction.update(await overviewPayload(interaction.guild.id));
     }
     return false;
 }
@@ -155,13 +155,13 @@ async function handleTryoutModal(interaction) {
 
     const required = Math.max(0, parseInt(interaction.fields.getTextInputValue("required_signups"), 10) || 0);
     const max = Math.max(0, parseInt(interaction.fields.getTextInputValue("max_signups"), 10) || 0);
-    patchTryoutSettings(interaction.guild.id, {
+    await patchTryoutSettings(interaction.guild.id, {
         defaultRequiredSignups: required,
         defaultMaxSignups: max,
     });
 
     await interaction.deferUpdate();
-    return interaction.editReply(overviewPayload(interaction.guild.id));
+    return interaction.editReply(await overviewPayload(interaction.guild.id));
 }
 
 module.exports = {

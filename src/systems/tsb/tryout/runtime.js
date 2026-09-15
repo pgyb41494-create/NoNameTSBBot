@@ -50,8 +50,13 @@ function persist(session) {
   if (!clean) return null;
   live.set(clean.token, clean);
   try {
-    api.tryouts.saveSession(clean.guildId, clean);
-  } catch {}
+    const saved = api.tryouts.saveSession(clean.guildId, clean);
+    if (saved && typeof saved.then === "function") {
+      saved.catch((err) => console.warn("[Tryout] saveSession failed:", err.message));
+    }
+  } catch (err) {
+    console.warn("[Tryout] saveSession failed:", err.message);
+  }
   return clean;
 }
 
@@ -181,7 +186,7 @@ function guildSessions(guildId) {
 }
 
 async function createTryout(interaction, options) {
-  const settings = getTryoutSettings(interaction.guild.id);
+  const settings = await getTryoutSettings(interaction.guild.id);
   if (!settings.channelId) {
     return interaction.editReply({ content: "No tryout channel is configured. Use `'serversetup` → **Tryouts**." });
   }

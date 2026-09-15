@@ -62,7 +62,7 @@ module.exports = {
     }
     if (sub === "ping-role") {
       const role = interaction.options.getRole("role");
-      patchTryoutSettings(interaction.guild.id, { pingRoleId: role?.id || "" });
+      await patchTryoutSettings(interaction.guild.id, { pingRoleId: role?.id || "" });
       return interaction.reply({
         content: role ? `Default tryout ping role set to ${role}.` : "Default tryout ping role cleared.",
         ephemeral: true,

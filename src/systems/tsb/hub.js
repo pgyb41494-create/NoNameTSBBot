@@ -41,7 +41,7 @@ async function loadModuleStatus(guildId) {
   } catch {}
   try {
     const { getTryoutSettings } = require("./tryout/settings");
-    status.tryout = !!getTryoutSettings(guildId).configured;
+    status.tryout = !!(await getTryoutSettings(guildId)).configured;
   } catch {}
   try {
     const { getConfig } = require("./verify/store");

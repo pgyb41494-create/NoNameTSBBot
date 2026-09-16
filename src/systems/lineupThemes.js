@@ -102,7 +102,8 @@ function boardBody({ board, cards, roleId }) {
 
 function addBoardSection(container, { board, cards, roleId, footer }) {
   const headerFile = board === "sub" ? "void-header-sub.png" : "void-header-main.png";
-  const sigilFile = board === "sub" ? "void-sigil-sub.png" : "void-sigil-main.png";
+  // Swapped: MAIN uses the eye crest, SUB uses the bladed crest
+  const sigilFile = board === "sub" ? "void-sigil-main.png" : "void-sigil-sub.png";
 
   // Media galleries render full container width (unlike image-only embeds).
   container.addMediaGalleryComponents(

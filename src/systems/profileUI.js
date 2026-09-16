@@ -326,8 +326,8 @@ function genVerifyCode() {
 
 function refreshBoards(guild, userId) {
   try {
-    const { refreshUserBoardsBackground } = require("./tsb/shared/boardRefresh");
-    refreshUserBoardsBackground(guild, userId);
+    const { refreshBoardsAfterProfileOrStage } = require("./tsb/shared/boardRefresh");
+    refreshBoardsAfterProfileOrStage(guild, userId);
   } catch {}
 }
 
@@ -847,6 +847,7 @@ async function handleProfileInteraction(interaction) {
     const targetId = id.split(":")[3];
     const guild = await resolveGuild(interaction);
     await maybe(api.profiles.saveProfile(guild.id, targetId, { main_character: interaction.values[0] }));
+    refreshBoards(guild, targetId);
     const payload = await payloadFor(guild, targetId);
     return interaction.update(payload);
   }

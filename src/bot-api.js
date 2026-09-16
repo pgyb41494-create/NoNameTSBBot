@@ -404,14 +404,17 @@ function createBotApi(client) {
       const guild = await client?.guilds?.fetch(req.params.guildId).catch(() => null);
       if (!guild) return res.status(404).json({ error: "Guild not found or bot not in server." });
       const userId = req.body?.userId ? String(req.body.userId) : null;
+      const force = req.body?.force !== false;
+      const {
+        refreshUserBoards,
+        refreshGuildBoards,
+      } = require("./systems/tsb/shared/boardRefresh");
       if (userId) {
-        const { refreshUserBoards } = require("./systems/tsb/shared/boardRefresh");
-        const result = await refreshUserBoards(guild, userId);
+        const result = await refreshUserBoards(guild, userId, { force });
         return res.json({ ok: true, ...result });
       }
-      const { refreshLeaderboard } = require("./systems/tsb/leaderboard/renderer");
-      await refreshLeaderboard(guild);
-      res.json({ ok: true, leaderboard: true });
+      const result = await refreshGuildBoards(guild);
+      res.json({ ok: true, ...result });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }

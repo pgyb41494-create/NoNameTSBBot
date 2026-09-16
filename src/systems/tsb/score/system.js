@@ -453,6 +453,11 @@ async function applyMatchResult({
 
     const swap = await bumpLeaderboard(guild, winner.discordId, loser.discordId, { boardId: activeBoardId });
     try {
+      const { refreshBoardsAfterProfileOrStage } = require("../shared/boardRefresh");
+      refreshBoardsAfterProfileOrStage(guild, winner.discordId);
+      refreshBoardsAfterProfileOrStage(guild, loser.discordId);
+    } catch {}
+    try {
       const api = require("../../../utils/loadApi");
       if (api.challenges?.clearInvolving) {
         await Promise.resolve(api.challenges.clearInvolving(guild.id, winner.discordId));

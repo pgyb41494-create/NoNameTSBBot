@@ -26,8 +26,8 @@ async function clearCooldown(guild, actor, target) {
   await Promise.resolve(setPlayerState(guild.id, target.id, { cooldownUntil: null }));
 
   try {
-    const { refreshUserBoardsBackground } = require("../systems/tsb/shared/boardRefresh");
-    refreshUserBoardsBackground(guild, target.id);
+    const { refreshBoardsAfterProfileOrStage } = require("../systems/tsb/shared/boardRefresh");
+    refreshBoardsAfterProfileOrStage(guild, target.id);
   } catch {}
 
   return { hadCooldown, actor };

@@ -575,8 +575,8 @@ async function maybeLogStage(guild, tsbRanking, embed) {
 
 async function maybeRefreshBoards(guild, userId) {
     try {
-        const { refreshUserBoardsBackground } = require("../shared/boardRefresh");
-        refreshUserBoardsBackground(guild, userId);
+        const { refreshBoardsAfterProfileOrStage } = require("../shared/boardRefresh");
+        refreshBoardsAfterProfileOrStage(guild, userId);
     } catch {}
 }
 

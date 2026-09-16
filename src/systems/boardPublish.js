@@ -306,20 +306,17 @@ async function publishLeaderboard(guild) {
 async function publishLineup(guild, regionKey = null) {
   const cfg = await resolveMaybe(api.lineup.getConfig(guild.id));
   const snap = await resolveMaybe(api.snapshot.publicSnapshot(guild.id));
-  const { resolveLineupTheme, voidLineupPayload } = require("./lineupThemes");
+  const {
+    resolveLineupTheme,
+    voidLineupPayload,
+    voidBannerTitle,
+    findBoardRoleId,
+    loadVoidStaticFiles,
+  } = require("./lineupThemes");
   const theme = resolveLineupTheme(cfg.theme || "classic");
   const regions = regionKey
     ? snap.lineup.regions.filter((r) => r.key === regionKey)
     : snap.lineup.regions;
-
-  let voidBanner = null;
-  if (theme.id === "void") {
-    voidBanner = await generateVoidRosterBanner(
-      regionKey
-        ? `${snap.lineup.regions.find((r) => r.key === regionKey)?.label || regionKey} Roster`
-        : `${guild.name} Roster`
-    ).catch(() => null);
-  }
 
   for (const region of regions) {
     const stored = cfg.regions[region.key];
@@ -334,19 +331,25 @@ async function publishLineup(guild, regionKey = null) {
       && stored.subChannelId !== stored.channelId;
 
     if (theme.id === "void") {
-      const bannerForRegion = await generateVoidRosterBanner(`${region.label} Roster`).catch(() => null)
-        || voidBanner;
-      const files = bannerForRegion
-        ? [new AttachmentBuilder(bannerForRegion, { name: "void-roster-banner.png" })]
-        : [];
+      const bannerTitle = voidBannerTitle(region.key, region.label);
+      const bannerForRegion = await generateVoidRosterBanner(bannerTitle).catch(() => null);
+      const mainRoleId = findBoardRoleId(guild, region.label, "main");
+      const subRoleId = findBoardRoleId(guild, region.label, "sub");
 
       if (!separateSub) {
+        const files = [
+          ...(bannerForRegion
+            ? [new AttachmentBuilder(bannerForRegion, { name: "void-roster-banner.png" })]
+            : []),
+          ...loadVoidStaticFiles({ includeMain: true, includeSub: true }),
+        ];
         const roster = voidLineupPayload({
-          regionLabel: region.label,
           mainCards,
           subCards,
           mode: "combined",
           hasBanner: Boolean(bannerForRegion),
+          mainRoleId,
+          subRoleId,
         });
         stored.messageId = await replaceMessage(channel, stored.messageId, {
           content: "",
@@ -360,28 +363,39 @@ async function publishLineup(guild, regionKey = null) {
         }
         stored.subMessageId = null;
       } else {
+        const mainFiles = [
+          ...(bannerForRegion
+            ? [new AttachmentBuilder(bannerForRegion, { name: "void-roster-banner.png" })]
+            : []),
+          ...loadVoidStaticFiles({ includeMain: true, includeSub: false }),
+        ];
         const mainRoster = voidLineupPayload({
-          regionLabel: region.label,
           mainCards,
           mode: "main",
           hasBanner: Boolean(bannerForRegion),
+          mainRoleId,
         });
         stored.messageId = await replaceMessage(channel, stored.messageId, {
           content: "",
           embeds: mainRoster.embeds,
-          files,
+          files: mainFiles,
         });
 
         const subChannel = await guild.channels.fetch(stored.subChannelId).catch(() => null);
         if (subChannel) {
-          const subFiles = bannerForRegion
-            ? [new AttachmentBuilder(bannerForRegion, { name: "void-roster-banner.png" })]
-            : [];
+          const subBanner = await generateVoidRosterBanner(bannerTitle).catch(() => null)
+            || bannerForRegion;
+          const subFiles = [
+            ...(subBanner
+              ? [new AttachmentBuilder(subBanner, { name: "void-roster-banner.png" })]
+              : []),
+            ...loadVoidStaticFiles({ includeMain: false, includeSub: true }),
+          ];
           const subRoster = voidLineupPayload({
-            regionLabel: region.label,
             subCards,
             mode: "sub",
-            hasBanner: Boolean(bannerForRegion),
+            hasBanner: Boolean(subBanner),
+            subRoleId,
           });
           stored.subMessageId = await replaceMessage(subChannel, stored.subMessageId, {
             content: "",

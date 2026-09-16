@@ -120,7 +120,7 @@ async function generateLeaderboardBanner(serverName) {
 }
 
 /**
- * Dark gothic roster banner — white serif title over black field.
+ * Dark gothic roster banner — AI art base + white serif title (e.g. "AMERICA ROSTER").
  * Returns a PNG Buffer, or null if canvas is unavailable.
  */
 async function generateVoidRosterBanner(titleText) {
@@ -129,31 +129,34 @@ async function generateVoidRosterBanner(titleText) {
   ensureFont(canvas);
 
   const width = 1200;
-  const height = 360;
+  const height = 420;
   const c = canvas.createCanvas(width, height);
   const ctx = c.getContext("2d");
 
-  ctx.fillStyle = "#050505";
-  ctx.fillRect(0, 0, width, height);
-
-  const vignette = ctx.createRadialGradient(width / 2, height / 2, 40, width / 2, height / 2, 520);
-  vignette.addColorStop(0, "rgba(40,40,48,0.55)");
-  vignette.addColorStop(0.55, "rgba(10,10,12,0.2)");
-  vignette.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = vignette;
-  ctx.fillRect(0, 0, width, height);
-
-  // faint diagonal scratch lines
-  ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,0.04)";
-  ctx.lineWidth = 1;
-  for (let i = -height; i < width + height; i += 28) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i + height, height);
-    ctx.stroke();
+  const basePath = path.join(__dirname, "..", "..", "assets", "lineup", "void", "banner-base.png");
+  if (fs.existsSync(basePath)) {
+    try {
+      const img = await canvas.loadImage(basePath);
+      const scale = Math.max(width / img.width, height / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      ctx.drawImage(img, (width - dw) / 2, (height - dh) / 2, dw, dh);
+    } catch {
+      ctx.fillStyle = "#050505";
+      ctx.fillRect(0, 0, width, height);
+    }
+  } else {
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(0, 0, width, height);
   }
-  ctx.restore();
+
+  // Soft dark veil so title stays readable over the art
+  const veil = ctx.createLinearGradient(0, height * 0.35, 0, height);
+  veil.addColorStop(0, "rgba(0,0,0,0)");
+  veil.addColorStop(0.45, "rgba(0,0,0,0.35)");
+  veil.addColorStop(1, "rgba(0,0,0,0.82)");
+  ctx.fillStyle = veil;
+  ctx.fillRect(0, 0, width, height);
 
   const title = String(titleText || "ROSTER")
     .replace(/[^\w\s\-_.']/g, "")
@@ -171,29 +174,31 @@ async function generateVoidRosterBanner(titleText) {
     return minPx;
   }
 
-  const size = fitFont(title, 96, 36, width - 100);
+  const size = fitFont(title, 110, 40, width - 80);
+  const y = height * 0.78;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.font = `700 ${size}px LeaderboardSerif, serif`;
 
+  // Cracked-metal glow like the reference roster banner
   ctx.save();
-  ctx.shadowColor = "rgba(255,255,255,0.35)";
-  ctx.shadowBlur = 22;
-  ctx.fillStyle = "#f2f2f2";
-  ctx.fillText(title, width / 2, height * 0.48);
+  ctx.shadowColor = "rgba(255,255,255,0.55)";
+  ctx.shadowBlur = 26;
+  ctx.fillStyle = "#f7f7f7";
+  ctx.fillText(title, width / 2, y);
   ctx.restore();
 
-  ctx.strokeStyle = "rgba(255,255,255,0.55)";
-  ctx.lineWidth = Math.max(1, size * 0.018);
-  ctx.strokeText(title, width / 2, height * 0.48);
+  const grad = ctx.createLinearGradient(width / 2, y - size * 0.55, width / 2, y + size * 0.55);
+  grad.addColorStop(0, "#ffffff");
+  grad.addColorStop(0.4, "#e8e8e8");
+  grad.addColorStop(0.7, "#a8a8a8");
+  grad.addColorStop(1, "#6a6a6a");
+  ctx.fillStyle = grad;
+  ctx.fillText(title, width / 2, y);
 
-  // underline rule
-  ctx.strokeStyle = "rgba(255,255,255,0.35)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(width * 0.28, height * 0.72);
-  ctx.lineTo(width * 0.72, height * 0.72);
-  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.45)";
+  ctx.lineWidth = Math.max(1, size * 0.02);
+  ctx.strokeText(title, width / 2, y);
 
   return c.toBuffer("image/png");
 }

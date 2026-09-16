@@ -58,19 +58,6 @@ function lineupMemberLine(card) {
   return `┗━ ${name} ➵ ${mention}`.trim();
 }
 
-function requiredLine(cards, board) {
-  const stages = (cards || [])
-    .filter((c) => c && !c.empty && c.stage && c.stage !== "-" && !/^unranked$/i.test(c.stage))
-    .map((c) => String(c.stage).trim());
-  if (stages.length) {
-    const counts = new Map();
-    for (const s of stages) counts.set(s, (counts.get(s) || 0) + 1);
-    const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    return `\`Required: ${top}+\``;
-  }
-  return board === "sub" ? "`Required: Stage 2+`" : "`Required: Stage 1+`";
-}
-
 function findBoardRoleId(guild, regionLabel, board) {
   if (!guild?.roles?.cache) return null;
   const label = String(regionLabel || "").trim().toLowerCase();
@@ -99,13 +86,9 @@ function boardBody({ board, cards, roleId }) {
   const source = list.length ? list : (cards || []);
   const lines = source.length
     ? source.map((card) => lineupMemberLine(card))
-    : ["┗━ _Empty seat_"];
+    : ["┗━ _Empty_"];
 
-  const parts = [
-    VOID_FLAVOR[board] || VOID_FLAVOR.main,
-    requiredLine(list.length ? list : source, board),
-    "",
-  ];
+  const parts = [VOID_FLAVOR[board] || VOID_FLAVOR.main, ""];
   if (roleId) parts.push(`<@&${roleId}>`);
   parts.push(lines.join("\n"));
   return parts.join("\n").slice(0, 4096);
@@ -119,8 +102,10 @@ function bannerEmbed() {
 
 function headerEmbed(board) {
   const file = board === "sub" ? "void-header-sub.png" : "void-header-main.png";
+  // Zero-width space forces full embed width so the strip matches the banner/body.
   return new EmbedBuilder()
     .setColor(VOID_COLOR)
+    .setDescription("\u200b")
     .setImage(`attachment://${file}`);
 }
 

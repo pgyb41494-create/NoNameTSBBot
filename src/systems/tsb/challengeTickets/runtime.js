@@ -369,9 +369,9 @@ function isCrossRegion(ticket) {
 function parseRegionLine(raw) {
   const text = String(raw || "").trim();
   if (!text) return null;
-  const match = text.match(/^(.*?)(\d+)\s*[-–—:]\s*(\d+)\s*$/);
+  const match = text.match(/^(.*?)(\d+)\s*[-–—:xX]\s*(\d+)\s*$/);
   if (!match) return null;
-  const label = match[1].trim().replace(/[·|,/-]+$/, "").trim() || "Region";
+  const label = match[1].trim().replace(/[·|,/:;-]+$/, "").trim() || "Region";
   const score = parseScore(`${match[2]}-${match[3]}`);
   if (!score) return null;
   return { label, score };
@@ -385,10 +385,43 @@ function combinedCrossScore(regionA, regionB) {
 }
 
 async function canFinishMatch(member, guild) {
-  const lb = await getLeaderboardConfig(guild.id);
-  if (canStaff(member, guild, lb)) return true;
-  const score = await getScoreConfig(guild.id);
-  return canUseScore(member, guild, score);
+  if (isAdminOrOwner(member, guild)) return true;
+  try {
+    const lb = await getLeaderboardConfig(guild.id);
+    if (canStaff(member, guild, lb)) return true;
+    const score = await getScoreConfig(guild.id);
+    return canUseScore(member, guild, score);
+  } catch {
+    return false;
+  }
+}
+
+async function ephemeral(interaction, content) {
+  const payload = { content, ephemeral: true };
+  if (interaction.deferred || interaction.replied) {
+    return interaction.followUp(payload);
+  }
+  return interaction.reply(payload);
+}
+
+async function scoringGuard(interaction, { defer = true } = {}) {
+  const ticket = loadLiveTicket(interaction);
+  if (!ticket?.targetId) {
+    await ephemeral(interaction, "This is not a challenge ticket.");
+    return null;
+  }
+  if (ticket.status !== "scoring") {
+    await ephemeral(interaction, "Tap **Record result** first.");
+    return null;
+  }
+  if (defer && !interaction.deferred && !interaction.replied) {
+    await interaction.deferUpdate();
+  }
+  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
+    await ephemeral(interaction, "Only staff can record this result.");
+    return null;
+  }
+  return ticket;
 }
 
 async function matchNames(guild, ticket) {
@@ -448,7 +481,11 @@ function formatRow(ticket = {}) {
     new ButtonBuilder()
       .setCustomId(FMT_FT10_ID)
       .setLabel("FT10")
-      .setStyle(ticket.format === "ft10" ? ButtonStyle.Success : ButtonStyle.Secondary)
+      .setStyle(ticket.format === "ft10" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(CLOSE_ID)
+      .setLabel("Close ticket")
+      .setStyle(ButtonStyle.Secondary)
   );
 }
 
@@ -503,14 +540,20 @@ function mark(done, label) {
   return `${done ? "✅" : "⬜"} ${label}`;
 }
 
+function missingScoreSteps(ticket, scoreModuleReady = true) {
+  const missing = [];
+  if (!ticket.format) missing.push("format");
+  if (!hasHost(ticket)) missing.push("host");
+  if (!ticket.winnerId) missing.push("winner");
+  if (!ticket.scoreDisplay) missing.push(isCrossRegion(ticket) ? "region scores" : "score");
+  if (!ticket.resultChannelId) missing.push("results channel");
+  if (!scoreModuleReady) missing.push("Score setup");
+  return missing;
+}
+
 function scoringPayload(ticket, names, scoreModuleReady = true, scoreCfg = null) {
-  const ready =
-    ticket.format &&
-    hasHost(ticket) &&
-    ticket.winnerId &&
-    ticket.scoreDisplay &&
-    ticket.resultChannelId &&
-    scoreModuleReady;
+  const missing = missingScoreSteps(ticket, scoreModuleReady);
+  const ready = missing.length === 0;
   const winnerAvatar =
     String(ticket.winnerId) === String(ticket.userId)
       ? names.challengerAvatar
@@ -519,10 +562,10 @@ function scoringPayload(ticket, names, scoreModuleReady = true, scoreCfg = null)
         : null;
   const channelSelect = new ChannelSelectMenuBuilder()
     .setCustomId(CHANNEL_ID)
-    .setPlaceholder("Post result to…")
+    .setPlaceholder("Required: pick where to post the result")
     .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
   if (ticket.resultChannelId) {
-    try { channelSelect.setDefaultChannels(ticket.resultChannelId); } catch {}
+    try { channelSelect.setDefaultChannels([String(ticket.resultChannelId)]); } catch {}
   }
 
   const checklist = [
@@ -582,26 +625,29 @@ function scoringPayload(ticket, names, scoreModuleReady = true, scoreCfg = null)
     );
   }
 
+  const stillNeed = missing.length
+    ? `**Still need:** ${missing.join(" · ")}\n\n`
+    : "";
   const baseDescription = isCrossRegion(ticket)
-    ? "Cross-region totals from the two region scores. Winner's games first, like `Chicago 5-3`.\n\nFill each button below — **Post result** unlocks when everything is set."
-    : "Fill each step below. **Autowin** posts as *Auto win to* the winner and gives the loser a strike. **Edit score** replaces that with a normal set score.";
+    ? "Cross-region: tap **Enter region scores** and put winner’s games first (`Chicago 5-3` or just `5-3`). **Post result** turns green only when every step is filled."
+    : "Pick winner, score (or Autowin), and the results channel. **Post result** turns green only when every step is filled.";
 
   return {
-    content: "",
+    content: null,
     allowedMentions: { users: [] },
     embeds: [
       challengeCard({
         title: "Record result",
         color: ready ? COLOR_SUCCESS : COLOR_PRIMARY,
         description: !scoreModuleReady
-          ? `⚠️ **Score isn’t set up yet.**\nAn admin needs to run \`'setup\` → **Score** before this result can be posted.\n\n${baseDescription}`
-          : baseDescription,
+          ? `⚠️ **Score isn’t set up yet.**\nAn admin needs to run \`'setup\` → **Score** before this result can be posted.\n\n${stillNeed}${baseDescription}`
+          : `${stillNeed}${baseDescription}`,
         fields,
         footer: !scoreModuleReady
           ? "Enable Score in 'setup first"
           : ready
             ? "Ready to post"
-            : "Tap buttons to fill the result",
+            : "Gray Post result = still missing a step",
         thumbnail: winnerAvatar,
       }),
     ],
@@ -621,7 +667,11 @@ function scoringPayload(ticket, names, scoreModuleReady = true, scoreCfg = null)
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(ENTER_SCORE_ID)
-          .setLabel(ticket.scoreDisplay ? "Edit score" : "Enter score")
+          .setLabel(
+            ticket.scoreDisplay
+              ? (isCrossRegion(ticket) ? "Edit region scores" : "Edit score")
+              : (isCrossRegion(ticket) ? "Enter region scores" : "Enter score")
+          )
           .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
           .setCustomId(AUTOWIN_ID)
@@ -629,8 +679,8 @@ function scoringPayload(ticket, names, scoreModuleReady = true, scoreCfg = null)
           .setStyle(ticket.isAutowin ? ButtonStyle.Danger : ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId(POST_ID)
-          .setLabel(scoreModuleReady ? "Post result" : "Setup Score first")
-          .setStyle(ButtonStyle.Success)
+          .setLabel(ready ? "Post result" : scoreModuleReady ? "Post when ready" : "Setup Score first")
+          .setStyle(ready ? ButtonStyle.Success : ButtonStyle.Secondary)
           .setDisabled(!ready)
       ),
       new ActionRowBuilder().addComponents(channelSelect),
@@ -653,16 +703,25 @@ async function refreshMatchMessage(interaction, ticket) {
       ? scoringPayload(ticket, names, scoreModuleReady, scoreCfg)
       : setupPayload(ticket, names);
   if (interaction.isModalSubmit?.()) {
-    const msg = ticket.setupMessageId
+    const fromId = ticket.setupMessageId
       ? await interaction.channel.messages.fetch(ticket.setupMessageId).catch(() => null)
       : null;
+    const msg = interaction.message || fromId;
     if (msg) await msg.edit(payload).catch(() => {});
     if (!interaction.replied && !interaction.deferred) {
       await interaction.reply({ content: "Score saved.", ephemeral: true });
     }
     return;
   }
-  return interaction.update(payload);
+  try {
+    if (interaction.deferred || interaction.replied) {
+      return await interaction.editReply(payload);
+    }
+    return await interaction.update(payload);
+  } catch (err) {
+    console.error("challenge refresh failed:", err);
+    await ephemeral(interaction, err.message || "Could not update the result card.");
+  }
 }
 
 async function ticketPayload(guild, userId, boardId = null) {
@@ -777,18 +836,20 @@ async function ticketPayload(guild, userId, boardId = null) {
 }
 
 async function openTicket(interaction) {
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply({ ephemeral: true });
+  }
   const guild = interaction.guild;
   const cfg = await getLeaderboardConfig(guild.id);
   const ticketsCfg = challengeTicketsOf(cfg);
   if (!ticketsCfg.enabled) {
-    return interaction.reply({ content: "Challenge tickets are not set up.", ephemeral: true });
+    return interaction.editReply({ content: "Challenge tickets are not set up." });
   }
 
   const mine = boardsForUser(cfg, interaction.user.id);
   if (!mine.length) {
-    return interaction.reply({
+    return interaction.editReply({
       content: "You must be on a leaderboard to open a challenge ticket.",
-      ephemeral: true,
     });
   }
   const boardId = mine.length === 1 ? mine[0].id : null;
@@ -799,7 +860,7 @@ async function openTicket(interaction) {
   if (existing?.ticketChannelId) {
     const ch = await guild.channels.fetch(existing.ticketChannelId).catch(() => null);
     if (ch) {
-      return interaction.reply({ content: `You already have a ticket: ${ch}`, ephemeral: true });
+      return interaction.editReply({ content: `You already have a ticket: ${ch}` });
     }
     await ensureNoStaleOpenTicket(guild, interaction.user.id);
   }
@@ -818,14 +879,11 @@ async function openTicket(interaction) {
       busy = await busySet(guild.id);
     }
     if (busy.has(String(interaction.user.id)) && findOpenTicket(guild.id, interaction.user.id)) {
-      return interaction.reply({
+      return interaction.editReply({
         content: "You already have an open challenge.",
-        ephemeral: true,
       });
     }
   }
-
-  await interaction.deferReply({ ephemeral: true });
 
   try {
     if (guild.roles.cache.size <= 1) {
@@ -889,27 +947,27 @@ async function pickTarget(interaction, forcedTargetId = null) {
   const ticket = getTicket(interaction.guild.id, interaction.channel.id);
   const userId = ticket?.userId || interaction.channel.topic?.replace(/^challenge:/, "");
   if (!userId) {
-    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
+    return ephemeral(interaction, "This is not a challenge ticket.");
+  }
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferUpdate();
   }
   const cfg = await getLeaderboardConfig(interaction.guild.id);
   if (String(interaction.user.id) !== String(userId) && !canStaff(interaction.member, interaction.guild, cfg)) {
-    return interaction.reply({ content: "Only the challenger can pick.", ephemeral: true });
+    return ephemeral(interaction, "Only the challenger can pick.");
   }
   if (ticket?.status === "picked" || ticket?.status === "accepted") {
-    return interaction.reply({ content: "This ticket already has a challenge.", ephemeral: true });
+    return ephemeral(interaction, "This ticket already has a challenge.");
   }
 
   const targetId = forcedTargetId || interaction.values?.[0];
   if (!targetId) {
-    return interaction.reply({ content: "Pick a player first.", ephemeral: true });
+    return ephemeral(interaction, "Pick a player first.");
   }
   const ticketsCfg = challengeTicketsOf(cfg);
   const boardId = resolveTicketBoardId(cfg, userId, ticket?.boardId);
   if (!boardId) {
-    return interaction.reply({
-      content: "Pick which leaderboard this challenge is for first.",
-      ephemeral: true,
-    });
+    return ephemeral(interaction, "Pick which leaderboard this challenge is for first.");
   }
   const slots = await filledSlots(interaction.guild.id, boardId);
   let busy = await busySet(interaction.guild.id);
@@ -926,16 +984,16 @@ async function pickTarget(interaction, forcedTargetId = null) {
   }
   const allowed = validTargets(slots, userId, ticketsCfg, busy);
   if (!allowed.some((slot) => slot.discordId === String(targetId))) {
-    return interaction.reply({
-      content: "You can't challenge that player. They may be behind you, out of range, or already challenged.",
-      ephemeral: true,
-    });
+    return ephemeral(
+      interaction,
+      "You can't challenge that player. They may be behind you, out of range, or already challenged."
+    );
   }
 
   try {
     await Promise.resolve(api.challenges.createChallenge(interaction.guild.id, userId, targetId));
   } catch (err) {
-    return interaction.reply({ content: err.message || "Could not create that challenge.", ephemeral: true });
+    return ephemeral(interaction, err.message || "Could not create that challenge.");
   }
 
   setTicket(interaction.guild.id, interaction.channel.id, { status: "picked", targetId, boardId });
@@ -961,7 +1019,7 @@ async function pickTarget(interaction, forcedTargetId = null) {
   const myPos = positionOf(slots, userId);
   const theirPos = positionOf(slots, targetId);
   const dodge = await dodgeOf(interaction.guild.id, targetId);
-  await interaction.update({
+  await interaction.editReply({
     embeds: [
       challengeCard({
         title: "Challenge sent",
@@ -1004,13 +1062,17 @@ async function handleAccept(interaction) {
   const challengerId = ticket?.userId;
   const targetId = ticket?.targetId;
   if (!challengerId || !targetId) {
-    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
+    return ephemeral(interaction, "This is not a challenge ticket.");
   }
   if (String(interaction.user.id) !== String(targetId)) {
-    return interaction.reply({ content: "Only the challenged player can accept.", ephemeral: true });
+    return ephemeral(interaction, "Only the challenged player can accept.");
   }
   if (ticket.status !== "picked") {
-    return interaction.reply({ content: "This challenge is no longer waiting for a response.", ephemeral: true });
+    return ephemeral(interaction, "This challenge is no longer waiting for a response.");
+  }
+
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferUpdate();
   }
 
   try {
@@ -1022,7 +1084,7 @@ async function handleAccept(interaction) {
   setTicket(interaction.guild.id, interaction.channel.id, { status: "accepted" });
   setPending(interaction.guild.id, challengerId, { status: "accepted" });
 
-  await interaction.update({
+  await interaction.editReply({
     content: `<@${targetId}> accepted.`,
     allowedMentions: { users: [targetId, challengerId] },
     embeds: [
@@ -1052,21 +1114,22 @@ async function handleDecline(interaction) {
   const challengerId = ticket?.userId;
   const targetId = ticket?.targetId;
   if (!challengerId || !targetId) {
-    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
+    return ephemeral(interaction, "This is not a challenge ticket.");
   }
   if (String(interaction.user.id) !== String(targetId)) {
-    return interaction.reply({ content: "Only the challenged player can decline.", ephemeral: true });
+    return ephemeral(interaction, "Only the challenged player can decline.");
   }
   if (ticket.status !== "picked") {
-    return interaction.reply({ content: "This challenge is no longer waiting for a response.", ephemeral: true });
+    return ephemeral(interaction, "This challenge is no longer waiting for a response.");
+  }
+
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferUpdate();
   }
 
   const before = await dodgeOf(interaction.guild.id, targetId);
   if (before.remaining <= 0) {
-    return interaction.reply({
-      content: "You have no dodges left. You must accept.",
-      ephemeral: true,
-    });
+    return ephemeral(interaction, "You have no dodges left. You must accept.");
   }
 
   let after = before;
@@ -1077,7 +1140,7 @@ async function handleDecline(interaction) {
       after = { ...before, used: before.used + 1, remaining: before.remaining - 1 };
     }
   } catch (err) {
-    return interaction.reply({ content: err.message || "You must accept.", ephemeral: true });
+    return ephemeral(interaction, err.message || "You must accept.");
   }
 
   try {
@@ -1087,7 +1150,7 @@ async function handleDecline(interaction) {
   setPending(interaction.guild.id, challengerId, null);
   await refreshBoard(interaction.guild);
 
-  await interaction.update({
+  await interaction.editReply({
     content: `<@${targetId}> declined.`,
     allowedMentions: { users: [targetId, challengerId] },
     embeds: [
@@ -1119,6 +1182,9 @@ async function handleDecline(interaction) {
 }
 
 async function closeTicket(interaction) {
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferUpdate();
+  }
   const cfg = await getLeaderboardConfig(interaction.guild.id);
   const ticket = getTicket(interaction.guild.id, interaction.channel.id);
   const userId = ticket?.userId || interaction.channel.topic?.replace(/^challenge:/, "");
@@ -1127,14 +1193,11 @@ async function closeTicket(interaction) {
   const staff = canStaff(interaction.member, interaction.guild, cfg);
 
   if (ticket?.status === "picked" && isTarget && !staff) {
-    return interaction.reply({
-      content: "Use **Yes** or **No** on the challenge. Declining uses a dodge.",
-      ephemeral: true,
-    });
+    return ephemeral(interaction, "Use **Yes** or **No** on the challenge. Declining uses a dodge.");
   }
 
   if (!isChallenger && !isTarget && !staff) {
-    return interaction.reply({ content: "You can't close this ticket.", ephemeral: true });
+    return ephemeral(interaction, "You can't close this ticket.");
   }
 
   if (userId) {
@@ -1152,14 +1215,17 @@ async function closeTicket(interaction) {
   }
   setTicket(interaction.guild.id, interaction.channel.id, null);
 
-  await interaction.reply({
+  await interaction.editReply({
+    content: null,
+    allowedMentions: { users: [] },
     embeds: [challengeCard({
       title: "Ticket closed",
       color: COLOR_DANGER,
       description: "Saving transcript, then this channel will be deleted.",
       footer: "Closing in 5 seconds",
     })],
-  });
+    components: [],
+  }).catch(() => {});
 
   const history = await buildTicketTranscript(interaction.channel, {
     openerId: userId,
@@ -1203,16 +1269,8 @@ function loadLiveTicket(interaction) {
 }
 
 async function handleFormat(interaction, format) {
-  const ticket = loadLiveTicket(interaction);
-  if (!ticket?.targetId) {
-    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
-  }
-  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
-    return interaction.reply({ content: "Only staff picks the format.", ephemeral: true });
-  }
-  if (ticket.status !== "scoring") {
-    return interaction.reply({ content: "Tap **Record result** first, then pick FT5 or FT10.", ephemeral: true });
-  }
+  const ticket = await scoringGuard(interaction);
+  if (!ticket) return;
   const next = { ...ticket, format };
   if (ticket.isAutowin) {
     next.scoreDisplay = autowinScoreForFormat(format);
@@ -1223,16 +1281,8 @@ async function handleFormat(interaction, format) {
 }
 
 async function handleHost(interaction, who) {
-  const ticket = loadLiveTicket(interaction);
-  if (!ticket?.targetId) {
-    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
-  }
-  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
-    return interaction.reply({ content: "Only staff picks the host.", ephemeral: true });
-  }
-  if (ticket.status !== "scoring") {
-    return interaction.reply({ content: "Tap **Record result** first, then pick the host.", ephemeral: true });
-  }
+  const ticket = await scoringGuard(interaction);
+  if (!ticket) return;
   const next = {
     ...ticket,
     hostId: who === "cross" ? null : who === "chal" ? ticket.userId : ticket.targetId,
@@ -1246,27 +1296,29 @@ async function handleHost(interaction, who) {
 async function handleDone(interaction) {
   const ticket = loadLiveTicket(interaction);
   if (!ticket?.targetId) {
-    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
-  }
-  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
-    return interaction.reply({ content: "Only staff can press Done.", ephemeral: true });
+    return ephemeral(interaction, "This is not a challenge ticket.");
   }
   if (ticket.status === "picked") {
-    return interaction.reply({ content: "The challenge has to be accepted first.", ephemeral: true });
+    return ephemeral(interaction, "The challenge has to be accepted first.");
   }
-  const next = { ...ticket, status: "scoring" };
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferUpdate();
+  }
+  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
+    return ephemeral(interaction, "Only staff can record the result.");
+  }
+  const next = {
+    ...ticket,
+    status: "scoring",
+    setupMessageId: ticket.setupMessageId || interaction.message?.id || null,
+  };
   setTicket(interaction.guild.id, interaction.channel.id, next);
   return refreshMatchMessage(interaction, { ...ticket, ...next });
 }
 
 async function handleWinner(interaction, who) {
-  const ticket = loadLiveTicket(interaction);
-  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
-    return interaction.reply({ content: "Only staff can pick the winner.", ephemeral: true });
-  }
-  if (ticket?.status !== "scoring") {
-    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
-  }
+  const ticket = await scoringGuard(interaction);
+  if (!ticket) return;
   const winnerId = who === "chal" ? ticket.userId : ticket.targetId;
   const next = { ...ticket, winnerId };
   setTicket(interaction.guild.id, interaction.channel.id, next);
@@ -1274,13 +1326,8 @@ async function handleWinner(interaction, who) {
 }
 
 async function handleChannelPick(interaction) {
-  const ticket = loadLiveTicket(interaction);
-  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
-    return interaction.reply({ content: "Only staff can choose the channel.", ephemeral: true });
-  }
-  if (ticket?.status !== "scoring") {
-    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
-  }
+  const ticket = await scoringGuard(interaction);
+  if (!ticket) return;
   const resultChannelId = interaction.values?.[0];
   const next = { ...ticket, resultChannelId };
   setTicket(interaction.guild.id, interaction.channel.id, next);
@@ -1288,13 +1335,8 @@ async function handleChannelPick(interaction) {
 }
 
 async function handleEnterScore(interaction) {
-  const ticket = loadLiveTicket(interaction);
-  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
-    return interaction.reply({ content: "Only staff can enter the score.", ephemeral: true });
-  }
-  if (ticket?.status !== "scoring") {
-    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
-  }
+  const ticket = await scoringGuard(interaction, { defer: false });
+  if (!ticket) return;
 
   const fields = [];
   const cross = isCrossRegion(ticket);
@@ -1306,12 +1348,12 @@ async function handleEnterScore(interaction) {
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
       .setMaxLength(12);
-    if (ticket.scoreDisplay) scoreField.setValue(ticket.scoreDisplay);
+    if (ticket.scoreDisplay && !ticket.isAutowin) scoreField.setValue(ticket.scoreDisplay);
     fields.push(new ActionRowBuilder().addComponents(scoreField));
   } else {
     const r1 = new TextInputBuilder()
       .setCustomId("region1")
-      .setLabel("Region 1 (e.g. Chicago 5-3)")
+      .setLabel("Region 1 — Chicago 5-3 or 5-3")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
       .setMaxLength(80);
@@ -1320,7 +1362,7 @@ async function handleEnterScore(interaction) {
 
     const r2 = new TextInputBuilder()
       .setCustomId("region2")
-      .setLabel("Region 2 (e.g. Virginia 5-1)")
+      .setLabel("Region 2 — Virginia 5-1 or 5-1")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
       .setMaxLength(80);
@@ -1351,18 +1393,12 @@ async function handleEnterScore(interaction) {
 }
 
 async function handleAutowin(interaction) {
-  const ticket = loadLiveTicket(interaction);
-  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
-    return interaction.reply({ content: "Only staff can mark an autowin.", ephemeral: true });
-  }
-  if (ticket?.status !== "scoring") {
-    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
-  }
+  const ticket = await scoringGuard(interaction);
+  if (!ticket) return;
   if (!ticket.format) {
-    return interaction.reply({ content: "Pick **FT5** or **FT10** first, then Autowin.", ephemeral: true });
+    return ephemeral(interaction, "Pick **FT5** or **FT10** first, then Autowin.");
   }
 
-  // Toggle off if already autowin — staff can clear and enter a real score
   if (ticket.isAutowin) {
     const next = {
       ...ticket,
@@ -1389,13 +1425,8 @@ async function handleAutowin(interaction) {
 }
 
 async function handleScoreModal(interaction) {
-  const ticket = loadLiveTicket(interaction);
-  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
-    return interaction.reply({ content: "Only staff can enter the score.", ephemeral: true });
-  }
-  if (ticket?.status !== "scoring") {
-    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
-  }
+  const ticket = await scoringGuard(interaction, { defer: false });
+  if (!ticket) return;
 
   let scoreNotes = "";
   try {
@@ -1406,10 +1437,10 @@ async function handleScoreModal(interaction) {
     const r1 = parseRegionLine(interaction.fields.getTextInputValue("region1"));
     const r2 = parseRegionLine(interaction.fields.getTextInputValue("region2"));
     if (!r1 || !r2) {
-      return interaction.reply({
-        content: "Each region needs a name and score like `Chicago 5-3` (winner's games first).",
-        ephemeral: true,
-      });
+      return ephemeral(
+        interaction,
+        "Each region needs a score like `5-3` or `Chicago 5-3` (winner's games first)."
+      );
     }
     const total = combinedCrossScore(r1, r2);
     const isAutowin = notesWantAutowin(scoreNotes);
@@ -1422,6 +1453,7 @@ async function handleScoreModal(interaction) {
       region1Score: r1.score.display,
       region2: r2.label,
       region2Score: r2.score.display,
+      setupMessageId: ticket.setupMessageId || interaction.message?.id || null,
     };
     setTicket(interaction.guild.id, interaction.channel.id, next);
     return refreshMatchMessage(interaction, { ...ticket, ...next });
@@ -1430,7 +1462,7 @@ async function handleScoreModal(interaction) {
   const scoreRaw = interaction.fields.getTextInputValue("score");
   const parsed = parseScore(scoreRaw);
   if (!parsed) {
-    return interaction.reply({ content: "Score must look like `5-3` or `10-8`.", ephemeral: true });
+    return ephemeral(interaction, "Score must look like `5-3` or `10-8`.");
   }
 
   const isAutowin = notesWantAutowin(scoreNotes);
@@ -1443,21 +1475,18 @@ async function handleScoreModal(interaction) {
     region1Score: "",
     region2: "",
     region2Score: "",
+    setupMessageId: ticket.setupMessageId || interaction.message?.id || null,
   };
   setTicket(interaction.guild.id, interaction.channel.id, next);
   return refreshMatchMessage(interaction, { ...ticket, ...next });
 }
 
 async function handlePost(interaction) {
-  const ticket = loadLiveTicket(interaction);
-  if (!(await canFinishMatch(interaction.member, interaction.guild))) {
-    return interaction.reply({ content: "Only staff can post the result.", ephemeral: true });
-  }
-  if (ticket?.status !== "scoring") {
-    return interaction.reply({ content: "Tap **Record result** first.", ephemeral: true });
-  }
-  if (!ticket.winnerId || !ticket.scoreDisplay || !ticket.resultChannelId || !ticket.format || !hasHost(ticket)) {
-    return interaction.reply({ content: "Set format, host, winner, score, and channel first.", ephemeral: true });
+  const ticket = await scoringGuard(interaction);
+  if (!ticket) return;
+  const missing = missingScoreSteps(ticket, true);
+  if (missing.length) {
+    return ephemeral(interaction, `Still need: **${missing.join(" · ")}**.`);
   }
 
   let scoreCfg = null;
@@ -1465,20 +1494,17 @@ async function handlePost(interaction) {
     scoreCfg = await getScoreConfig(interaction.guild.id);
   } catch {}
   if (!scoreCfg?.setupCompleted) {
-    return interaction.reply({
-      content:
-        "Score isn’t set up yet — this result can’t be posted.\n" +
-        "An admin needs to run **`'setup`** → **Score** first, then try again.",
-      ephemeral: true,
-    });
+    return ephemeral(
+      interaction,
+      "Score isn’t set up yet — this result can’t be posted.\n" +
+        "An admin needs to run **`'setup`** → **Score** first, then try again."
+    );
   }
 
   const channel = await interaction.guild.channels.fetch(ticket.resultChannelId).catch(() => null);
   if (!channel?.isTextBased?.()) {
-    return interaction.reply({ content: "That channel is not available.", ephemeral: true });
+    return ephemeral(interaction, "That channel is not available.");
   }
-
-  await interaction.deferUpdate();
 
   try {
     const hostNote = ticket.hostCrossRegion ? "Host: Cross-region" : ticket.hostId ? `Host: <@${ticket.hostId}>` : "";
@@ -1487,7 +1513,7 @@ async function handlePost(interaction) {
       scoreNotes = [scoreNotes, "autowin"].filter(Boolean).join(" · ");
     }
     const notes = [formatLabel(ticket.format), hostNote, scoreNotes].filter(Boolean).join(" · ");
-    const crossregion = isCrossRegion(ticket) || ticket.format === "ft10";
+    const crossregion = isCrossRegion(ticket);
 
     const result = await applyMatchResult({
       guild: interaction.guild,
@@ -1564,19 +1590,22 @@ async function pickBoard(interaction) {
   const ticket = getTicket(interaction.guild.id, interaction.channel.id);
   const userId = ticket?.userId || interaction.channel.topic?.replace(/^challenge:/, "");
   if (!userId) {
-    return interaction.reply({ content: "This is not a challenge ticket.", ephemeral: true });
+    return ephemeral(interaction, "This is not a challenge ticket.");
+  }
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferUpdate();
   }
   const cfg = await getLeaderboardConfig(interaction.guild.id);
   if (String(interaction.user.id) !== String(userId) && !canStaff(interaction.member, interaction.guild, cfg)) {
-    return interaction.reply({ content: "Only the challenger can pick the board.", ephemeral: true });
+    return ephemeral(interaction, "Only the challenger can pick the board.");
   }
   if (ticket?.status === "picked" || ticket?.status === "accepted") {
-    return interaction.reply({ content: "This ticket already has a challenge.", ephemeral: true });
+    return ephemeral(interaction, "This ticket already has a challenge.");
   }
   const boardId = interaction.values?.[0];
   const mine = boardsForUser(cfg, userId);
   if (!boardId || !mine.some((board) => board.id === boardId)) {
-    return interaction.reply({ content: "Pick one of your boards.", ephemeral: true });
+    return ephemeral(interaction, "Pick one of your boards.");
   }
   setTicket(interaction.guild.id, interaction.channel.id, {
     userId,
@@ -1588,12 +1617,22 @@ async function pickBoard(interaction) {
     ticketChannelId: interaction.channel.id,
     boardId,
   });
-  return interaction.update(await ticketPayload(interaction.guild, userId, boardId));
+  return interaction.editReply(await ticketPayload(interaction.guild, userId, boardId));
 }
 
 async function handleChallengeTickets(interaction) {
   const id = interaction.customId || "";
   if (!id.startsWith("tsb:chaltix:")) return false;
+  try {
+    return await routeChallengeTickets(interaction, id);
+  } catch (err) {
+    console.error("challenge tickets:", err);
+    await ephemeral(interaction, err.message || "Something went wrong with this challenge ticket.").catch(() => {});
+    return true;
+  }
+}
+
+async function routeChallengeTickets(interaction, id) {
   if (id === START_ID && interaction.isButton?.()) {
     await openTicket(interaction);
     return true;

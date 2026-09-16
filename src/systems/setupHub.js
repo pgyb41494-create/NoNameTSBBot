@@ -40,7 +40,7 @@ function hubPayload(guildId) {
         title: `${brand.name} server setup`,
         description:
           "Pick a module. This is the clan setup hub (`'serversetup` / `/serversetup`).\n\n" +
-          "> **Leaderboard** — themes: Classic cards, Top 10 cards, or Metallic v2 (server banner)\n" +
+          "> **Leaderboard** — themes: Classic, Top 10, Metallic v2, or Void roster\n" +
           "> **Ranking** — `'stage @user 0 Low Weak`\n" +
           "> **Score** — `/score` records W/L on cards\n" +
           "> **Line Up** — regional boards\n" +

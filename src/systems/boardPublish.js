@@ -3,9 +3,15 @@ const api = require("../utils/loadApi");
 const { resolveMaybe } = require("../utils/resolveMaybe");
 const { formatCardDescription, cardTitle, sanitizeThumbnail, CARD_COLOR, VACANT_COLOR } = api.cards;
 const { brand } = api;
-const { generateLeaderboardBanner } = require("./bannerGenerate");
+const { generateLeaderboardBanner, generateVoidRosterBanner } = require("./bannerGenerate");
 const { extraBoardsOf, headingTextOf } = require("./tsb/leaderboard/config");
-const { resolveTheme, metallicComponentsV2, entryBody, top10EntryBody } = require("./leaderboardThemes");
+const {
+  resolveTheme,
+  metallicComponentsV2,
+  entryBody,
+  top10EntryBody,
+  voidRosterPayload,
+} = require("./leaderboardThemes");
 
 function cardEmbed(card, { mode = "leaderboard", themeId = "classic" } = {}) {
   const thumb = sanitizeThumbnail(card.avatarUrl);
@@ -196,6 +202,20 @@ async function publishBoardMessages({
         title,
       });
       payload = { ...v2, files };
+    } else if (theme.id === "void") {
+      const roster = voidRosterPayload(guild.name, slice, {
+        title,
+        showHeading,
+        hasBanner: Boolean(bannerBuffer),
+      });
+      const files = bannerBuffer
+        ? [new AttachmentBuilder(bannerBuffer, { name: "void-roster-banner.png" })]
+        : [];
+      payload = {
+        content: "",
+        embeds: roster.embeds,
+        files,
+      };
     } else {
       payload = {
         content: showHeading !== false ? `# ${title}` : "",
@@ -227,6 +247,10 @@ async function publishLeaderboard(guild) {
   let bannerBuffer = null;
   if (theme.id === "metallic") {
     bannerBuffer = await generateLeaderboardBanner(guild.name).catch(() => null);
+  } else if (theme.id === "void") {
+    bannerBuffer = await generateVoidRosterBanner(
+      headingTextOf(cfg, guild.name).replace(/leaderboard/i, "ROSTER") || `${guild.name} Roster`
+    ).catch(() => null);
   }
 
   const messageIds = await publishBoardMessages({

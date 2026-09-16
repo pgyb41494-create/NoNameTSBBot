@@ -119,4 +119,83 @@ async function generateLeaderboardBanner(serverName) {
   return c.toBuffer("image/png");
 }
 
-module.exports = { generateLeaderboardBanner };
+/**
+ * Dark gothic roster banner — white serif title over black field.
+ * Returns a PNG Buffer, or null if canvas is unavailable.
+ */
+async function generateVoidRosterBanner(titleText) {
+  const canvas = loadCanvas();
+  if (!canvas) return null;
+  ensureFont(canvas);
+
+  const width = 1200;
+  const height = 360;
+  const c = canvas.createCanvas(width, height);
+  const ctx = c.getContext("2d");
+
+  ctx.fillStyle = "#050505";
+  ctx.fillRect(0, 0, width, height);
+
+  const vignette = ctx.createRadialGradient(width / 2, height / 2, 40, width / 2, height / 2, 520);
+  vignette.addColorStop(0, "rgba(40,40,48,0.55)");
+  vignette.addColorStop(0.55, "rgba(10,10,12,0.2)");
+  vignette.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, width, height);
+
+  // faint diagonal scratch lines
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  ctx.lineWidth = 1;
+  for (let i = -height; i < width + height; i += 28) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i + height, height);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const title = String(titleText || "ROSTER")
+    .replace(/[^\w\s\-_.']/g, "")
+    .trim()
+    .toUpperCase()
+    .slice(0, 32) || "ROSTER";
+
+  function fitFont(text, maxPx, minPx, maxWidth) {
+    let size = maxPx;
+    while (size > minPx) {
+      ctx.font = `700 ${size}px LeaderboardSerif, serif`;
+      if (ctx.measureText(text).width <= maxWidth) return size;
+      size -= 2;
+    }
+    return minPx;
+  }
+
+  const size = fitFont(title, 96, 36, width - 100);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `700 ${size}px LeaderboardSerif, serif`;
+
+  ctx.save();
+  ctx.shadowColor = "rgba(255,255,255,0.35)";
+  ctx.shadowBlur = 22;
+  ctx.fillStyle = "#f2f2f2";
+  ctx.fillText(title, width / 2, height * 0.48);
+  ctx.restore();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.55)";
+  ctx.lineWidth = Math.max(1, size * 0.018);
+  ctx.strokeText(title, width / 2, height * 0.48);
+
+  // underline rule
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(width * 0.28, height * 0.72);
+  ctx.lineTo(width * 0.72, height * 0.72);
+  ctx.stroke();
+
+  return c.toBuffer("image/png");
+}
+
+module.exports = { generateLeaderboardBanner, generateVoidRosterBanner };

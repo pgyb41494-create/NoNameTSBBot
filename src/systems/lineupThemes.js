@@ -140,7 +140,7 @@ function voidLineupPayload({
       )
     );
     container.addSeparatorComponents((sep) =>
-      sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small)
+      sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large)
     );
   }
 
@@ -168,7 +168,7 @@ function voidLineupPayload({
       roleId: mainRoleId,
     });
     container.addSeparatorComponents((sep) =>
-      sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small)
+      sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large)
     );
     addBoardSection(container, {
       board: "sub",

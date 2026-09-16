@@ -352,8 +352,7 @@ async function publishLineup(guild, regionKey = null) {
           subRoleId,
         });
         stored.messageId = await replaceMessage(channel, stored.messageId, {
-          content: "",
-          embeds: roster.embeds,
+          ...roster,
           files,
         });
         // Drop the old separate sub message if we previously posted one
@@ -376,8 +375,7 @@ async function publishLineup(guild, regionKey = null) {
           mainRoleId,
         });
         stored.messageId = await replaceMessage(channel, stored.messageId, {
-          content: "",
-          embeds: mainRoster.embeds,
+          ...mainRoster,
           files: mainFiles,
         });
 
@@ -398,8 +396,7 @@ async function publishLineup(guild, regionKey = null) {
             subRoleId,
           });
           stored.subMessageId = await replaceMessage(subChannel, stored.subMessageId, {
-            content: "",
-            embeds: subRoster.embeds,
+            ...subRoster,
             files: subFiles,
           });
         }

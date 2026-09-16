@@ -1,6 +1,12 @@
 const fs = require("fs");
 const path = require("path");
-const { EmbedBuilder, AttachmentBuilder } = require("discord.js");
+const {
+  AttachmentBuilder,
+  ContainerBuilder,
+  MediaGalleryBuilder,
+  MessageFlags,
+  SeparatorSpacingSize,
+} = require("discord.js");
 const { VOID_COLOR } = require("./leaderboardThemes");
 
 const LINEUP_THEMES = {
@@ -91,41 +97,31 @@ function boardBody({ board, cards, roleId }) {
   const parts = [VOID_FLAVOR[board] || VOID_FLAVOR.main, ""];
   if (roleId) parts.push(`<@&${roleId}>`);
   parts.push(lines.join("\n"));
-  return parts.join("\n").slice(0, 4096);
+  return parts.join("\n").slice(0, 3800);
 }
 
-function bannerEmbed() {
-  return new EmbedBuilder()
-    .setColor(VOID_COLOR)
-    .setImage("attachment://void-roster-banner.png");
-}
+function addBoardSection(container, { board, cards, roleId, footer }) {
+  const headerFile = board === "sub" ? "void-header-sub.png" : "void-header-main.png";
+  const sigilFile = board === "sub" ? "void-sigil-sub.png" : "void-sigil-main.png";
 
-function headerEmbed(board) {
-  const file = board === "sub" ? "void-header-sub.png" : "void-header-main.png";
-  // Zero-width space forces full embed width so the strip matches the banner/body.
-  return new EmbedBuilder()
-    .setColor(VOID_COLOR)
-    .setDescription("\u200b")
-    .setImage(`attachment://${file}`);
-}
+  // Media galleries render full container width (unlike image-only embeds).
+  container.addMediaGalleryComponents(
+    new MediaGalleryBuilder().addItems((item) => item.setURL(`attachment://${headerFile}`))
+  );
 
-function sectionBodyEmbed({ board, cards, roleId, footer }) {
-  const sigil = board === "sub" ? "void-sigil-sub.png" : "void-sigil-main.png";
-  const embed = new EmbedBuilder()
-    .setColor(VOID_COLOR)
-    .setDescription(boardBody({ board, cards, roleId }))
-    .setThumbnail(`attachment://${sigil}`);
-  if (footer) embed.setFooter({ text: footer });
-  return embed;
+  let body = boardBody({ board, cards, roleId });
+  if (footer) body = `${body}\n\n-# ${footer}`;
+
+  container.addSectionComponents((section) =>
+    section
+      .addTextDisplayComponents((td) => td.setContent(body))
+      .setThumbnailAccessory((acc) => acc.setURL(`attachment://${sigilFile}`))
+  );
 }
 
 /**
- * Build void roster payload matching the clan roster layout:
- * banner → MAIN header → MAIN body(+sigil) → SUB header → SUB body(+sigil)
- *
- * mode:
- * - combined: Main + Sub in one message (same channel)
- * - main / sub: single board (separate channels)
+ * Void roster as Components V2 so banner + MAIN/SUB strips share one full width.
+ * mode: combined | main | sub
  */
 function voidLineupPayload({
   mainCards = [],
@@ -135,45 +131,57 @@ function voidLineupPayload({
   mainRoleId = null,
   subRoleId = null,
 } = {}) {
-  const embeds = [];
-  if (hasBanner) embeds.push(bannerEmbed());
+  const container = new ContainerBuilder().setAccentColor(VOID_COLOR);
+
+  if (hasBanner) {
+    container.addMediaGalleryComponents(
+      new MediaGalleryBuilder().addItems((item) =>
+        item.setURL("attachment://void-roster-banner.png")
+      )
+    );
+    container.addSeparatorComponents((sep) =>
+      sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small)
+    );
+  }
 
   const filledMain = (mainCards || []).filter((c) => c && !c.empty).length;
   const filledSub = (subCards || []).filter((c) => c && !c.empty).length;
 
   if (mode === "sub") {
-    embeds.push(headerEmbed("sub"));
-    embeds.push(sectionBodyEmbed({
+    addBoardSection(container, {
       board: "sub",
       cards: subCards,
       roleId: subRoleId,
       footer: `${filledSub} listed · Void roster`,
-    }));
+    });
   } else if (mode === "main") {
-    embeds.push(headerEmbed("main"));
-    embeds.push(sectionBodyEmbed({
+    addBoardSection(container, {
       board: "main",
       cards: mainCards,
       roleId: mainRoleId,
       footer: `${filledMain} listed · Void roster`,
-    }));
+    });
   } else {
-    embeds.push(headerEmbed("main"));
-    embeds.push(sectionBodyEmbed({
+    addBoardSection(container, {
       board: "main",
       cards: mainCards,
       roleId: mainRoleId,
-    }));
-    embeds.push(headerEmbed("sub"));
-    embeds.push(sectionBodyEmbed({
+    });
+    container.addSeparatorComponents((sep) =>
+      sep.setDivider(false).setSpacing(SeparatorSpacingSize.Small)
+    );
+    addBoardSection(container, {
       board: "sub",
       cards: subCards,
       roleId: subRoleId,
       footer: `${filledMain + filledSub} listed · Void roster`,
-    }));
+    });
   }
 
-  return { embeds: embeds.slice(0, 10) };
+  return {
+    flags: MessageFlags.IsComponentsV2,
+    components: [container],
+  };
 }
 
 function loadVoidStaticFiles({ includeMain = true, includeSub = true } = {}) {

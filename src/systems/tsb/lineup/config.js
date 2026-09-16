@@ -59,6 +59,7 @@ function normalizeLineupConfig(cfg) {
   if (!next.enabledRegionKeys.length) {
     next.enabledRegionKeys = ["na", "east", "west", "central", "eu", "asia"];
   }
+  if (!next.theme) next.theme = "classic";
   const count = next.slotsPerRegion;
   const subCount = next.subSlotsPerRegion;
   for (const key of next.enabledRegionKeys) {

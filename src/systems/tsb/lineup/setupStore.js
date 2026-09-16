@@ -7,9 +7,11 @@ const {
 } = require("./config");
 
 const { publishAllLineups } = require("./renderer");
+const { listLineupThemes, resolveLineupTheme } = require("../../lineupThemes");
 
 const COLOR = 0x2B2D31;
 const sessions = new Map();
+const TOTAL_STEPS = 6;
 
 async function getSession(guildId) {
     if (!sessions.has(guildId)) {
@@ -24,6 +26,7 @@ async function getSession(guildId) {
                 slotsPerRegion: saved.slotsPerRegion || 10,
                 subSlotsPerRegion: saved.subSlotsPerRegion || saved.slotsPerRegion || 10,
                 separateSubChannels: !!saved.separateSubChannels,
+                theme: resolveLineupTheme(saved.theme).id,
                 allowedRoles: saved.allowedRoles || [],
                 managementChannelId: saved.managementChannelId || null,
                 cardGifUrl: saved.cardGifUrl || "https://developers.oneway.lat/evidencias/asa_3_1.gif"
@@ -38,12 +41,14 @@ function configSummary(data, saved = null) {
     const subChannelMode = data.separateSubChannels
         ? "Separate `#…-sub` channel"
         : "Same channel as main";
+    const theme = resolveLineupTheme(data.theme);
     return (
         "**Current Configuration**\n" +
         `> **Regions:** \`${(data.enabledRegionKeys || []).join(", ") || "none"}\`\n` +
         `> **Main Line Up slots:** \`${data.slotsPerRegion}\`\n` +
         `> **Sub Line Up slots:** \`${data.subSlotsPerRegion || data.slotsPerRegion}\`\n` +
         `> **Sub Line channel:** \`${subChannelMode}\`\n` +
+        `> **Theme:** \`${theme.label}\`\n` +
         `> **Allowed roles:** \`${(data.allowedRoles || []).length}\`\n` +
         `> **Management:** ${data.managementChannelId ? `<#${data.managementChannelId}>` : "`not set`"}\n` +
         `> **Card GIF:** \`${(data.cardGifUrl || "").includes("asa_3_1.gif") ? "default" : "custom"}\`\n\n` +
@@ -99,7 +104,7 @@ async function overviewPayload(guildId) {
 async function stepPayload(interaction) {
     const session = await getSession(interaction.guild.id);
     const { step, data } = session;
-    const title = `Lineup Setup · Step ${step}/5`;
+    const title = `Lineup Setup · Step ${step}/${TOTAL_STEPS}`;
 
     if (step === 1) {
         return {
@@ -180,6 +185,39 @@ async function stepPayload(interaction) {
     }
 
     if (step === 4) {
+        const theme = resolveLineupTheme(data.theme);
+        return {
+            embeds: [{
+                title,
+                description:
+                    "Pick how lineups look when published.\n\n" +
+                    `**Current:** ${theme.label}\n` +
+                    `_${theme.description}_\n\n` +
+                    "• **Classic cards** — one GIF card per player\n" +
+                    "• **Void roster** — gothic tree list (Main + Sub sections, like a clan roster)",
+                color: COLOR
+            }],
+            components: [
+                {
+                    type: 1,
+                    components: [{
+                        type: 3,
+                        custom_id: "tsb:lu:theme",
+                        placeholder: "Select lineup theme",
+                        options: listLineupThemes().map((t) => ({
+                            label: t.label,
+                            value: t.id,
+                            description: t.description.slice(0, 100),
+                            default: t.id === theme.id,
+                        })),
+                    }],
+                },
+                ...navButtons(),
+            ],
+        };
+    }
+
+    if (step === 5) {
         return {
             embeds: [{
                 title,
@@ -206,16 +244,17 @@ async function stepPayload(interaction) {
         };
     }
 
-    // step 5 confirm
+    // step 6 confirm
     const channelPlan = data.separateSubChannels
         ? "`#lineup-<region>` (main) + `#lineup-<region>-sub` (sub)"
         : "`#lineup-<region>` (main + sub together)";
+    const theme = resolveLineupTheme(data.theme);
     return {
         embeds: [{
-            title: "Lineup Setup · Step 5/5",
+            title: `Lineup Setup · Step ${TOTAL_STEPS}/${TOTAL_STEPS}`,
             description:
                 configSummary(data, { setupCompleted: false }) +
-                `\n\nConfirm to create ${channelPlan} and publish **Line Up** + **Sub Line Up** cards.`,
+                `\n\nConfirm to create ${channelPlan} and publish with **${theme.label}**.`,
             color: COLOR
         }],
         components: navButtons(
@@ -302,6 +341,7 @@ async function applySetup(interaction) {
         slotsPerRegion: data.slotsPerRegion,
         subSlotsPerRegion: data.subSlotsPerRegion || data.slotsPerRegion,
         separateSubChannels: !!data.separateSubChannels,
+        theme: resolveLineupTheme(data.theme).id,
         enabledRegionKeys: data.enabledRegionKeys,
         cardGifUrl: data.cardGifUrl
     });
@@ -407,6 +447,7 @@ async function handleLineupAction(interaction, id) {
             slotsPerRegion: 10,
             subSlotsPerRegion: 10,
             separateSubChannels: false,
+            theme: "classic",
             allowedRoles: [],
             managementChannelId: null
         });
@@ -426,7 +467,7 @@ async function handleLineupAction(interaction, id) {
     }
 
     if (id === "tsb:lu:next") {
-        if (session.step < 5) session.step += 1;
+        if (session.step < TOTAL_STEPS) session.step += 1;
         return renderStep(interaction);
     }
 
@@ -441,7 +482,7 @@ async function handleLineupAction(interaction, id) {
     }
 
     if (id === "tsb:lu:skip_roles") {
-        session.step = 5;
+        session.step = TOTAL_STEPS;
         return renderStep(interaction);
     }
 
@@ -524,6 +565,11 @@ async function handleLineupSelect(interaction) {
 
     if (id === "tsb:lu:roles_select") {
         session.data.allowedRoles = interaction.values || [];
+        return renderStep(interaction);
+    }
+
+    if (id === "tsb:lu:theme") {
+        session.data.theme = resolveLineupTheme(interaction.values?.[0]).id;
         return renderStep(interaction);
     }
 

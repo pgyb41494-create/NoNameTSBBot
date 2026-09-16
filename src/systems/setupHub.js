@@ -43,7 +43,7 @@ function hubPayload(guildId) {
           "> **Leaderboard** — themes: Classic, Top 10, Metallic v2, or Void roster\n" +
           "> **Ranking** — `'stage @user 0 Low Weak`\n" +
           "> **Score** — `/score` records W/L on cards\n" +
-          "> **Line Up** — regional boards\n" +
+          "> **Line Up** — regional boards (Classic cards or Void roster theme)\n" +
           "> **Blacklist** — shown on the website",
       }),
     ],

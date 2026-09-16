@@ -333,4 +333,5 @@ module.exports = {
   voidRosterPayload,
   voidMemberLine,
   groupVoidCards,
+  toSmallCaps,
 };

@@ -306,18 +306,94 @@ async function publishLeaderboard(guild) {
 async function publishLineup(guild, regionKey = null) {
   const cfg = await resolveMaybe(api.lineup.getConfig(guild.id));
   const snap = await resolveMaybe(api.snapshot.publicSnapshot(guild.id));
+  const { resolveLineupTheme, voidLineupPayload } = require("./lineupThemes");
+  const theme = resolveLineupTheme(cfg.theme || "classic");
   const regions = regionKey
     ? snap.lineup.regions.filter((r) => r.key === regionKey)
     : snap.lineup.regions;
+
+  let voidBanner = null;
+  if (theme.id === "void") {
+    voidBanner = await generateVoidRosterBanner(
+      regionKey
+        ? `${snap.lineup.regions.find((r) => r.key === regionKey)?.label || regionKey} Roster`
+        : `${guild.name} Roster`
+    ).catch(() => null);
+  }
 
   for (const region of regions) {
     const stored = cfg.regions[region.key];
     if (!stored?.channelId) continue;
     const channel = await guild.channels.fetch(stored.channelId).catch(() => null);
     if (!channel) continue;
-    const mainEmbeds = (region.main.length ? await enrichBoardCards(guild, region.main) : []).map((card) =>
-      cardEmbed(card, { mode: "lineup" })
-    );
+
+    const mainCards = region.main.length ? await enrichBoardCards(guild, region.main) : [];
+    const subCards = region.sub?.length ? await enrichBoardCards(guild, region.sub) : [];
+    const separateSub = !!cfg.separateSubChannels
+      && stored.subChannelId
+      && stored.subChannelId !== stored.channelId;
+
+    if (theme.id === "void") {
+      const bannerForRegion = await generateVoidRosterBanner(`${region.label} Roster`).catch(() => null)
+        || voidBanner;
+      const files = bannerForRegion
+        ? [new AttachmentBuilder(bannerForRegion, { name: "void-roster-banner.png" })]
+        : [];
+
+      if (!separateSub) {
+        const roster = voidLineupPayload({
+          regionLabel: region.label,
+          mainCards,
+          subCards,
+          mode: "combined",
+          hasBanner: Boolean(bannerForRegion),
+        });
+        stored.messageId = await replaceMessage(channel, stored.messageId, {
+          content: "",
+          embeds: roster.embeds,
+          files,
+        });
+        // Drop the old separate sub message if we previously posted one
+        if (stored.subMessageId && stored.subMessageId !== stored.messageId) {
+          const old = await channel.messages.fetch(stored.subMessageId).catch(() => null);
+          if (old) await old.delete().catch(() => {});
+        }
+        stored.subMessageId = null;
+      } else {
+        const mainRoster = voidLineupPayload({
+          regionLabel: region.label,
+          mainCards,
+          mode: "main",
+          hasBanner: Boolean(bannerForRegion),
+        });
+        stored.messageId = await replaceMessage(channel, stored.messageId, {
+          content: "",
+          embeds: mainRoster.embeds,
+          files,
+        });
+
+        const subChannel = await guild.channels.fetch(stored.subChannelId).catch(() => null);
+        if (subChannel) {
+          const subFiles = bannerForRegion
+            ? [new AttachmentBuilder(bannerForRegion, { name: "void-roster-banner.png" })]
+            : [];
+          const subRoster = voidLineupPayload({
+            regionLabel: region.label,
+            subCards,
+            mode: "sub",
+            hasBanner: Boolean(bannerForRegion),
+          });
+          stored.subMessageId = await replaceMessage(subChannel, stored.subMessageId, {
+            content: "",
+            embeds: subRoster.embeds,
+            files: subFiles,
+          });
+        }
+      }
+      continue;
+    }
+
+    const mainEmbeds = mainCards.map((card) => cardEmbed(card, { mode: "lineup" }));
     if (mainEmbeds.length) {
       const heading = `# Line Up - ${region.label}`;
       stored.messageId = await replaceMessage(channel, stored.messageId, {
@@ -326,9 +402,7 @@ async function publishLineup(guild, regionKey = null) {
       });
     }
 
-    const subEmbeds = (region.sub?.length ? await enrichBoardCards(guild, region.sub) : []).map((card) =>
-      cardEmbed(card, { mode: "lineup" })
-    );
+    const subEmbeds = subCards.map((card) => cardEmbed(card, { mode: "lineup" }));
     if (subEmbeds.length) {
       const subChannelId = stored.subChannelId && stored.subChannelId !== stored.channelId
         ? stored.subChannelId
@@ -344,7 +418,11 @@ async function publishLineup(guild, regionKey = null) {
       }
     }
   }
-  await resolveMaybe(api.lineup.updateConfig(guild.id, { regions: cfg.regions, setupCompleted: true }));
+  await resolveMaybe(api.lineup.updateConfig(guild.id, {
+    regions: cfg.regions,
+    setupCompleted: true,
+    theme: theme.id,
+  }));
 }
 
 module.exports = { cardEmbed, publishLeaderboard, publishLineup };

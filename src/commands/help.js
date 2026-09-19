@@ -34,7 +34,7 @@ function helpEmbed() {
       `\`/profile-create\` · \`${p}createprofile @user RobloxName\` — admins create profiles with the same setup flow (no bio code)`,
       `\`/tsbcoach\` · \`${p}tsbcoach\` (aliases: coach, vod)`,
       `\`${p}ask\` / \`/ask\` — chat (can also answer TSBCC rules)`,
-      `\`${p}rules\` / \`/rules\` — TSBCC rulebook (blacklist, bail, wars, FAQ)`,
+      `\`${p}rules\` / \`/rules\` — TSBCC rulebook (blacklist, bail, wars, 5v5, OCW, FAQ)`,
       "",
       "**Boards**",
       `\`${p}tsbtop\` / \`/tsbtop\` (aliases: \`${p}top\`, \`${p}lbset\`)`,

@@ -1,5 +1,6 @@
-const { SlashCommandBuilder } = require("discord.js");
+const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 const api = require("../utils/loadApi");
+const { brand } = require("../utils/embeds");
 
 module.exports = {
   name: "ask",
@@ -82,6 +83,19 @@ function formatAsk(result) {
   if (!result?.ok) {
     return { content: result?.message || "Could not answer that.", embeds: [] };
   }
+
+  if (Array.isArray(result.embeds) && result.embeds.length) {
+    return {
+      content: null,
+      embeds: result.embeds.slice(0, 10).map((raw) =>
+        new EmbedBuilder()
+          .setColor(brand.color)
+          .setTitle(String(raw.title || "TSBCC Rules").slice(0, 256))
+          .setDescription(String(raw.description || "").slice(0, 4096))
+      ),
+    };
+  }
+
   let body = String(result.answer || "").trim();
   body = body.replace(/^(on_topic|off_topic|refused|unknown)\s*[:\-]?\s*/i, "").trim() || body;
   if (body.length > 1900) body = `${body.slice(0, 1900)}…`;

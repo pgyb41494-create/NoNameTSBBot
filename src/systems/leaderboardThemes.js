@@ -29,8 +29,8 @@ const THEMES = {
   void: {
     id: "void",
     label: "Void roster",
-    description: "Gothic tree roster — dark banner, stage sections, branch list",
-    pageSize: 50,
+    description: "Dark banner on top, full player cards split by divider lines",
+    pageSize: 10,
   },
 };
 
@@ -255,69 +255,81 @@ function groupVoidCards(cards) {
     }));
 }
 
+const V2_COMPONENT_LIMIT = 40;
+
+function voidCardBody(card) {
+  if (card.empty) {
+    return [`### #${card.position} Vacant`, "-# An open seat in the dark…"].join("\n");
+  }
+  const flag = card.countryFlag ? ` ${card.countryFlag}` : "";
+  const mention = card.discordTag || (card.discordId ? `<@${card.discordId}>` : "`empty`");
+  return [
+    `### #${card.position} ${card.name || card.robloxUsername || "???"}${flag}`,
+    `| ${mention} |`,
+    top10RobloxLine(card),
+    `**Region:** ${card.regionFull || card.region || "—"}`,
+    `**Stage:** ${card.stage || "Unranked"}`,
+    `-# Status: ${card.status || "Challengeable"}`,
+    `-# wins: ${card.wins ?? 0} losses: ${card.losses ?? 0}`,
+  ].join("\n");
+}
+
 /**
- * Gothic roster embeds — tree list by stage, dark accent, optional banner image.
+ * Void leaderboard — banner on top, then one full player card per rank split by divider lines.
+ * Discord caps V2 messages at 40 components (nested included), so avatars are dropped when they wouldn't fit.
  */
-function voidRosterPayload(guildName, cards, { title, showHeading = true, hasBanner = false } = {}) {
-  const { EmbedBuilder } = require("discord.js");
-  const filled = (cards || []).filter((c) => c && !c.empty);
-  const source = filled.length ? filled : (cards || []);
-  const groups = groupVoidCards(source).filter((g) => g.key !== "vacant" || !filled.length);
-  const boardTitle = title || `${guildName} Roster`;
+function voidRosterPayload(guildName, cards, { title, showHeading = true, hasBanner = false, sanitizeThumbnail, pageLabel } = {}) {
+  const list = cards || [];
+  const boardTitle = title || `${guildName} Leaderboard`;
+  const container = new ContainerBuilder().setAccentColor(VOID_COLOR);
+  const thumbOf = (card) => {
+    if (card.empty || !card.avatarUrl) return null;
+    return sanitizeThumbnail ? sanitizeThumbnail(card.avatarUrl) : card.avatarUrl;
+  };
 
-  const embeds = [];
-  let bannerAttached = false;
+  const headerCost = hasBanner || showHeading !== false ? 2 : 0;
+  const thumbCount = list.filter((card) => thumbOf(card)).length;
+  const baseCost = 1 + headerCost + list.length + Math.max(0, list.length - 1) + 1;
+  const useThumbs = baseCost + thumbCount * 2 <= V2_COMPONENT_LIMIT;
 
-  for (let i = 0; i < groups.length && embeds.length < 10; i += 1) {
-    const group = groups[i];
-    const lines = group.cards.map((card, idx) =>
-      voidMemberLine(card, idx === group.cards.length - 1)
+  if (hasBanner) {
+    container.addMediaGalleryComponents(
+      new MediaGalleryBuilder().addItems((item) => item.setURL("attachment://void-roster-banner.png"))
     );
-    const required = group.key.startsWith("stage-")
-      ? `\`Required: ${group.label}+\``
-      : group.key === "applicant"
-        ? "`Required: Applicant`"
-        : null;
-
-    const body = [
-      voidSectionHeader(group.label),
-      voidFlavorForStage(group.key),
-      required || null,
-      "",
-      lines.join("\n") || "_Empty._",
-    ].filter((line) => line != null).join("\n");
-
-    const embed = new EmbedBuilder()
-      .setColor(VOID_COLOR)
-      .setDescription(body.slice(0, 4096));
-
-    if (i === 0 && showHeading !== false) {
-      embed.setAuthor({ name: boardTitle });
-    }
-    if (i === 0 && hasBanner) {
-      embed.setImage("attachment://void-roster-banner.png");
-      bannerAttached = true;
-    }
-    if (i === groups.length - 1 || embeds.length === 9) {
-      embed.setFooter({ text: `${filled.length || source.length} listed · Void roster` });
-    }
-
-    embeds.push(embed);
+  } else if (showHeading !== false) {
+    container.addTextDisplayComponents((td) => td.setContent(`# ${boardTitle}`));
+  }
+  if (headerCost) {
+    container.addSeparatorComponents((sep) => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large));
   }
 
-  if (!embeds.length) {
-    const embed = new EmbedBuilder()
-      .setColor(VOID_COLOR)
-      .setDescription(`${voidSectionHeader("Empty")}\n_No one stands on this board yet._`);
-    if (showHeading !== false) embed.setAuthor({ name: boardTitle });
-    if (hasBanner) {
-      embed.setImage("attachment://void-roster-banner.png");
-      bannerAttached = true;
+  list.forEach((card, index) => {
+    const body = voidCardBody(card);
+    const thumb = useThumbs ? thumbOf(card) : null;
+    if (thumb) {
+      container.addSectionComponents((section) =>
+        section
+          .addTextDisplayComponents((td) => td.setContent(body))
+          .setThumbnailAccessory((acc) => acc.setURL(thumb))
+      );
+    } else {
+      container.addTextDisplayComponents((td) => td.setContent(body));
     }
-    embeds.push(embed);
-  }
+    if (index < list.length - 1) {
+      container.addSeparatorComponents((sep) => sep.setDivider(true).setSpacing(SeparatorSpacingSize.Large));
+    }
+  });
 
-  return { embeds, bannerAttached };
+  const filled = list.filter((card) => !card.empty).length;
+  const footer = list.length
+    ? `-# ${filled} listed${pageLabel ? ` · ${pageLabel}` : ""} · Void roster`
+    : "_No one stands on this board yet._";
+  container.addTextDisplayComponents((td) => td.setContent(footer));
+
+  return {
+    flags: MessageFlags.IsComponentsV2,
+    components: [container],
+  };
 }
 
 module.exports = {

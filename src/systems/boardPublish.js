@@ -203,19 +203,18 @@ async function publishBoardMessages({
       });
       payload = { ...v2, files };
     } else if (theme.id === "void") {
+      const withBanner = Boolean(bannerBuffer) && page === 0;
       const roster = voidRosterPayload(guild.name, slice, {
         title,
-        showHeading,
-        hasBanner: Boolean(bannerBuffer),
+        showHeading: page === 0 && showHeading !== false,
+        hasBanner: withBanner,
+        sanitizeThumbnail,
+        pageLabel: pages.length > 1 ? `#${start}–${end}` : null,
       });
-      const files = bannerBuffer
+      const files = withBanner
         ? [new AttachmentBuilder(bannerBuffer, { name: "void-roster-banner.png" })]
         : [];
-      payload = {
-        content: "",
-        embeds: roster.embeds,
-        files,
-      };
+      payload = { ...roster, files, attachments: [] };
     } else {
       payload = {
         content: showHeading !== false ? `# ${title}` : "",

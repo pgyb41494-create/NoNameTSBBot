@@ -275,7 +275,7 @@ async function applyConfig(interaction) {
     const session = getSession(interaction.guild.id);
     const data = session.data;
 
-    setScoreConfig(interaction.guild.id, {
+    await setScoreConfig(interaction.guild.id, {
         winnerCooldownDays: Number(data.winnerCooldownDays) || 4,
         loserCooldownDays: Number(data.loserCooldownDays) || 7,
         autowinEnabled: !!data.autowinEnabled,

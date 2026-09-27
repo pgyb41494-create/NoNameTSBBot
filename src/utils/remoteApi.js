@@ -5,8 +5,54 @@
 const BASE = (process.env.API_SERVER_URL || "").replace(/\/$/, "");
 const TOKEN = process.env.API_TOKEN || process.env.BOT_API_TOKEN || "";
 
-async function req(pathname, { method = "GET", body, allowNull = false } = {}) {
-  if (!BASE) throw new Error("API_SERVER_URL is not set");
+const TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS) || 15000;
+const GET_CACHE_MS = Number(process.env.API_GET_CACHE_MS) || 4000;
+const RETRYABLE_STATUS = new Set([502, 503, 504]);
+const NETWORK_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+]);
+
+const getCache = new Map();
+const inflight = new Map();
+
+function isNetworkError(err) {
+  if (!err) return false;
+  if (err.name === "AbortError" || err.name === "TimeoutError") return true;
+  const code = err.code || err.cause?.code;
+  if (code && NETWORK_CODES.has(code)) return true;
+  return /fetch failed/i.test(String(err.message || ""));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function guildIdFromPath(pathname) {
+  const m = String(pathname).match(/\/(\d{15,22})(?:\/|\?|$)/);
+  return m ? m[1] : null;
+}
+
+function invalidateGuild(pathname) {
+  const gid = guildIdFromPath(pathname);
+  if (!gid) {
+    getCache.clear();
+    return;
+  }
+  for (const key of getCache.keys()) {
+    if (key.includes(gid)) getCache.delete(key);
+  }
+}
+
+async function rawRequest(pathname, { method, body, allowNull }) {
   const res = await fetch(`${BASE}${pathname}`, {
     method,
     headers: {
@@ -14,11 +60,72 @@ async function req(pathname, { method = "GET", body, allowNull = false } = {}) {
       ...(TOKEN ? { "x-bot-token": TOKEN } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  if (allowNull && res.status === 404) return null;
+  if (allowNull && res.status === 404) return { ok: true, data: null };
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || data.message || `API ${res.status}`);
-  return data;
+  if (!res.ok) {
+    const err = new Error(data.error || data.message || `API ${res.status}`);
+    err.status = res.status;
+    return { ok: false, err };
+  }
+  return { ok: true, data };
+}
+
+async function withRetry(pathname, opts) {
+  // Writes only retry once: a reset on a reused keep-alive socket usually means the request never landed.
+  const attempts = opts.method === "GET" ? 4 : 2;
+  let lastErr;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const out = await rawRequest(pathname, opts);
+      if (out.ok) return out.data;
+      lastErr = out.err;
+      if (!RETRYABLE_STATUS.has(out.err.status)) throw out.err;
+    } catch (err) {
+      lastErr = err;
+      if (err.status && !RETRYABLE_STATUS.has(err.status)) throw err;
+      if (!err.status && !isNetworkError(err)) throw err;
+    }
+    if (i < attempts - 1) await sleep(250 * 2 ** i + Math.floor(Math.random() * 150));
+  }
+  const final = new Error(
+    `API unreachable (${opts.method} ${pathname.split("?")[0]}): ${lastErr?.cause?.code || lastErr?.message || "unknown"}`
+  );
+  final.cause = lastErr;
+  final.code = "API_UNREACHABLE";
+  throw final;
+}
+
+async function req(pathname, { method = "GET", body, allowNull = false, fresh = false } = {}) {
+  if (!BASE) throw new Error("API_SERVER_URL is not set");
+  const opts = { method, body, allowNull };
+
+  if (method !== "GET") {
+    invalidateGuild(pathname);
+    try {
+      return await withRetry(pathname, opts);
+    } finally {
+      invalidateGuild(pathname);
+    }
+  }
+
+  const key = `${pathname}|${allowNull ? 1 : 0}`;
+  if (!fresh) {
+    const hit = getCache.get(key);
+    if (hit && hit.expires > Date.now()) return structuredClone(hit.data);
+    const pending = inflight.get(key);
+    if (pending) return pending.then((d) => structuredClone(d));
+  }
+
+  const promise = withRetry(pathname, opts)
+    .then((data) => {
+      getCache.set(key, { data, expires: Date.now() + GET_CACHE_MS });
+      return data;
+    })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, promise);
+  return promise.then((d) => structuredClone(d));
 }
 
 function syncWarn(name) {

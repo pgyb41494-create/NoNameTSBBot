@@ -6,18 +6,28 @@ const {
   sweepIfManagementChannel,
 } = require("../systems/tsb/shared/mgmtCleaner");
 
+async function tryDraft(handler, message, label) {
+  try {
+    return await handler(message);
+  } catch (err) {
+    if (err?.code === "API_UNREACHABLE") console.warn(`${label} draft skipped:`, err.message);
+    else console.error(`${label} draft error:`, err);
+    return false;
+  }
+}
+
 module.exports = {
   async execute(message, client) {
     if (message.author.bot || !message.guild) return;
 
     let draftHandled = false;
-    if (await handleLineupDraftMessage(message)) draftHandled = true;
-    else if (await handleLeaderboardDraftMessage(message)) draftHandled = true;
+    if (await tryDraft(handleLineupDraftMessage, message, "lineup")) draftHandled = true;
+    else if (await tryDraft(handleLeaderboardDraftMessage, message, "leaderboard")) draftHandled = true;
 
     if (!draftHandled) {
       if (message.mentions.has(client.user) && message.content.trim() === `<@${client.user.id}>`) {
         const help = client.commands.get("help");
-        if (help) await help.executePrefix(message, [], client);
+        if (help) await help.executePrefix(message, [], client).catch(() => {});
       } else {
         const prefix = brand.prefix;
         if (message.content.startsWith(prefix)) {
@@ -41,16 +51,30 @@ module.exports = {
             try {
               await command.executePrefix(message, parts, client);
             } catch (err) {
-              console.error(`prefix ${name}:`, err);
-              await message.reply({ content: "That command failed." }).catch(() => {});
+              const unreachable = err?.code === "API_UNREACHABLE";
+              if (unreachable) console.warn(`prefix ${name}:`, err.message);
+              else console.error(`prefix ${name}:`, err);
+              await message
+                .reply({
+                  content: unreachable
+                    ? "Couldn't reach the Ascendant API just now. Try again in a few seconds."
+                    : "That command failed.",
+                  allowedMentions: { repliedUser: false },
+                })
+                .catch(() => {});
             }
           }
         }
       }
     }
 
-    if (resolveManagementKind(message, message.guild.id)) {
-      await sweepIfManagementChannel(message, message.guild.id, { delayMs: 900 });
+    try {
+      const resolved = await resolveManagementKind(message, message.guild.id);
+      if (resolved) {
+        await sweepIfManagementChannel(message, message.guild.id, { delayMs: 900, resolved });
+      }
+    } catch (err) {
+      console.warn("mgmt sweep failed:", err?.message || err);
     }
   },
 };

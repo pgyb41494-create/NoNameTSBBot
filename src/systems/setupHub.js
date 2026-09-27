@@ -16,24 +16,38 @@ const { ensureTipsMessage, handleManagementDraft, sweepIfManagementChannel } = r
 const HUB_ID = "asc:hub";
 const THEME_ID = "asc:lb:theme";
 
-function moduleStatus(guildId) {
-  const theme = resolveTheme(api.leaderboard.getConfig(guildId).theme);
+async function safeGet(fn) {
+  try {
+    return (await Promise.resolve(fn())) || {};
+  } catch {
+    return {};
+  }
+}
+
+async function moduleStatus(guildId) {
+  const [lb, ranking, score, lineup, blacklist] = await Promise.all([
+    safeGet(() => api.leaderboard.getConfig(guildId)),
+    safeGet(() => api.ranking.getConfig(guildId)),
+    safeGet(() => api.score.getConfig(guildId)),
+    safeGet(() => api.lineup.getConfig(guildId)),
+    safeGet(() => api.blacklist.getList("network")),
+  ]);
+  const theme = resolveTheme(lb.theme);
   return [
     {
       label: "Top Leaderboard",
       value: "leaderboard",
-      description: api.leaderboard.getConfig(guildId).setupCompleted
-        ? `OK · theme: ${theme.label}`
-        : "Not configured",
+      description: lb.setupCompleted ? `OK · theme: ${theme.label}` : "Not configured",
     },
-    { label: "Ranking / Stages", value: "ranking", description: api.ranking.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
-    { label: "1v1 Score", value: "score", description: api.score.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
-    { label: "Line Up", value: "lineup", description: api.lineup.getConfig(guildId).setupCompleted ? "Configured" : "Not configured" },
-    { label: "Blacklist", value: "blacklist", description: `${api.blacklist.getList("network").entries.length} on the network list` },
+    { label: "Ranking / Stages", value: "ranking", description: ranking.setupCompleted ? "Configured" : "Not configured" },
+    { label: "1v1 Score", value: "score", description: score.setupCompleted ? "Configured" : "Not configured" },
+    { label: "Line Up", value: "lineup", description: lineup.setupCompleted ? "Configured" : "Not configured" },
+    { label: "Blacklist", value: "blacklist", description: `${(blacklist.entries || []).length} on the network list` },
   ];
 }
 
-function hubPayload(guildId) {
+async function hubPayload(guildId) {
+  const options = await moduleStatus(guildId);
   return {
     embeds: [
       surface({
@@ -52,7 +66,7 @@ function hubPayload(guildId) {
         new StringSelectMenuBuilder()
           .setCustomId(HUB_ID)
           .setPlaceholder("Select a module")
-          .addOptions(moduleStatus(guildId))
+          .addOptions(options)
       ),
     ],
   };
@@ -66,8 +80,9 @@ function moduleButtons(moduleKey) {
   );
 }
 
-function leaderboardThemeRow(guildId) {
-  const current = resolveTheme(api.leaderboard.getConfig(guildId).theme);
+async function leaderboardThemeRow(guildId) {
+  const cfg = await safeGet(() => api.leaderboard.getConfig(guildId));
+  const current = resolveTheme(cfg.theme);
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId(THEME_ID)
@@ -104,7 +119,7 @@ async function openModule(interaction, key) {
   };
 
   const components = [moduleButtons(key)];
-  if (key === "leaderboard") components.unshift(leaderboardThemeRow(interaction.guildId));
+  if (key === "leaderboard") components.unshift(await leaderboardThemeRow(interaction.guildId));
 
   return interaction.update({
     embeds: [surface({ title: key[0].toUpperCase() + key.slice(1), description: guides[key] || "Module." })],
@@ -143,11 +158,11 @@ async function createChannels(interaction, key) {
       "top-1-10",
       `${brand.name} public leaderboard`
     );
-    api.leaderboard.updateConfig(guild.id, {
+    await Promise.resolve(api.leaderboard.updateConfig(guild.id, {
       setupCompleted: true,
       managementChannelId: mgmt.id,
       publicChannelIds: [pub.id],
-    });
+    }));
     await ensureTipsMessage(mgmt, guild.id, "leaderboard");
     await publishLeaderboard(guild);
     const note =
@@ -161,7 +176,7 @@ async function createChannels(interaction, key) {
           description: `Management: ${mgmt}\nPublic: ${pub}\n\n${note}\nPaste the draft text block in ${mgmt}, then type \`send\`.`,
         }),
       ],
-      components: [leaderboardThemeRow(guild.id), moduleButtons(key)],
+      components: [await leaderboardThemeRow(guild.id), moduleButtons(key)],
     });
   }
 
@@ -176,13 +191,14 @@ async function createChannels(interaction, key) {
       "lineup-na",
       `${brand.name} NA lineup`
     );
-    const cfg = api.lineup.getConfig(guild.id);
-    cfg.regions.na.channelId = na.id;
-    api.lineup.updateConfig(guild.id, {
+    const cfg = await Promise.resolve(api.lineup.getConfig(guild.id));
+    const regions = { ...(cfg.regions || {}) };
+    regions.na = { ...(regions.na || { key: "na", label: "NA" }), channelId: na.id };
+    await Promise.resolve(api.lineup.updateConfig(guild.id, {
       setupCompleted: true,
       managementChannelId: mgmt.id,
-      regions: cfg.regions,
-    });
+      regions,
+    }));
     await ensureTipsMessage(mgmt, guild.id, "lineup");
     await publishLineup(guild, "na");
     const note =
@@ -201,7 +217,7 @@ async function createChannels(interaction, key) {
   }
 
   if (key === "ranking") {
-    api.ranking.updateConfig(guild.id, { setupCompleted: true });
+    await Promise.resolve(api.ranking.updateConfig(guild.id, { setupCompleted: true }));
     return interaction.update({
       embeds: [surface({ title: "Ranking enabled", description: "Use `'stage @user 0 Low Weak`." })],
       components: [moduleButtons(key)],
@@ -209,7 +225,7 @@ async function createChannels(interaction, key) {
   }
 
   if (key === "score") {
-    api.score.updateConfig(guild.id, { setupCompleted: true, logChannelId: interaction.channelId });
+    await Promise.resolve(api.score.updateConfig(guild.id, { setupCompleted: true, logChannelId: interaction.channelId }));
     return interaction.update({
       embeds: [surface({ title: "Score enabled", description: "Use `/score` to log 1v1s." })],
       components: [moduleButtons(key)],
@@ -242,7 +258,7 @@ async function handleSetupInteraction(interaction) {
       return interaction.reply({ content: "Administrator only.", ephemeral: true });
     }
     const theme = resolveTheme(interaction.values[0]);
-    api.leaderboard.updateConfig(interaction.guildId, { theme: theme.id });
+    await Promise.resolve(api.leaderboard.updateConfig(interaction.guildId, { theme: theme.id }));
     await publishLeaderboard(interaction.guild).catch(() => {});
     return interaction.update({
       embeds: [
@@ -256,11 +272,11 @@ async function handleSetupInteraction(interaction) {
             "**Metallic v2** — one message, generated banner, Discord separator lines",
         }),
       ],
-      components: [leaderboardThemeRow(interaction.guildId), moduleButtons("leaderboard")],
+      components: [await leaderboardThemeRow(interaction.guildId), moduleButtons("leaderboard")],
     });
   }
   if (id === "asc:setup:back") {
-    return interaction.update(hubPayload(interaction.guildId));
+    return interaction.update(await hubPayload(interaction.guildId));
   }
   const create = id.match(/^asc:setup:(\w+):create$/);
   if (create) return createChannels(interaction, create[1]);
@@ -268,7 +284,7 @@ async function handleSetupInteraction(interaction) {
   if (publish) {
     if (publish[1] === "leaderboard") {
       await publishLeaderboard(interaction.guild);
-      const cfg = api.leaderboard.getConfig(interaction.guildId);
+      const cfg = await safeGet(() => api.leaderboard.getConfig(interaction.guildId));
       const ch = cfg.managementChannelId
         ? await interaction.guild.channels.fetch(cfg.managementChannelId).catch(() => null)
         : null;
@@ -278,7 +294,7 @@ async function handleSetupInteraction(interaction) {
     }
     if (publish[1] === "lineup") {
       await publishLineup(interaction.guild);
-      const cfg = api.lineup.getConfig(interaction.guildId);
+      const cfg = await safeGet(() => api.lineup.getConfig(interaction.guildId));
       const ch = cfg.managementChannelId
         ? await interaction.guild.channels.fetch(cfg.managementChannelId).catch(() => null)
         : null;
@@ -290,7 +306,7 @@ async function handleSetupInteraction(interaction) {
     }
     const components =
       publish[1] === "leaderboard"
-        ? [leaderboardThemeRow(interaction.guildId), moduleButtons("leaderboard")]
+        ? [await leaderboardThemeRow(interaction.guildId), moduleButtons("leaderboard")]
         : [moduleButtons(publish[1])];
     return interaction.update({
       embeds: [surface({ title: "Published", description: "Boards refreshed." })],

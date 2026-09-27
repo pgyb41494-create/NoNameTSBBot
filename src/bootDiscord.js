@@ -40,11 +40,12 @@ module.exports = function bootDiscord(setClient) {
     console.error("loadCommands failed:", err);
   }
 
-  client.on("messageCreate", (message) => {
+  client.on("messageCreate", async (message) => {
     try {
-      require("./events/messageCreate").execute(message, client);
+      await require("./events/messageCreate").execute(message, client);
     } catch (err) {
-      console.error("messageCreate error:", err);
+      if (err?.code === "API_UNREACHABLE") console.warn("messageCreate:", err.message);
+      else console.error("messageCreate error:", err);
     }
   });
 

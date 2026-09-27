@@ -10,20 +10,19 @@ const {
 
 const { resolveGuildPrefix } = require("./guildPrefix");
 
-function buildLineupTips(guildId) {
+function buildLineupTipsFromConfig(guildId, cfg) {
     const p = resolveGuildPrefix(guildId);
     const { buildDraftTemplate } = require("../lineup/draft");
-    const cfg = getLineupConfig(guildId);
-    const sampleRegion = (cfg.enabledRegionKeys || [])[0] || "miami";
-    const slots = Math.max(1, Math.min(10, cfg.slotsPerRegion || 10));
+    const sampleRegion = (cfg?.enabledRegionKeys || [])[0] || "miami";
+    const slots = Math.max(1, Math.min(10, cfg?.slotsPerRegion || 10));
     return (
         "**Lineup management**\n" +
         "Post drafts here like the leaderboard, then type `send` to publish:\n\n" +
         "```\n" +
         buildDraftTemplate(sampleRegion, "main", slots) +
         "\n```\n" +
-        "Use `miami sub` on the first line for **Sub Line Up**.\n" +
-        "`send` · `send miami` · `send all` → Confirm to publish.\n\n" +
+        `Use \`${sampleRegion} sub\` on the first line for **Sub Line Up**.\n` +
+        `\`send\` · \`send ${sampleRegion}\` · \`send all\` → Confirm to publish.\n\n` +
         "Or use commands:\n" +
         "```\n" +
         `${p}lineup add <region> <pos> @user\n` +
@@ -39,9 +38,14 @@ function buildLineupTips(guildId) {
     );
 }
 
+async function buildLineupTips(guildId) {
+    const cfg = guildId ? await getLineupConfig(guildId).catch(() => null) : null;
+    return buildLineupTipsFromConfig(guildId, cfg);
+}
+
 function buildLeaderboardTips(slotCount = 10, guildId = null) {
     const { buildDraftTemplate } = require("../leaderboard/draft");
-    const p = guildId ? resolveGuildPrefix(guildId) : "!";
+    const p = resolveGuildPrefix(guildId);
     return (
         "Post drafts here like this, then type `send` to publish:\n\n" +
         "```\n" +
@@ -53,12 +57,9 @@ function buildLeaderboardTips(slotCount = 10, guildId = null) {
     );
 }
 
-/** @deprecated Use buildLineupTips(guildId) — fallback uses `!` */
-const LINEUP_TIPS = buildLineupTips(null);
-
 function isLineupTipsMessage(msg) {
     const content = msg.content || "";
-    return content.includes("**Lineup management**") && content.includes("lineup add");
+    return content.includes("**Lineup management**") && content.includes("```");
 }
 
 function isLeaderboardTipsMessage(msg) {
@@ -66,53 +67,52 @@ function isLeaderboardTipsMessage(msg) {
     return content.includes("Post drafts here like this") && content.includes("```");
 }
 
-function hasPendingLeaderboardConfirm(msg) {
+function hasPendingConfirm(msg, prefix) {
     if (!msg.components?.length) return false;
     return msg.components.some((row) =>
         (row.components || []).some((c) =>
-            c.customId === "tsb:lb:publish_confirm" || c.customId === "tsb:lb:publish_cancel"
+            c.customId === `${prefix}:publish_confirm` || c.customId === `${prefix}:publish_cancel`
         )
     );
 }
 
-function hasPendingLineupConfirm(msg) {
-    if (!msg.components?.length) return false;
-    return msg.components.some((row) =>
-        (row.components || []).some((c) =>
-            c.customId === "tsb:lu:publish_confirm" || c.customId === "tsb:lu:publish_cancel"
-        )
-    );
-}
+const BOARD_NAMES = new Set(["tsb-boards", "ascendant-boards"]);
+const LINEUP_NAMES = new Set(["tsb-lineups", "ascendant-lineups"]);
 
-function resolveManagementKind(messageOrChannel, guildId) {
+/**
+ * Resolves whether a channel is a leaderboard/lineup management channel.
+ * Name matches short-circuit so ordinary chat never waits on the API.
+ */
+async function resolveManagementKind(messageOrChannel, guildId) {
     const channel = messageOrChannel.channel || messageOrChannel;
     if (!channel?.isTextBased?.() || !guildId) return null;
 
-    const lb = getLeaderboardConfig(guildId);
-    if (
-        (lb.managementChannelId && channel.id === lb.managementChannelId) ||
-        channel.name === "tsb-boards" ||
-        channel.name === "ascendant-boards"
-    ) {
+    if (BOARD_NAMES.has(channel.name)) {
+        const lb = await getLeaderboardConfig(guildId).catch(() => ({}));
         return { kind: "leaderboard", tipsMessageId: lb.tipsMessageId || null, cfg: lb };
     }
-
-    const lu = getLineupConfig(guildId);
-    if (
-        (lu.managementChannelId && channel.id === lu.managementChannelId) ||
-        channel.name === "tsb-lineups" ||
-        channel.name === "ascendant-lineups"
-    ) {
+    if (LINEUP_NAMES.has(channel.name)) {
+        const lu = await getLineupConfig(guildId).catch(() => ({}));
         return { kind: "lineup", tipsMessageId: lu.tipsMessageId || null, cfg: lu };
     }
 
+    const [lb, lu] = await Promise.all([
+        getLeaderboardConfig(guildId).catch(() => null),
+        getLineupConfig(guildId).catch(() => null),
+    ]);
+    if (lb?.managementChannelId && channel.id === lb.managementChannelId) {
+        return { kind: "leaderboard", tipsMessageId: lb.tipsMessageId || null, cfg: lb };
+    }
+    if (lu?.managementChannelId && channel.id === lu.managementChannelId) {
+        return { kind: "lineup", tipsMessageId: lu.tipsMessageId || null, cfg: lu };
+    }
     return null;
 }
 
 function shouldKeepMessage(msg, tipsMessageId, kind) {
     if (tipsMessageId && msg.id === tipsMessageId) return true;
-    if (kind === "leaderboard" && hasPendingLeaderboardConfirm(msg)) return true;
-    if (kind === "lineup" && hasPendingLineupConfirm(msg)) return true;
+    if (kind === "leaderboard" && hasPendingConfirm(msg, "tsb:lb")) return true;
+    if (kind === "lineup" && hasPendingConfirm(msg, "tsb:lu")) return true;
     return false;
 }
 
@@ -124,47 +124,44 @@ function oldestMatching(messages, test) {
 
 async function ensureTipsMessage(channel, guildId, kind) {
     const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+    const isLineup = kind === "lineup";
+    const cfg = isLineup
+        ? await getLineupConfig(guildId).catch(() => ({}))
+        : await getLeaderboardConfig(guildId).catch(() => ({}));
+
     let tips = null;
-
-    if (kind === "lineup") {
-        const cfg = getLineupConfig(guildId);
-        if (cfg.tipsMessageId) {
-            tips = await channel.messages.fetch(cfg.tipsMessageId).catch(() => null);
-        }
-        if (!tips && recent?.size) tips = oldestMatching(recent, isLineupTipsMessage);
-        const content = buildLineupTips(guildId);
-        if (!tips) {
-            tips = await channel.send({ content, components: [] });
-        } else {
-            await tips.edit({ content, components: [] }).catch(async () => {
-                tips = await channel.send({ content, components: [] });
-            });
-        }
-        updateLineupConfig(guildId, { tipsMessageId: tips.id });
-        await tips.pin().catch(() => {});
-        return tips;
-    }
-
-    const cfg = getLeaderboardConfig(guildId);
     if (cfg.tipsMessageId) {
         tips = await channel.messages.fetch(cfg.tipsMessageId).catch(() => null);
     }
-    if (!tips && recent?.size) tips = oldestMatching(recent, isLeaderboardTipsMessage);
-    const content = buildLeaderboardTips(cfg.topPerChannel || 10, guildId);
+    if (!tips && recent?.size) {
+        tips = oldestMatching(recent, (m) =>
+            m.author?.bot && (isLineup ? isLineupTipsMessage(m) : isLeaderboardTipsMessage(m))
+        );
+    }
+
+    const content = isLineup
+        ? buildLineupTipsFromConfig(guildId, cfg)
+        : buildLeaderboardTips(cfg.topPerChannel || 10, guildId);
+
     if (!tips) {
-        tips = await channel.send({ content });
-    } else {
-        await tips.edit({ content }).catch(async () => {
-            tips = await channel.send({ content });
+        tips = await channel.send({ content, components: [] });
+    } else if (tips.content !== content) {
+        await tips.edit({ content, embeds: [], components: [] }).catch(async () => {
+            tips = await channel.send({ content, components: [] });
         });
     }
-    updateLeaderboardConfig(guildId, { tipsMessageId: tips.id });
-    await tips.pin().catch(() => {});
+
+    if (cfg.tipsMessageId !== tips.id || cfg.managementChannelId !== channel.id) {
+        const patch = { tipsMessageId: tips.id, managementChannelId: channel.id };
+        const save = isLineup ? updateLineupConfig(guildId, patch) : updateLeaderboardConfig(guildId, patch);
+        await Promise.resolve(save).catch((err) => console.warn("tips id save failed:", err?.message || err));
+    }
+    if (!tips.pinned) await tips.pin().catch(() => {});
     return tips;
 }
 
 /**
- * Delete every message in a management channel except the tips (and pending LB confirm).
+ * Delete every message in a management channel except the tips (and pending confirms).
  */
 async function sweepManagementChannel(channel, guildId, kind) {
     if (!channel?.isTextBased?.() || !guildId || !kind) return null;
@@ -178,7 +175,6 @@ async function sweepManagementChannel(channel, guildId, kind) {
     const toDelete = [...fetched.values()].filter(
         (msg) => !shouldKeepMessage(msg, tipsMessageId, kind)
     );
-
     if (!toDelete.length) return tips;
 
     const twoWeeks = 14 * 24 * 60 * 60 * 1000;
@@ -187,38 +183,28 @@ async function sweepManagementChannel(channel, guildId, kind) {
 
     if (bulkable.length >= 2) {
         await channel.bulkDelete(bulkable, true).catch(async () => {
-            for (const msg of bulkable) {
-                await msg.delete().catch(() => {});
-            }
+            for (const msg of bulkable) await msg.delete().catch(() => {});
         });
     } else {
-        for (const msg of bulkable) {
-            await msg.delete().catch(() => {});
-        }
+        for (const msg of bulkable) await msg.delete().catch(() => {});
     }
-
-    for (const msg of older) {
-        await msg.delete().catch(() => {});
-    }
+    for (const msg of older) await msg.delete().catch(() => {});
 
     return tips;
 }
 
-async function sweepIfManagementChannel(messageOrChannel, guildId, { delayMs = 900 } = {}) {
+async function sweepIfManagementChannel(messageOrChannel, guildId, { delayMs = 900, resolved = null } = {}) {
     const channel = messageOrChannel.channel || messageOrChannel;
-    const resolved = resolveManagementKind(channel, guildId);
-    if (!resolved) return false;
+    const match = resolved || await resolveManagementKind(channel, guildId);
+    if (!match) return false;
 
-    if (delayMs > 0) {
-        await new Promise((r) => setTimeout(r, delayMs));
-    }
+    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
 
-    await sweepManagementChannel(channel, guildId, resolved.kind);
+    await sweepManagementChannel(channel, guildId, match.kind);
     return true;
 }
 
 module.exports = {
-    LINEUP_TIPS,
     buildLineupTips,
     buildLeaderboardTips,
     resolveManagementKind,

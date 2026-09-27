@@ -237,7 +237,7 @@ async function applyDraftSlots(guild, parsed) {
         };
     }
 
-    updateLeaderboardConfig(guild.id, {
+    await updateLeaderboardConfig(guild.id, {
         slots,
         draftRange: { start: parsed.start, end: parsed.end }
     });

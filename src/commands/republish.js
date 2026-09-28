@@ -179,12 +179,12 @@ module.exports = {
       return message.reply({ embeds: [danger("Missing permissions", "Manage Server required.")] });
     }
     const target = (args[0] || "all").toLowerCase();
-    const reply = await message.reply({ content: "Republishing…" });
+    const reply = await message.reply({ content: "Republishing…" }).catch(() => null);
     const lines = await runRepublish(message.guild, target);
-    return reply.edit({
-      content: null,
-      embeds: [ok("Republished", lines.join("\n"))],
-    });
+    const payload = { content: null, embeds: [ok("Republished", lines.join("\n"))] };
+    const edited = reply ? await reply.edit(payload).catch(() => null) : null;
+    if (!edited) await message.channel.send(payload).catch(() => {});
+    return edited;
   },
 
   async executeSlash(interaction) {
@@ -197,6 +197,6 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
     const target = interaction.options.getString("target") || "all";
     const lines = await runRepublish(interaction.guild, target);
-    return interaction.editReply({ embeds: [ok("Republished", lines.join("\n"))] });
+    return interaction.editReply({ embeds: [ok("Republished", lines.join("\n"))] }).catch(() => null);
   },
 };

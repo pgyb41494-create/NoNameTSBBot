@@ -44,6 +44,7 @@ module.exports = {
       targetUser: interaction.options.getUser("user"),
       query: interaction.options.getString("query") || "",
     });
-    return interaction.reply({ ...payload, ephemeral: false });
+    const { ephemeral: _ephemeral, ...publicPayload } = payload || {};
+    return interaction.reply(publicPayload);
   },
 };

@@ -15,6 +15,9 @@ module.exports = function bootDiscord(setClient) {
     Collection,
   } = require("discord.js");
 
+  const { installEphemeralCompat, isGoneError } = require("./utils/interactionCompat");
+  installEphemeralCompat();
+
   const api = require("./utils/loadApi");
   const { brand } = api;
   const loadCommands = require("./handlers/loadCommands");
@@ -53,8 +56,13 @@ module.exports = function bootDiscord(setClient) {
     try {
       await require("./events/interactionCreate").execute(interaction, client);
     } catch (err) {
-      if (err?.code !== 10062) console.error("Interaction error:", err);
-      if (err?.code === 10062) return;
+      const where = interaction.customId || interaction.commandName || interaction.type;
+      if (isGoneError(err)) {
+        console.warn(`Interaction ${where}: target already gone (${err.code} ${err.message})`);
+        return;
+      }
+      if (err?.code === "API_UNREACHABLE") console.warn(`Interaction ${where}:`, err.message);
+      else console.error(`Interaction error (${where}):`, err);
       const { MessageFlags } = require("discord.js");
       const payload = { content: "Something went wrong running that.", flags: MessageFlags.Ephemeral };
       if (interaction.deferred || interaction.replied) {

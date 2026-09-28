@@ -27,6 +27,7 @@ const {
   slug,
 } = require("./store");
 const { buildTicketTranscript, transcriptAuditEmbed } = require("../shared/transcript");
+const { beginClose, scheduleChannelDelete } = require("../shared/ticketClose");
 const { parseEmoji, resolveEmojiStorage, formatEmojiLabel, parseEmojiInput } = require("../shared/parseEmoji");
 const { applyTicketVars, ticketVarHint, ticketVariablesHelpEmbed } = require("../shared/ticketVars");
 
@@ -847,6 +848,10 @@ async function closeTicket(interaction, panel) {
   if (!allowed) {
     return interaction.reply({ content: "You can't close this ticket.", ephemeral: true });
   }
+  const channel = interaction.channel;
+  if (!beginClose(channel.id)) {
+    return interaction.reply({ content: "This ticket is already closing.", ephemeral: true }).catch(() => {});
+  }
 
   await interaction.reply("Closing this ticket — saving transcript…");
   const history = await buildTicketTranscript(interaction.channel, {
@@ -868,7 +873,7 @@ async function closeTicket(interaction, panel) {
       files: history?.file ? [history.file] : [],
     });
   }
-  setTimeout(() => interaction.channel.delete("Ticket closed").catch(() => {}), 4000);
+  scheduleChannelDelete(channel, "Ticket closed", 4000);
 }
 
 function denySetup(interaction) {

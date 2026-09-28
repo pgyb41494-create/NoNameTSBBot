@@ -21,6 +21,7 @@ const { applyMatchResult, canUseScore, parseScore } = require("../score/system")
 const { getScoreConfig } = require("../score/config");
 const { setTicket, getTicket, setPending, findOpenTicket, ensureNoStaleOpenTicket } = require("./store");
 const { buildTicketTranscript, transcriptAuditEmbed } = require("../shared/transcript");
+const { beginClose, isClosing, scheduleChannelDelete } = require("../shared/ticketClose");
 
 const START_ID = "tsb:chaltix:start";
 const BOARD_PICK_ID = "tsb:chaltix:board";
@@ -1174,14 +1175,20 @@ async function handleDecline(interaction) {
   }).catch(() => {});
   const declineGuild = interaction.guild;
   const declineUserId = challengerId;
-  const declineChannelId = interaction.channel.id;
-  setTimeout(() => {
-    interaction.channel.delete("Challenge declined").catch(() => {});
-    clearChallengeTicketRecords(declineGuild, declineUserId, declineChannelId).catch(() => {});
-  }, 5000);
+  const declineChannel = interaction.channel;
+  const declineChannelId = declineChannel.id;
+  beginClose(declineChannelId);
+  scheduleChannelDelete(declineChannel, "Challenge declined", 5000, () =>
+    clearChallengeTicketRecords(declineGuild, declineUserId, declineChannelId)
+  );
 }
 
 async function closeTicket(interaction) {
+  const channel = interaction.channel;
+  if (!channel || isClosing(channel.id)) {
+    if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate().catch(() => {});
+    return;
+  }
   if (!interaction.deferred && !interaction.replied) {
     await interaction.deferUpdate();
   }
@@ -1199,6 +1206,8 @@ async function closeTicket(interaction) {
   if (!isChallenger && !isTarget && !staff) {
     return ephemeral(interaction, "You can't close this ticket.");
   }
+
+  if (!beginClose(channel.id)) return;
 
   if (userId) {
     try {
@@ -1257,11 +1266,8 @@ async function closeTicket(interaction) {
     }
   }
 
-  await refreshBoard(interaction.guild);
-  setTimeout(
-    () => interaction.channel.delete("Challenge ticket closed").catch(() => {}),
-    5000
-  );
+  await refreshBoard(interaction.guild).catch(() => {});
+  scheduleChannelDelete(channel, "Challenge ticket closed", 5000);
 }
 
 function loadLiveTicket(interaction) {

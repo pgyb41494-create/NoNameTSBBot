@@ -23,6 +23,7 @@ const {
   pingRoleIdsOf,
 } = require("./store");
 const { postAudit } = require("../ops/audit");
+const { beginClose, scheduleChannelDelete } = require("../shared/ticketClose");
 
 const START_ID = "tsb:verify:start";
 const APPROVE_ID = "tsb:verify:approve";
@@ -173,7 +174,8 @@ function renderNickname(template, { member, profile, user }) {
 }
 
 function scheduleClose(channel, reason = "Verification ticket closed") {
-  setTimeout(() => channel.delete(reason).catch(() => {}), 5000);
+  beginClose(channel?.id);
+  scheduleChannelDelete(channel, reason, 5000);
 }
 
 function sanitizeName(user) {
@@ -535,8 +537,10 @@ async function handleClose(interaction) {
     return replyPrivately(interaction, { content: "Staff only." });
   }
   await ackButton(interaction);
-  const ticket = getTicket(interaction.guild.id, interaction.channel.id);
-  const userId = ticket?.userId || interaction.channel.topic?.replace(/^verify:/, "");
+  const channel = interaction.channel;
+  if (!beginClose(channel?.id)) return;
+  const ticket = getTicket(interaction.guild.id, channel.id);
+  const userId = ticket?.userId || channel.topic?.replace(/^verify:/, "");
   setTicket(interaction.guild.id, interaction.channel.id, { status: "closed" });
   if (userId) setPending(interaction.guild.id, userId, { status: "closed", ticketChannelId: null });
   await interaction.channel.send({ content: "Closing this ticket in 5 seconds." }).catch(() => {});
@@ -546,7 +550,7 @@ async function handleClose(interaction) {
     description: userId ? `<@${userId}> · closed by ${interaction.user}` : `Closed by ${interaction.user}.`,
     user: interaction.user,
   });
-  setTimeout(() => interaction.channel.delete("Verification ticket closed").catch(() => {}), 5000);
+  scheduleChannelDelete(channel, "Verification ticket closed", 5000);
 }
 
 async function handleVerifyInteraction(interaction) {

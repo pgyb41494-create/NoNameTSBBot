@@ -5,6 +5,7 @@ const {
   resolveManagementKind,
   sweepIfManagementChannel,
 } = require("../systems/tsb/shared/mgmtCleaner");
+const { isGoneError } = require("../utils/interactionCompat");
 
 async function tryDraft(handler, message, label) {
   try {
@@ -51,6 +52,10 @@ module.exports = {
             try {
               await command.executePrefix(message, parts, client);
             } catch (err) {
+              if (isGoneError(err)) {
+                console.warn(`prefix ${name}: message or channel already gone (${err.code})`);
+                return;
+              }
               const unreachable = err?.code === "API_UNREACHABLE";
               if (unreachable) console.warn(`prefix ${name}:`, err.message);
               else console.error(`prefix ${name}:`, err);

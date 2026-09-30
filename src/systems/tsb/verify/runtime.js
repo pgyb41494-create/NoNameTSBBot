@@ -24,6 +24,7 @@ const {
 } = require("./store");
 const { postAudit } = require("../ops/audit");
 const { beginClose, scheduleChannelDelete } = require("../shared/ticketClose");
+const { safeRoleAdd } = require("../shared/roleSafety");
 
 const START_ID = "tsb:verify:start";
 const APPROVE_ID = "tsb:verify:approve";
@@ -426,7 +427,7 @@ async function handleApprove(interaction) {
   if (member) {
     const addIds = actions.approve.addRoleIds;
     const removeIds = actions.approve.removeRoleIds;
-    if (addIds.length) await member.roles.add(addIds, reason).catch(() => {});
+    if (addIds.length) await safeRoleAdd(member, addIds, reason).catch(() => {});
     if (removeIds.length) await member.roles.remove(removeIds, reason).catch(() => {});
     if (actions.approve.nickname) {
       const nick = renderNickname(actions.approve.nickname, { member, profile, user: member.user });

@@ -5,6 +5,7 @@ const {
 } = require("./config");
 const { resolveGuildPrefix } = require("../shared/guildPrefix");
 const { findPhaseRole, findRoleByKeyword, placeApplicantBetweenStage1And2 } = require("./applyStage");
+const { NO_PERMISSIONS } = require("../shared/roleSafety");
 
 const TOTAL_STEPS = 9;
 const COLOR = 0x2B2D31;
@@ -64,6 +65,7 @@ async function ensureGuildRole(guild, name, usedIds = new Set()) {
     const created = await guild.roles.create({
         name: roleName,
         reason: "TSB ranking setup — create missing role",
+        permissions: NO_PERMISSIONS,
         mentionable: false,
         hoist: false,
     });

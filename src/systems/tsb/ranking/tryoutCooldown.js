@@ -2,6 +2,8 @@
  * Assign / remove Ranking Setup tryout cooldown roles.
  */
 
+const { safeRoleAdd } = require("../shared/roleSafety");
+
 function getCooldownRole(guild, rankingCfg) {
     const id = rankingCfg?.tryoutCooldownRoleId;
     if (!id) return null;
@@ -16,8 +18,8 @@ async function addTryoutCooldownRole(member, rankingCfg, reason = "Joined TSB tr
     const me = member.guild.members.me;
     if (me && role.position >= me.roles.highest.position) return false;
     try {
-        await member.roles.add(role, reason);
-        return true;
+        const { added } = await safeRoleAdd(member, role, reason);
+        return added.length > 0;
     } catch {
         return false;
     }

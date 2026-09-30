@@ -1,3 +1,5 @@
+const { isAssignableRole } = require("../shared/roleSafety");
+
 function pageRangesFor(total) {
   const n = Math.max(1, Math.min(50, Number(total) || 10));
   const ranges = [];
@@ -80,6 +82,10 @@ async function syncBoardRangeRoles(guild) {
     for (const roleId of managedRoleIds) {
     const role = await guild.roles.fetch(roleId).catch(() => null);
     if (!role) continue;
+    if (!isAssignableRole(role)) {
+      console.warn(`[roles] skipping top-board role "${role.name}" in ${guild.name}: it has staff permissions`);
+      continue;
+    }
 
     const wanted = wantedByRole.get(roleId) || new Set();
     const holders =

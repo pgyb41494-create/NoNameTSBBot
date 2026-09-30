@@ -10,6 +10,7 @@ const api = require("../../../utils/loadApi");
 const { hasMod } = require("../../../utils/permissions");
 const { danger } = require("../../../utils/embeds");
 const { parseEmoji } = require("../shared/parseEmoji");
+const { isAssignableRole } = require("../shared/roleSafety");
 
 function canSendPanel(member) {
   return hasMod(member, PermissionFlagsBits.ManageMessages);
@@ -212,6 +213,7 @@ async function handlePanelButton(interaction) {
       const added = [];
       const removed = [];
       const failed = [];
+      const blocked = [];
       const roleMode = ["toggle", "add", "remove", "exclusive"].includes(btn.roleMode) ? btn.roleMode : "toggle";
 
       const tryRemove = async (rid, reason) => {
@@ -234,6 +236,10 @@ async function handlePanelButton(interaction) {
         const role = interaction.guild.roles.cache.get(rid) || (await interaction.guild.roles.fetch(rid).catch(() => null));
         if (!role) {
           failed.push(rid);
+          return;
+        }
+        if (!isAssignableRole(role)) {
+          blocked.push(role.name);
           return;
         }
         try {
@@ -280,6 +286,8 @@ async function handlePanelButton(interaction) {
             if (member.roles.cache.has(role.id)) {
               await member.roles.remove(role.id, "Panel button toggle");
               removed.push(role.name);
+            } else if (!isAssignableRole(role)) {
+              blocked.push(role.name);
             } else {
               await member.roles.add(role.id, "Panel button toggle");
               added.push(role.name);
@@ -294,6 +302,10 @@ async function handlePanelButton(interaction) {
       if (added.length) parts.push(`Added: ${added.map((n) => `**${n}**`).join(", ")}`);
       if (removed.length) parts.push(`Removed: ${removed.map((n) => `**${n}**`).join(", ")}`);
       if (failed.length) parts.push(`Failed: ${failed.length} role${failed.length === 1 ? "" : "s"}`);
+      if (blocked.length) {
+        parts.push(`Blocked: ${blocked.map((n) => `**${n}**`).join(", ")} (staff roles can't be given by panels)`);
+        console.warn(`[roles] panel refused staff role(s) for ${member.user?.tag || member.id} in ${interaction.guild.name}: ${blocked.join(", ")}`);
+      }
       await interaction.reply({
         content: `Roles updated. ${parts.length ? parts.join(" · ") : "No role changes."}`,
         ephemeral: true,

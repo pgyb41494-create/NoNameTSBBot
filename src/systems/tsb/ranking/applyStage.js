@@ -4,6 +4,12 @@
 
 const { EmbedBuilder } = require("discord.js");
 const { authorName } = require("../../../utils/loadApi");
+const { NO_PERMISSIONS, safeRoleAdd } = require("../shared/roleSafety");
+
+async function grantRole(member, role, reason) {
+    const { added } = await safeRoleAdd(member, role, reason);
+    return added.length > 0;
+}
 
 const RANKING_LOG_COLOR = 0x5DADE2;
 
@@ -101,6 +107,7 @@ async function ensureNamedRole(guild, name) {
         const created = await guild.roles.create({
             name: roleName,
             reason: "TSB stage assign — create missing ranking role",
+            permissions: NO_PERMISSIONS,
             mentionable: false,
             hoist: false,
         });
@@ -234,8 +241,7 @@ async function applyStageRoles({
             assigned.push(applicantRole.name);
         } else if (me && applicantRole.position < me.roles.highest.position) {
             try {
-                await member.roles.add(applicantRole, `${reason} (applicant)`);
-                assigned.push(applicantRole.name);
+                if (await grantRole(member, applicantRole, `${reason} (applicant)`)) assigned.push(applicantRole.name);
             } catch {
                 failed.push(`${applicantRole.name} (error)`);
             }
@@ -312,8 +318,7 @@ async function applyStageRoles({
     if (phaseRole) {
         if (me && phaseRole.position < me.roles.highest.position) {
             try {
-                await member.roles.add(phaseRole, reason);
-                assigned.push(phaseRole.name);
+                if (await grantRole(member, phaseRole, reason)) assigned.push(phaseRole.name);
             } catch {
                 failed.push(`${phaseRole.name} (error)`);
             }
@@ -337,8 +342,7 @@ async function applyStageRoles({
     if (tierRole) {
         if (me && tierRole.position < me.roles.highest.position) {
             try {
-                await member.roles.add(tierRole, reason);
-                assigned.push(tierRole.name);
+                if (await grantRole(member, tierRole, reason)) assigned.push(tierRole.name);
             } catch {
                 failed.push(`${tier} (error)`);
             }
@@ -362,8 +366,7 @@ async function applyStageRoles({
     if (subtierRole) {
         if (me && subtierRole.position < me.roles.highest.position) {
             try {
-                await member.roles.add(subtierRole, reason);
-                assigned.push(subtierRole.name);
+                if (await grantRole(member, subtierRole, reason)) assigned.push(subtierRole.name);
             } catch {
                 failed.push(`${subtier} (error)`);
             }
@@ -408,8 +411,7 @@ async function addRoleToMember(member, role, reason, assigned, failed, me) {
     }
     if (me && role.position < me.roles.highest.position) {
         try {
-            await member.roles.add(role, reason);
-            assigned.push(role.name);
+            if (await grantRole(member, role, reason)) assigned.push(role.name);
         } catch {
             failed.push(`${role.name} (error)`);
         }

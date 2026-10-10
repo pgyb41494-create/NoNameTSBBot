@@ -13,26 +13,22 @@ function safeText(value, max) {
 }
 
 function defaultPanel() {
-  const p = "'";
   return {
     title: "Verification",
-    description:
-      "Click **Start verification** and I’ll DM you `/profile`.\n\n" +
-      "Finish it in DMs and a private ticket opens for staff.\n\n" +
-      `You can also run \`${p}profile\` / \`/profile\` in the server.`,
+    description: "Press **Verify** to get access.\nI'll DM you a quick profile, then staff review it in a private ticket.",
     footer: "",
     footerIcon: "",
     thumbnail: "",
     image: "",
     color: "",
-    button: "Start verification",
+    button: "Verify",
   };
 }
 
 function defaultTicket() {
   return {
-    title: "Verification ticket",
-    description: "{mention} finished `/profile`.\n\nStaff: check the profile, then **Approve** or **Deny**.",
+    title: "Verification · {display}",
+    description: "{mention} is waiting for review.",
     footer: "",
     footerIcon: "",
     thumbnail: "",
@@ -41,8 +37,26 @@ function defaultTicket() {
   };
 }
 
+/** Old built-in texts saved by the dashboard; treat them as "use the current default". */
+const LEGACY_DEFAULTS = new Set([
+  "Click **Start verification** and I’ll DM you `/profile`.\n\nFinish it in DMs and a private ticket opens for staff.\n\nYou can also run `'profile` / `/profile` in the server.",
+  "{mention} finished `/profile`.\n\nStaff: check the profile, then **Approve** or **Deny**.",
+  "Verification ticket",
+  "Start verification",
+]);
+
+function withoutLegacy(value) {
+  return value != null && LEGACY_DEFAULTS.has(String(value)) ? null : value;
+}
+
 function normalizeEmbed(value, fallback, { button } = {}) {
-  const src = value && typeof value === "object" ? value : {};
+  const raw = value && typeof value === "object" ? value : {};
+  const src = {
+    ...raw,
+    title: withoutLegacy(raw.title),
+    description: withoutLegacy(raw.description),
+    button: withoutLegacy(raw.button),
+  };
   const next = {
     title: safeText(src.title != null ? src.title : fallback.title, 256),
     description: safeText(src.description != null ? src.description : fallback.description, 4000),
@@ -61,6 +75,7 @@ function defaultGuild() {
     categoryId: "",
     staffRoleId: "",
     verifiedRoleId: "",
+    logChannelId: "",
     panelChannelId: "",
     panelMessageId: "",
     setupCompleted: false,
@@ -123,6 +138,7 @@ function publicConfig(guildId) {
     staffRoleId: cfg.staffRoleId || pingRoleIds[0] || "",
     pingRoleIds,
     verifiedRoleId: cfg.verifiedRoleId || addRoleIds[0] || "",
+    logChannelId: cfg.logChannelId || "",
     panel: cfg.panel,
     ticket: cfg.ticket,
     approve: {
@@ -151,7 +167,11 @@ function applyPublicPatch(guildId, body = {}) {
   deny.mode = deny.mode === "private" ? "private" : "close";
   deny.dmMessage = String(deny.dmMessage || "").slice(0, 1000);
   const pingRoleIds = body.pingRoleIds != null ? normalizeIdList(body.pingRoleIds) : current.pingRoleIds;
+  const logChannelId = body.logChannelId != null
+    ? (normalizeIdList([body.logChannelId])[0] || "")
+    : current.logChannelId;
   return updateConfig(guildId, {
+    logChannelId,
     verifiedRoleId: approve.addRoleIds[0] || "",
     panel: normalizeEmbed(body.panel != null ? { ...current.panel, ...body.panel } : current.panel, defaultPanel(), { button: true }),
     ticket: normalizeEmbed(body.ticket != null ? { ...current.ticket, ...body.ticket } : current.ticket, defaultTicket()),
